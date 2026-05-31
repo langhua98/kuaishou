@@ -20,10 +20,12 @@
 
 import asyncio
 import json
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Query
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from playwright.async_api import async_playwright
 
@@ -39,9 +41,8 @@ SEARCH_URL = "https://www.kuaishou.com/search/video?searchKey={keyword}"
 # 第一次用 headful 模式扫码登录后, 登录信息会存在这里, 之后复用 —— 这对能不能搜到东西很关键。
 USER_DATA_DIR = str(Path("./kuaishou_userdata").resolve())
 
-# headless=False 会弹出真实浏览器窗口, 方便你: ①首次登录 ②手动过验证码/滑块 ③看抓到了什么
-# 调通之后想后台跑, 再改成 True
-HEADLESS = False
+# 本地开发默认弹出浏览器窗口(方便登录/过验证码); 云部署时设环境变量 HEADLESS=true
+HEADLESS = os.getenv("HEADLESS", "false").lower() == "true"
 
 # 抓取时等待 XHR 加载的时间(秒)。网慢就调大
 WAIT_AFTER_LOAD = 6
@@ -224,6 +225,14 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="快手搜索-最小版", lifespan=lifespan)
+
+# 允许 GitHub Pages 前端跨域调用
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["GET"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/api/search")

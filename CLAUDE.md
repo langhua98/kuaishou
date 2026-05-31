@@ -13,14 +13,33 @@ pip install fastapi uvicorn playwright
 playwright install chromium
 ```
 
-## Running
+## Running locally
 
 ```bash
 uvicorn main:app --reload
 # then open http://127.0.0.1:8000
 ```
 
-On first run, a real browser window opens (`HEADLESS = False`). Log in to Kuaishou in that window — credentials are persisted in `./kuaishou_userdata/` and reused on subsequent runs.
+On first run, a real browser window opens (`HEADLESS = False` by default). Log in to Kuaishou in that window — credentials are persisted in `./kuaishou_userdata/` and reused on subsequent runs.
+
+## Deployment (Docker / Railway / Render)
+
+```bash
+docker build -t kuaishou .
+docker run -p 8000:8000 kuaishou
+```
+
+The `Dockerfile` uses `mcr.microsoft.com/playwright/python` which has Chromium pre-installed. The `HEADLESS=true` env var is set inside the image so the browser runs headlessly in cloud environments.
+
+For one-click cloud deploy: push this repo to GitHub and connect it to [Railway](https://railway.app) or [Render](https://render.com) — both auto-detect the Dockerfile.
+
+**Login state in the cloud:** `kuaishou_userdata/` is not persisted across container restarts, so you will be logged out on each redeploy. Basic searches may still return results without login; if not, the only workaround is to export cookies from a local login session and mount them into the container.
+
+## GitHub Pages frontend (`index.html`)
+
+`index.html` is a mobile-first static frontend hosted on GitHub Pages (`langhua98.github.io/kuaishou`). On first visit it prompts for the backend API base URL (e.g. `https://your-app.railway.app`), which is saved to `localStorage`. It then calls `GET /api/search?keyword=…` on that backend.
+
+CORS is enabled in `main.py` (`allow_origins=["*"]`) so GitHub Pages can call the backend directly from the browser.
 
 ## Key configuration constants (top of `main.py`)
 
