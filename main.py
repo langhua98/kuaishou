@@ -580,47 +580,66 @@ _login_pg = None
 _login_pg_lock = asyncio.Lock()
 
 
+_login_error: str = ""  # 记录最近一次登录页加载错误
+
+
 async def _get_login_page(fresh: bool = False):
-    global _login_pg
+    global _login_pg, _login_error
     ctx = await get_context()
     async with _login_pg_lock:
         if fresh or _login_pg is None or _login_pg.is_closed():
             if _login_pg and not _login_pg.is_closed():
                 await _login_pg.close()
             _login_pg = await ctx.new_page()
-            # 直接打开快手登录页, 自动显示二维码
-            await _login_pg.goto(
+            # 依次尝试几个 URL，哪个能加载就用哪个
+            urls = [
                 "https://www.kuaishou.com/passport/account/log-in?from=web",
-                wait_until="domcontentloaded",
-                timeout=25000,
-            )
-            await _login_pg.wait_for_timeout(4000)
-            # 尝试切换到扫码登录 tab（快手登录页上有"扫码登录"按钮）
+                "https://www.kuaishou.com",
+            ]
+            for u in urls:
+                try:
+                    await _login_pg.goto(u, wait_until="domcontentloaded", timeout=20000)
+                    await _login_pg.wait_for_timeout(3000)
+                    _login_error = ""
+                    print(f"[login] 成功加载: {u}  当前URL: {_login_pg.url}")
+                    break
+                except Exception as e:
+                    _login_error = str(e)
+                    print(f"[login] 加载失败 {u}: {e}")
+            # 尝试点击扫码登录入口
             try:
-                qr_selectors = [
-                    "text=扫码登录", "text=二维码", "[class*='qrcode']",
-                    "[class*='scan']", "[data-testid*='qr']",
-                ]
-                for sel in qr_selectors:
+                for sel in ["text=扫码登录", "text=二维码", "[class*='qrcode']", "[class*='scan']"]:
                     el = _login_pg.locator(sel).first
                     if await el.count() > 0:
                         await el.click(timeout=3000)
                         await _login_pg.wait_for_timeout(2000)
-                        print(f"[login] 点击了扫码入口: {sel}")
+                        print(f"[login] 点击扫码入口: {sel}")
                         break
-            except Exception as e:
-                print(f"[login] 自动点击扫码失败(不影响): {e}")
+            except Exception:
+                pass
     return _login_pg
 
 
 @app.get("/api/login/screenshot")
 async def login_screenshot(fresh: bool = False):
-    """返回当前浏览器页面截图(JPEG)，前端每 2 秒轮询一次"""
+    """返回当前浏览器页面截图(JPEG)；失败时返回 JSON 错误信息"""
     from fastapi.responses import Response
-    page = await _get_login_page(fresh=fresh)
-    shot = await page.screenshot(type="jpeg", quality=82)
-    return Response(content=shot, media_type="image/jpeg",
-                    headers={"Cache-Control": "no-store"})
+    try:
+        page = await _get_login_page(fresh=fresh)
+        shot = await page.screenshot(type="jpeg", quality=82)
+        return Response(content=shot, media_type="image/jpeg",
+                        headers={"Cache-Control": "no-store"})
+    except Exception as e:
+        err = f"{e}"
+        print(f"[login/screenshot] 截图失败: {err}")
+        return JSONResponse({"error": err, "login_error": _login_error}, status_code=500)
+
+
+@app.get("/api/login/pageinfo")
+async def login_pageinfo():
+    """返回登录页当前 URL 和错误信息，用于诊断"""
+    url = _login_pg.url if (_login_pg and not _login_pg.is_closed()) else "未初始化"
+    return JSONResponse({"current_url": url, "last_error": _login_error})
 
 
 @app.get("/api/login/status")
@@ -669,8 +688,10 @@ button { flex: 1; min-width: 120px; padding: 12px; font-size: 15px; font-weight:
 </header>
 
 <div class="shot-wrap">
-  <img id="shot" src="/api/login/screenshot" alt="截图加载中，请稍候…">
+  <img id="shot" src="/api/login/screenshot" alt="截图加载中，请稍候…"
+       onerror="onShotError(this)">
 </div>
+<div id="shotErr" style="display:none;color:#ff453a;padding:12px 16px;font-size:13px;line-height:1.6"></div>
 
 <div class="actions">
   <button class="btn-primary" onclick="checkStatus()">✅ 检查是否已登录</button>
@@ -689,7 +710,30 @@ let autoTimer = setInterval(refreshShot, 2000);
 
 function refreshShot(fresh) {
   const img = document.getElementById("shot");
+  document.getElementById("shotErr").style.display = "none";
+  img.style.display = "block";
   img.src = "/api/login/screenshot" + (fresh ? "?fresh=true" : "") + "&_=" + Date.now();
+}
+
+async function onShotError(img) {
+  img.style.display = "none";
+  clearInterval(autoTimer);
+  try {
+    const r = await fetch("/api/login/pageinfo");
+    const d = await r.json();
+    const box = document.getElementById("shotErr");
+    box.style.display = "block";
+    box.innerHTML = `截图失败——浏览器无法加载快手页面。<br>
+      <b>可能原因：</b>Railway 服务器（美国）被快手 IP 限制，无法访问快手。<br>
+      当前页面：${d.current_url}<br>
+      错误详情：${d.last_error || "无"}<br><br>
+      <b>解决方案：</b><br>
+      1. 在 Railway → Variables 里设置 <code>KUAISHOU_COOKIES</code>（需要电脑先登录）<br>
+      2. 或换一个亚洲区（香港/新加坡）的服务器部署`;
+  } catch(e) {
+    document.getElementById("shotErr").style.display = "block";
+    document.getElementById("shotErr").textContent = "截图失败，服务器可能无法访问快手（IP 限制）";
+  }
 }
 
 async function checkStatus() {
