@@ -53,6 +53,11 @@ header {
   display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
 }
 .logo { font-size: 16px; font-weight: 700; flex: 1; }
+.login-btn {
+  padding: 6px 12px; font-size: 13px; font-weight: 600;
+  background: #ff7a1a; color: #fff;
+  border: none; border-radius: 20px; cursor: pointer;
+}
 .cfg-btn {
   background: none; border: none;
   font-size: 22px; line-height: 1; cursor: pointer; padding: 2px;
@@ -141,6 +146,7 @@ header {
 <header>
   <div class="header-row">
     <span class="logo">快手搜索</span>
+    <button class="login-btn" id="loginBtn" onclick="openLogin()" title="扫码登录">登录</button>
     <button class="cfg-btn" onclick="openCfg()" title="设置后端地址">⚙️</button>
   </div>
   <div class="search-row">
@@ -240,6 +246,12 @@ async function doSearch() {
   } finally {
     btn.disabled = false;
   }
+}
+
+function openLogin() {
+  const base = getUrl();
+  if (!base) { openCfg(); return; }
+  window.open(base + "/login", "_blank");
 }
 
 async function doDebug() {

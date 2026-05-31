@@ -367,6 +367,136 @@ async def api_debug(keyword: str = Query(..., min_length=1)):
     })
 
 
+# ---------------------------------------------------------------------------
+# 扫码登录 (云端无法弹窗，通过截图让用户远程扫快手二维码)
+# ---------------------------------------------------------------------------
+
+_login_pg = None
+_login_pg_lock = asyncio.Lock()
+
+
+async def _get_login_page(fresh: bool = False):
+    global _login_pg
+    ctx = await get_context()
+    async with _login_pg_lock:
+        if fresh or _login_pg is None or _login_pg.is_closed():
+            if _login_pg and not _login_pg.is_closed():
+                await _login_pg.close()
+            _login_pg = await ctx.new_page()
+            await _login_pg.goto(
+                "https://www.kuaishou.com",
+                wait_until="domcontentloaded",
+                timeout=25000,
+            )
+            await _login_pg.wait_for_timeout(3000)
+    return _login_pg
+
+
+@app.get("/api/login/screenshot")
+async def login_screenshot(fresh: bool = False):
+    """返回当前浏览器页面截图(JPEG)，前端每 2 秒轮询一次"""
+    from fastapi.responses import Response
+    page = await _get_login_page(fresh=fresh)
+    shot = await page.screenshot(type="jpeg", quality=82)
+    return Response(content=shot, media_type="image/jpeg",
+                    headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/login/status")
+async def login_status():
+    ctx = await get_context()
+    cookies = await ctx.cookies("https://www.kuaishou.com")
+    logged_in = any(
+        c["name"] in {"kuaishou.server.webp.at", "kuaishou.server.at", "userId"}
+        for c in cookies
+    )
+    return JSONResponse({"logged_in": logged_in})
+
+
+LOGIN_HTML = """<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=3">
+<title>快手扫码登录</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, "PingFang SC", sans-serif;
+       background: #1c1c1e; color: #fff; min-height: 100vh; }
+header { padding: 16px; text-align: center; border-bottom: 1px solid #3a3a3c; }
+header h1 { font-size: 17px; }
+header p  { font-size: 13px; color: #aeaeb2; margin-top: 4px; }
+.shot-wrap { display: flex; justify-content: center; padding: 12px; }
+.shot-wrap img { width: 100%; max-width: 600px; border-radius: 10px;
+                 border: 2px solid #3a3a3c; }
+.actions { display: flex; gap: 10px; padding: 0 16px 16px; flex-wrap: wrap; }
+button { flex: 1; min-width: 120px; padding: 12px; font-size: 15px; font-weight: 600;
+         border: none; border-radius: 12px; cursor: pointer; }
+.btn-primary { background: #ff7a1a; color: #fff; }
+.btn-secondary { background: #3a3a3c; color: #fff; }
+.status-bar { text-align: center; padding: 10px 16px 20px;
+              font-size: 14px; line-height: 1.6; }
+.ok   { color: #30d158; }
+.wait { color: #ffd60a; }
+.tip  { color: #aeaeb2; font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>快手扫码登录</h1>
+  <p>用快手 App 扫描下方截图中的二维码完成登录</p>
+</header>
+
+<div class="shot-wrap">
+  <img id="shot" src="/api/login/screenshot" alt="浏览器截图加载中…">
+</div>
+
+<div class="actions">
+  <button class="btn-primary"  onclick="checkStatus()">检查是否已登录</button>
+  <button class="btn-secondary" onclick="refreshShot(true)">刷新页面</button>
+</div>
+<div class="status-bar" id="statusBar">
+  <span class="wait">等待扫码…</span><br>
+  <span class="tip">截图每 2 秒自动刷新。找到二维码后，用快手 App 扫描截图里的码。</span>
+</div>
+
+<script>
+let autoTimer = setInterval(refreshShot, 2000);
+
+function refreshShot(fresh) {
+  const img = document.getElementById("shot");
+  img.src = "/api/login/screenshot" + (fresh ? "?fresh=true" : "") + "&_=" + Date.now();
+}
+
+async function checkStatus() {
+  clearInterval(autoTimer);
+  const bar = document.getElementById("statusBar");
+  bar.innerHTML = '<span class="wait">检查中…</span>';
+  try {
+    const r = await fetch("/api/login/status");
+    const d = await r.json();
+    if (d.logged_in) {
+      bar.innerHTML = '<span class="ok">✅ 登录成功！回到搜索页搜索吧。</span><br>' +
+        '<a href="/" style="color:#ff7a1a;font-size:14px">返回搜索首页</a>';
+    } else {
+      bar.innerHTML = '<span class="wait">未检测到登录，请在截图里找到二维码后用快手 App 扫一下。</span>';
+      autoTimer = setInterval(refreshShot, 2000);
+    }
+  } catch(e) {
+    bar.innerHTML = '<span style="color:#ff453a">检查失败：' + e.message + '</span>';
+    autoTimer = setInterval(refreshShot, 2000);
+  }
+}
+</script>
+</body>
+</html>"""
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_view():
+    return LOGIN_HTML
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return HTML_PAGE
