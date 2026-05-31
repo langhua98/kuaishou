@@ -587,7 +587,8 @@ _login_pg = None
 _login_pg_lock = asyncio.Lock()
 _screenshot_lock = asyncio.Lock()
 
-_login_error: str = ""  # 记录最近一次登录页加载错误
+_login_error: str = ""      # 记录最近一次登录页加载错误
+_screenshot_error: str = "" # 记录最近一次截图错误
 
 
 async def _get_login_page(fresh: bool = False):
@@ -598,13 +599,15 @@ async def _get_login_page(fresh: bool = False):
             if _login_pg and not _login_pg.is_closed():
                 await _login_pg.close()
             _login_pg = await ctx.new_page()
+            _login_pg.set_default_timeout(30000)
             try:
                 await _login_pg.goto(
                     "https://www.kuaishou.com",
-                    wait_until="load",
+                    wait_until="domcontentloaded",
                     timeout=30000,
                 )
-                await _login_pg.wait_for_timeout(5000)
+                # 等页面 JS 完成初始化，不等 networkidle（快手会长期发心跳包）
+                await _login_pg.wait_for_timeout(4000)
                 _login_error = ""
                 print(f"[login] 加载完成, URL: {_login_pg.url}")
             except Exception as e:
@@ -616,27 +619,25 @@ async def _get_login_page(fresh: bool = False):
 @app.get("/api/login/screenshot")
 async def login_screenshot(fresh: bool = False):
     """返回当前浏览器页面截图(JPEG)；失败时返回 JSON 错误信息"""
+    global _screenshot_error
     from fastapi.responses import Response
     try:
         page = await _get_login_page(fresh=fresh)
         async with _screenshot_lock:
-            try:
-                await page.wait_for_load_state("networkidle", timeout=5000)
-            except Exception:
-                pass
-            shot = await page.screenshot(type="jpeg", quality=75)
+            shot = await page.screenshot(type="jpeg", quality=65, timeout=15000)
+        _screenshot_error = ""
         return Response(content=shot, media_type="image/jpeg",
                         headers={"Cache-Control": "no-store"})
     except Exception as e:
-        err = f"{e}"
-        print(f"[login/screenshot] 截图失败: {err}")
-        return JSONResponse({"error": err, "login_error": _login_error}, status_code=500)
+        _screenshot_error = str(e)
+        print(f"[login/screenshot] 截图失败: {e}")
+        return JSONResponse({"error": str(e), "login_error": _login_error}, status_code=500)
 
 
 @app.get("/api/login/pageinfo")
 async def login_pageinfo():
     url = _login_pg.url if (_login_pg and not _login_pg.is_closed()) else "未初始化"
-    return JSONResponse({"current_url": url, "last_error": _login_error})
+    return JSONResponse({"current_url": url, "last_error": _login_error, "screenshot_error": _screenshot_error})
 
 
 @app.get("/api/login/click")
@@ -760,7 +761,8 @@ async function onShotError(img) {
     box.style.display = "block";
     box.innerHTML = `截图暂时失败，正在重试中…<br>
       当前页面：${d.current_url}<br>
-      错误详情：${d.last_error || "无"}<br><br>
+      截图错误：${d.screenshot_error || "无"}<br>
+      加载错误：${d.last_error || "无"}<br><br>
       <b>请点「🔄 重新加载页面」按钮重试，或稍等几秒后截图会自动刷新。</b>`;
   } catch(e) {
     const box = document.getElementById("shotErr");
