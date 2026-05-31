@@ -8,12 +8,23 @@
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 body { font-family: -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
        background: #f2f2f7; min-height: 100vh; color: #1c1c1e; }
+.overlay { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,.45);
+           display: flex; align-items: flex-end; }
+.sheet { background: #fff; border-radius: 20px 20px 0 0; padding: 24px 20px 40px; width: 100%; }
+.sheet h2 { font-size: 17px; font-weight: 600; margin-bottom: 6px; }
+.sheet p { font-size: 13px; color: #6c6c70; line-height: 1.6; margin-bottom: 14px; }
+.sheet input { width: 100%; padding: 12px 14px; border: 1.5px solid #d1d1d6;
+               border-radius: 12px; font-size: 14px; outline: none; margin-bottom: 10px; }
+.sheet input:focus { border-color: #fb7299; }
+.sheet button { width: 100%; padding: 14px; background: #fb7299; color: #fff;
+                border: none; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; }
 header { position: sticky; top: 0; z-index: 100;
          background: rgba(255,255,255,.92); backdrop-filter: blur(12px);
          -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid #e5e5ea;
          padding: 12px 14px 10px; }
 .header-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .logo { font-size: 16px; font-weight: 700; flex: 1; color: #fb7299; }
+.cfg { background: none; border: none; font-size: 20px; cursor: pointer; padding: 2px; }
 .search-row { display: flex; gap: 8px; }
 .search-row input { flex: 1; padding: 10px 16px; border: 1.5px solid #d1d1d6;
                     border-radius: 24px; font-size: 15px; outline: none; background: #f2f2f7; }
@@ -23,8 +34,7 @@ header { position: sticky; top: 0; z-index: 100;
                      font-weight: 600; cursor: pointer; white-space: nowrap; }
 .search-row button:disabled { opacity: .45; }
 .status { padding: 10px 14px; font-size: 13px; color: #8e8e93; min-height: 36px; }
-.grid { display: grid; grid-template-columns: repeat(2, 1fr);
-        gap: 10px; padding: 0 10px 30px; }
+.grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 0 10px 30px; }
 .card { background: #fff; border-radius: 14px; overflow: hidden;
         box-shadow: 0 1px 4px rgba(0,0,0,.08); cursor: pointer; }
 .card img { width: 100%; aspect-ratio: 16/10; object-fit: cover; display: block; background: #eee; }
@@ -42,8 +52,22 @@ header { position: sticky; top: 0; z-index: 100;
 </style>
 </head>
 <body>
+
+<div class="overlay" id="overlay" style="display:none">
+  <div class="sheet">
+    <h2>设置后端地址</h2>
+    <p>填入 Railway / Render 部署好的服务地址，结尾不加斜杠。</p>
+    <input id="urlInput" type="url" placeholder="https://your-app.railway.app"
+           autocapitalize="none" spellcheck="false">
+    <button onclick="saveUrl()">保存</button>
+  </div>
+</div>
+
 <header>
-  <div class="header-row"><span class="logo">📺 B站搜索</span></div>
+  <div class="header-row">
+    <span class="logo">📺 B站搜索</span>
+    <button class="cfg" onclick="openCfg()" title="设置后端地址">⚙️</button>
+  </div>
   <div class="search-row">
     <input id="kw" type="search" placeholder="搜索B站视频…" enterkeyhint="search">
     <button id="btn" onclick="doSearch()">搜索</button>
@@ -52,52 +76,29 @@ header { position: sticky; top: 0; z-index: 100;
 <div class="status" id="status">无需登录，直接搜索。</div>
 <div class="grid" id="grid"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/blueimp-md5@2.19.0/js/md5.min.js"></script>
 <script>
+const KEY = "bili_backend";
+const DEFAULT_URL = "https://kuaishou-production.up.railway.app";
 const esc = s => (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 
-const WBI_TAB = [
-  46,47,18, 2,53, 8,23,32,15,50,10,31,58, 3,45,35,
-  27,43, 5,49,33, 9,42,19,29,28,14,39,12,38,41,13,
-  37,48, 7,16,24,55,40,61,26,17, 0, 1,60,51,30, 4,
-  22,25,54,21,56,59, 6,63,57,62,11,36,20,34,44,52,
-];
-
-let _mixin = null;
-
-async function getMixin() {
-  if (_mixin) return _mixin;
-  const r = await fetch("https://api.bilibili.com/x/web-interface/nav");
-  const d = await r.json();
-  const img = (d.data?.wbi_img?.img_url || "").split("/").pop().split(".")[0];
-  const sub = (d.data?.wbi_img?.sub_url || "").split("/").pop().split(".")[0];
-  const raw = img + sub;
-  _mixin = WBI_TAB.filter(i => i < raw.length).map(i => raw[i]).join("").slice(0, 32);
-  return _mixin;
+function getBase() {
+  return (localStorage.getItem(KEY) || DEFAULT_URL).replace(/\/+$/, "");
 }
 
-async function signedSearch(keyword) {
-  const mixin = await getMixin();
-  const p = { keyword, search_type: "video", page: 1, pagesize: 20, order: "totalrank",
-               wts: String(Math.floor(Date.now() / 1000)) };
-  const sorted = Object.entries(p).sort(([a],[b]) => a.localeCompare(b));
-  const qs = sorted.map(([k,v]) => `${k}=${String(v).replace(/[!'()*]/g,"")}`).join("&");
-  p.w_rid = md5(qs + mixin);
-  const params = new URLSearchParams(p).toString();
-  const r = await fetch("https://api.bilibili.com/x/web-interface/search/type?" + params);
-  if (!r.ok) throw new Error("HTTP " + r.status);
-  const data = await r.json();
-  if (data.code !== 0) throw new Error("B站 code=" + data.code + " " + (data.message||""));
-  return (data.data?.result || []).map(v => ({
-    bvid:    v.bvid,
-    caption: (v.title || "").replace(/<[^>]+>/g, ""),
-    author:  v.author || "",
-    cover:   (v.pic || "").startsWith("//") ? "https:" + v.pic : v.pic,
-    play:    v.play,
-    duration: v.duration || "",
-    pageUrl: "https://www.bilibili.com/video/" + v.bvid,
-  }));
+function openCfg() {
+  document.getElementById("urlInput").value = localStorage.getItem(KEY) || DEFAULT_URL;
+  document.getElementById("overlay").style.display = "flex";
 }
+
+function saveUrl() {
+  const v = document.getElementById("urlInput").value.trim().replace(/\/+$/, "");
+  if (v) localStorage.setItem(KEY, v);
+  document.getElementById("overlay").style.display = "none";
+}
+
+document.getElementById("overlay").addEventListener("click", function(e) {
+  if (e.target === this) this.style.display = "none";
+});
 
 document.getElementById("kw").addEventListener("keydown", e => {
   if (e.key === "Enter") { e.preventDefault(); doSearch(); }
@@ -112,9 +113,11 @@ async function doSearch() {
   btn.disabled = true; grid.innerHTML = "";
   status.innerHTML = '<span class="spinner"></span>搜索中…';
   try {
-    const results = await signedSearch(kw);
-    status.textContent = results.length > 0 ? "找到 " + results.length + " 条结果" : "未找到结果";
-    for (const v of results) {
+    const res = await fetch(getBase() + "/api/search?keyword=" + encodeURIComponent(kw));
+    const data = await res.json();
+    if (!data.ok) { status.textContent = "出错：" + (data.error || JSON.stringify(data)); return; }
+    status.textContent = data.count > 0 ? "找到 " + data.count + " 条结果" : "未找到结果";
+    for (const v of data.results) {
       const card = document.createElement("div");
       card.className = "card";
       card.onclick = () => window.open(v.pageUrl, "_blank");
@@ -124,10 +127,10 @@ async function doSearch() {
                  : '<div style="aspect-ratio:16/10;background:#eee"></div>') +
         '<div class="info">' +
           '<div class="cap">' + esc(v.caption || "(无标题)") + '</div>' +
-          '<div class="meta">' + esc(v.author) +
+          '<div class="meta">' + esc(v.author || "") +
             (playNum ? " · " + playNum : "") +
             (v.duration ? " · " + esc(v.duration) : "") + '</div>' +
-          '<a class="open" href="' + esc(v.pageUrl) + '" target="_blank">去B站看 ↗</a>' +
+          (v.pageUrl ? '<a class="open" href="' + esc(v.pageUrl) + '" target="_blank">去B站看 ↗</a>' : '') +
         '</div>';
       grid.appendChild(card);
     }

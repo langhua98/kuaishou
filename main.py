@@ -19,9 +19,9 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 MAX_RESULTS = int(os.getenv("MAX_RESULTS", "20"))
 
-BILI_SEARCH = "https://api.bilibili.com/x/web-interface/search/type"
-BILI_NAV    = "https://api.bilibili.com/x/web-interface/nav"
-BILI_HOME   = "https://www.bilibili.com"
+BILI_SEARCH  = "https://api.bilibili.com/x/web-interface/search/type"
+BILI_NAV     = "https://api.bilibili.com/x/web-interface/nav"
+BILI_FINGER  = "https://api.bilibili.com/x/frontend/finger/spi"
 
 HEADERS = {
     "User-Agent": (
@@ -68,12 +68,19 @@ async def get_client() -> httpx.AsyncClient:
     global _client, _wbi_img_key, _wbi_sub_key
     if _client is None:
         _client = httpx.AsyncClient(headers=HEADERS, timeout=15, follow_redirects=True)
-        # 1. 访问首页获取 buvid3 等 cookie
+        # 1. 通过 finger/spi 获取 buvid（不依赖首页，云服务器 IP 也能拿到）
         try:
-            await _client.get(BILI_HOME)
-            print("[bilibili] 首页预热完成")
+            r = await _client.get(BILI_FINGER)
+            finger = r.json().get("data", {})
+            b3 = finger.get("b_3", "")
+            b4 = finger.get("b_4", "")
+            if b3:
+                _client.cookies.set("buvid3", b3, domain=".bilibili.com")
+            if b4:
+                _client.cookies.set("buvid4", b4, domain=".bilibili.com")
+            print(f"[bilibili] buvid 获取成功: {b3[:8]}...")
         except Exception as e:
-            print(f"[bilibili] 首页预热失败: {e}")
+            print(f"[bilibili] buvid 获取失败: {e}")
         # 2. 获取 wbi 签名密钥
         try:
             r = await _client.get(BILI_NAV)
