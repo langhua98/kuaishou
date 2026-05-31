@@ -236,6 +236,67 @@ query visionSearchPhoto($keyword: String!, $pcursor: String, $page: String) {
 """
 
 
+async def _get_session_cookies() -> dict:
+    """获取浏览器里已有的 kuaishou.com cookie，包含 did 等 session 信息"""
+    ctx = await get_context()
+    raw = await ctx.cookies("https://www.kuaishou.com")
+    return {c["name"]: c["value"] for c in raw}
+
+
+async def search_via_rest(keyword: str) -> list:
+    """直接调 /rest/v/search/feed，用浏览器 session cookie，无需用户登录"""
+    cookies = await _get_session_cookies()
+    if not cookies.get("did"):
+        return []
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Content-Type": "application/json",
+        "Origin": "https://www.kuaishou.com",
+        "Referer": f"https://www.kuaishou.com/search/video?searchKey={keyword}",
+    }
+    payload = {
+        "keyword": keyword,
+        "pcursor": "",
+        "page": 1,
+        "count": MAX_RESULTS,
+        "searchSessionId": "",
+        "webPageArea": "search_result",
+    }
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        resp = await client.post(
+            "https://www.kuaishou.com/rest/v/search/feed",
+            json=payload, headers=headers, cookies=cookies,
+        )
+        data = resp.json()
+
+    print(f"[rest] result={data.get('result')} error_msg={data.get('error_msg')}")
+
+    feeds = data.get("feeds") or []
+    results, seen = [], set()
+    for feed in feeds:
+        photo = (feed or {}).get("photo") or feed  # 兼容两种嵌套方式
+        vid = photo.get("photoId") or photo.get("id")
+        if not vid or vid in seen:
+            continue
+        seen.add(vid)
+        mv = photo.get("mainMvUrls") or []
+        play_url = (mv[0].get("url") if isinstance(mv[0], dict) else mv[0]) if mv else photo.get("photoUrl")
+        results.append({
+            "id": vid,
+            "caption": photo.get("caption") or photo.get("title"),
+            "author": (photo.get("user") or photo.get("author") or {}).get("name"),
+            "cover": photo.get("coverUrl"),
+            "playUrl": play_url,
+        })
+    return results[:MAX_RESULTS]
+
+
 async def search_via_graphql(keyword: str) -> list:
     ctx = await get_context()
     raw = await ctx.cookies("https://www.kuaishou.com")
@@ -268,7 +329,8 @@ async def search_via_graphql(keyword: str) -> list:
         )
         data = resp.json()
 
-    print(f"[graphql] result={data.get('data', {}).get('visionSearchPhoto', {}).get('result')}")
+    gql_result = (data.get("data") or {}).get("visionSearchPhoto", {}).get("result")
+    print(f"[graphql] result={gql_result}")
 
     feeds = (
         (data.get("data") or {})
@@ -375,11 +437,17 @@ app.add_middleware(
 @app.get("/api/search")
 async def api_search(keyword: str = Query(..., min_length=1)):
     try:
-        # 先试直接 GraphQL（快、无需用户登录）
-        results = await search_via_graphql(keyword)
-        source = "graphql"
+        # 1) REST /rest/v/search/feed（最直接，无需登录）
+        results = await search_via_rest(keyword)
+        source = "rest"
 
-        # GraphQL 没数据，回退到完整浏览器渲染（需要登录才有效）
+        # 2) GraphQL /graphql（备选）
+        if not results:
+            print("[search] REST 无结果，试 GraphQL")
+            results = await search_via_graphql(keyword)
+            source = "graphql"
+
+        # 3) 完整 Playwright 浏览器（需要登录）
         if not results:
             print("[search] GraphQL 无结果，回退到 Playwright")
             results = await search_kuaishou(keyword)
@@ -405,11 +473,24 @@ def _collect_keys(data, result: set, depth=0):
 
 @app.get("/api/debug")
 async def api_debug(keyword: str = Query(..., min_length=1)):
-    """诊断接口: 返回原始抓取情况 + 全部字段名, 用于排查 0 结果问题"""
+    """诊断接口: 捕获请求体+响应体, 帮助还原真实 API 调用方式"""
     async with _lock:
         ctx = await get_context()
         page = await ctx.new_page()
         captured = []
+        search_requests = []  # 专门记录搜索相关的请求
+
+        async def on_req(req):
+            try:
+                if "search" in req.url and "kuaishou.com" in req.url:
+                    search_requests.append({
+                        "url": req.url,
+                        "method": req.method,
+                        "post_data": req.post_data,
+                        "headers": dict(req.headers),
+                    })
+            except Exception:
+                pass
 
         async def on_resp(resp):
             try:
@@ -420,6 +501,7 @@ async def api_debug(keyword: str = Query(..., min_length=1)):
             except Exception:
                 pass
 
+        page.on("request", on_req)
         page.on("response", on_resp)
         url = SEARCH_URL.format(keyword=keyword)
         final_url = url
@@ -460,6 +542,18 @@ async def api_debug(keyword: str = Query(..., min_length=1)):
         summary.append({
             "url": r["url"],
             "top_keys": list(body.keys())[:20] if isinstance(body, dict) else f"list[{len(body)}]",
+            # 对搜索接口显示完整响应体（方便分析错误码）
+            "full_body": body if "search" in r["url"] else None,
+        })
+
+    # 清理请求头中的敏感信息，只保留有用字段
+    clean_requests = []
+    for req in search_requests:
+        clean_requests.append({
+            "url": req["url"],
+            "method": req["method"],
+            "post_data": req["post_data"],
+            "cookie_keys": [k for k in (req.get("headers") or {}) if k.lower() == "cookie"],
         })
 
     return JSONResponse({
@@ -472,6 +566,7 @@ async def api_debug(keyword: str = Query(..., min_length=1)):
             "有视频字段，但 looks_like_video() 条件未命中，需调整字段名" if found_video_keys
             else "无任何视频字段，不登录可能确实拿不到数据"
         ),
+        "search_requests_intercepted": clean_requests,
         "summary": summary,
     })
 
