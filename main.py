@@ -17,6 +17,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 MAX_RESULTS = int(os.getenv("MAX_RESULTS", "20"))
 
 BILI_SEARCH = "https://api.bilibili.com/x/web-interface/search/type"
+BILI_HOME   = "https://www.bilibili.com"
 
 HEADERS = {
     "User-Agent": (
@@ -25,7 +26,28 @@ HEADERS = {
         "Chrome/124.0.0.0 Safari/537.36"
     ),
     "Referer": "https://www.bilibili.com",
+    "Origin":  "https://www.bilibili.com",
 }
+
+# 持久化 httpx client，保持 cookie jar（buvid3 等必要 cookie）
+_client: httpx.AsyncClient | None = None
+
+
+async def get_client() -> httpx.AsyncClient:
+    global _client
+    if _client is None:
+        _client = httpx.AsyncClient(
+            headers=HEADERS,
+            timeout=15,
+            follow_redirects=True,
+        )
+        # 访问首页，让 B站 设置 buvid3 等必要 cookie
+        try:
+            await _client.get(BILI_HOME)
+            print("[bilibili] 首页预热完成，已获取 cookie")
+        except Exception as e:
+            print(f"[bilibili] 预热失败: {e}")
+    return _client
 
 
 def strip_html(text: str) -> str:
@@ -33,6 +55,7 @@ def strip_html(text: str) -> str:
 
 
 async def search_bilibili(keyword: str) -> list:
+    client = await get_client()
     params = {
         "keyword": keyword,
         "search_type": "video",
@@ -40,10 +63,9 @@ async def search_bilibili(keyword: str) -> list:
         "pagesize": MAX_RESULTS,
         "order": "totalrank",
     }
-    async with httpx.AsyncClient(timeout=15, headers=HEADERS) as client:
-        resp = await client.get(BILI_SEARCH, params=params)
-        resp.raise_for_status()
-        data = resp.json()
+    resp = await client.get(BILI_SEARCH, params=params)
+    resp.raise_for_status()
+    data = resp.json()
 
     if data.get("code") != 0:
         raise ValueError(f"B站 API 错误: code={data.get('code')} msg={data.get('message')}")
@@ -69,7 +91,10 @@ async def search_bilibili(keyword: str) -> list:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await get_client()  # 启动时预热，获取 B站 必要 cookie
     yield
+    if _client:
+        await _client.aclose()
 
 
 app = FastAPI(title="B站搜索", lifespan=lifespan)
