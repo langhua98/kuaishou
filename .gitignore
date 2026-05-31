@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+douyin_userdata/
+kuaishou_userdata/
