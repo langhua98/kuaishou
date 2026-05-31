@@ -35,27 +35,17 @@ from playwright.async_api import async_playwright
 # 配置
 # ---------------------------------------------------------------------------
 
-# [需实测调整] 快手网页搜索的 URL。在浏览器里手动搜一次, 看地址栏的真实格式再改这里。
-# 历史上常见格式之一: https://www.kuaishou.com/search/video?searchKey=关键词
-SEARCH_URL = "https://www.kuaishou.com/search/video?searchKey={keyword}"
+SEARCH_URL = "https://www.douyin.com/search/{keyword}?type=video"
 
-# 浏览器登录态 / cookie 持久化目录。
-# 第一次用 headful 模式扫码登录后, 登录信息会存在这里, 之后复用 —— 这对能不能搜到东西很关键。
-USER_DATA_DIR = str(Path("./kuaishou_userdata").resolve())
+USER_DATA_DIR = str(Path("./douyin_userdata").resolve())
 
-# 本地开发默认弹出浏览器窗口(方便登录/过验证码); 云部署时设环境变量 HEADLESS=true
 HEADLESS = os.getenv("HEADLESS", "false").lower() == "true"
 
-# 云端无法扫码登录, 可把浏览器 Cookie 粘贴到 Railway 环境变量 KUAISHOU_COOKIES
-# 支持两种格式:
-#   1) 浏览器复制的原始字符串: "did=xxx; kuaishou.server.webp.at=yyy; ..."
-#   2) JSON 数组: [{"name":"did","value":"xxx","domain":".kuaishou.com"}, ...]
-KUAISHOU_COOKIES = os.getenv("KUAISHOU_COOKIES", "")
+# 可把抖音 Cookie 粘贴到 Railway 环境变量 DOUYIN_COOKIES
+DOUYIN_COOKIES = os.getenv("DOUYIN_COOKIES", "")
 
-# 抓取时等待 XHR 加载的时间(秒)。网慢就调大
-WAIT_AFTER_LOAD = 6
+WAIT_AFTER_LOAD = 7
 
-# 单次最多返回多少条
 MAX_RESULTS = 20
 
 
@@ -64,72 +54,44 @@ MAX_RESULTS = 20
 # ---------------------------------------------------------------------------
 
 def looks_like_video(obj: dict) -> bool:
-    """[需实测调整] 判断一个 JSON 对象像不像一条视频。
-    思路: 一条视频通常同时具备 标题/封面/播放地址 这类特征字段中的几个。
-    你抓到真实数据后, 把实际出现的字段名补进这些候选集合即可。
+    """判断一个 JSON 对象是不是抖音视频条目。
+    抖音视频对象特征: aweme_id (或 item_id) + video 子字典
     """
     if not isinstance(obj, dict):
         return False
-    keys = set(obj.keys())
-    # 任意命中其一就认为"有标题类字段", 其他同理
-    has_caption = keys & {"caption", "title", "photoName", "name"}
-    has_play = keys & {"mainMvUrls", "playUrl", "photoUrl", "videoUrl", "mainMvUrl", "srcNoMark"}
-    has_id = keys & {"photoId", "photo_id", "id", "photoIdStr"}
-    # 至少要有"能播的地址" + (标题或id) 才算
-    return bool(has_play and (has_caption or has_id))
+    has_id = ("aweme_id" in obj) or ("item_id" in obj)
+    has_video = isinstance(obj.get("video"), dict)
+    return has_id and has_video
 
 
-def pick(obj: dict, *candidates):
-    """从 obj 里按候选字段名顺序取第一个非空值"""
-    for c in candidates:
-        v = obj.get(c)
-        if v:
-            return v
-    return None
-
-
-def extract_play_url(obj: dict):
-    """从视频对象里尽量提取一个可播放的 url。播放地址常见两种形态:
-    1) 直接是字符串字段
-    2) 是个数组, 形如 [{"url": "..."}, ...]
-    """
-    # 形态1: 直接字符串
-    direct = pick(obj, "playUrl", "photoUrl", "videoUrl", "srcNoMark", "mainMvUrl")
-    if isinstance(direct, str):
-        return direct
-    # 形态2: 数组里取第一个 url
-    arr = obj.get("mainMvUrls") or obj.get("coverUrls")
-    if isinstance(arr, list) and arr:
-        first = arr[0]
-        if isinstance(first, dict):
-            return first.get("url")
-        if isinstance(first, str):
-            return first
-    return None
-
-
-def extract_cover(obj: dict):
-    cover = pick(obj, "coverUrl", "poster", "thumbnailUrl")
-    if isinstance(cover, str):
-        return cover
-    arr = obj.get("coverUrls")
-    if isinstance(arr, list) and arr and isinstance(arr[0], dict):
-        return arr[0].get("url")
-    return None
+def _first_url(addr: dict) -> str | None:
+    """从抖音 addr 结构 {"url_list": [...]} 取第一个 url"""
+    if not isinstance(addr, dict):
+        return None
+    urls = addr.get("url_list") or []
+    return urls[0] if urls else None
 
 
 def normalize(obj: dict) -> dict:
-    """把一个原始视频对象, 规整成前端要的统一结构"""
-    author = obj.get("user") or obj.get("author") or {}
-    author_name = None
-    if isinstance(author, dict):
-        author_name = pick(author, "name", "userName", "user_name", "nickName")
+    """把抖音视频原始对象规整成前端统一结构"""
+    video = obj.get("video") or {}
+    author = obj.get("author") or {}
+    play_url = (
+        _first_url(video.get("play_addr"))
+        or _first_url(video.get("download_addr"))
+        or _first_url(video.get("play_addr_h264"))
+    )
+    cover = (
+        _first_url(video.get("cover"))
+        or _first_url(video.get("dynamic_cover"))
+        or _first_url(video.get("origin_cover"))
+    )
     return {
-        "id": pick(obj, "photoId", "photoIdStr", "photo_id", "id"),
-        "caption": pick(obj, "caption", "title", "photoName", "name"),
-        "author": author_name,
-        "cover": extract_cover(obj),
-        "playUrl": extract_play_url(obj),
+        "id": obj.get("aweme_id") or obj.get("item_id"),
+        "caption": obj.get("desc") or obj.get("share_desc"),
+        "author": author.get("nickname") if isinstance(author, dict) else None,
+        "cover": cover,
+        "playUrl": play_url,
     }
 
 
@@ -154,19 +116,14 @@ def deep_find_videos(data, found: list, seen_ids: set):
 # Cookie 辅助
 # ---------------------------------------------------------------------------
 
-def parse_cookie_string(s: str) -> list:
-    """把浏览器 Cookie 字符串解析为 Playwright add_cookies 所需的列表"""
+def parse_cookie_string(s: str, domain: str = ".douyin.com") -> list:
     result = []
     for part in s.split(";"):
         part = part.strip()
         if "=" in part:
             name, _, value = part.partition("=")
-            result.append({
-                "name": name.strip(),
-                "value": value.strip(),
-                "domain": ".kuaishou.com",
-                "path": "/",
-            })
+            result.append({"name": name.strip(), "value": value.strip(),
+                           "domain": domain, "path": "/"})
     return result
 
 
@@ -202,12 +159,12 @@ async def get_context():
         await _browser_ctx.add_init_script(
             "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
         )
-        if KUAISHOU_COOKIES:
+        if DOUYIN_COOKIES:
             try:
                 cookies = (
-                    json.loads(KUAISHOU_COOKIES)
-                    if KUAISHOU_COOKIES.strip().startswith("[")
-                    else parse_cookie_string(KUAISHOU_COOKIES)
+                    json.loads(DOUYIN_COOKIES)
+                    if DOUYIN_COOKIES.strip().startswith("[")
+                    else parse_cookie_string(DOUYIN_COOKIES)
                 )
                 await _browser_ctx.add_cookies(cookies)
                 print(f"[cookies] 注入 {len(cookies)} 条 cookie")
@@ -216,157 +173,7 @@ async def get_context():
     return _browser_ctx
 
 
-# ---------------------------------------------------------------------------
-# 方案一: 直接调 GraphQL（快手前端用的接口）
-# 只需浏览器自动分配的 did cookie，不需要用户账号登录。
-# 快手前端遇到未登录会不发请求；我们跳过前端直接调，通常能绕过这个限制。
-# ---------------------------------------------------------------------------
-
-_GQL_QUERY = """
-query visionSearchPhoto($keyword: String!, $pcursor: String, $page: String) {
-  visionSearchPhoto(keyword: $keyword, pcursor: $pcursor, page: $page) {
-    result
-    feeds {
-      photo {
-        id
-        caption
-        photoUrl
-        coverUrl
-        duration
-        viewCount
-        author { id name headerUrl }
-        mainMvUrls { url }
-      }
-    }
-    pcursor
-  }
-}
-"""
-
-
-async def _get_session_cookies() -> dict:
-    """获取浏览器里已有的 kuaishou.com cookie，包含 did 等 session 信息"""
-    ctx = await get_context()
-    raw = await ctx.cookies("https://www.kuaishou.com")
-    return {c["name"]: c["value"] for c in raw}
-
-
-async def search_via_rest(keyword: str) -> list:
-    """直接调 /rest/v/search/feed，用浏览器 session cookie，无需用户登录"""
-    cookies = await _get_session_cookies()
-    if not cookies.get("did"):
-        return []
-
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/124.0.0.0 Safari/537.36"
-        ),
-        "Content-Type": "application/json",
-        "Origin": "https://www.kuaishou.com",
-        "Referer": f"https://www.kuaishou.com/search/video?searchKey={quote(keyword)}",
-    }
-    payload = {
-        "keyword": keyword,
-        "pcursor": "",
-        "page": 1,
-        "count": MAX_RESULTS,
-        "searchSessionId": "",
-        "webPageArea": "search_result",
-    }
-
-    async with httpx.AsyncClient(timeout=20) as client:
-        resp = await client.post(
-            "https://www.kuaishou.com/rest/v/search/feed",
-            json=payload, headers=headers, cookies=cookies,
-        )
-        data = resp.json()
-
-    print(f"[rest] result={data.get('result')} error_msg={data.get('error_msg')}")
-
-    feeds = data.get("feeds") or []
-    results, seen = [], set()
-    for feed in feeds:
-        photo = (feed or {}).get("photo") or feed  # 兼容两种嵌套方式
-        vid = photo.get("photoId") or photo.get("id")
-        if not vid or vid in seen:
-            continue
-        seen.add(vid)
-        mv = photo.get("mainMvUrls") or []
-        play_url = (mv[0].get("url") if isinstance(mv[0], dict) else mv[0]) if mv else photo.get("photoUrl")
-        results.append({
-            "id": vid,
-            "caption": photo.get("caption") or photo.get("title"),
-            "author": (photo.get("user") or photo.get("author") or {}).get("name"),
-            "cover": photo.get("coverUrl"),
-            "playUrl": play_url,
-        })
-    return results[:MAX_RESULTS]
-
-
-async def search_via_graphql(keyword: str) -> list:
-    ctx = await get_context()
-    raw = await ctx.cookies("https://www.kuaishou.com")
-    cookies = {c["name"]: c["value"] for c in raw}
-
-    if not cookies.get("did"):
-        print("[graphql] 没有 did cookie，跳过")
-        return []
-
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/124.0.0.0 Safari/537.36"
-        ),
-        "Content-Type": "application/json",
-        "Origin": "https://www.kuaishou.com",
-        "Referer": f"https://www.kuaishou.com/search/video?searchKey={quote(keyword)}",
-    }
-    payload = {
-        "operationName": "visionSearchPhoto",
-        "variables": {"keyword": keyword, "pcursor": "", "page": "search"},
-        "query": _GQL_QUERY,
-    }
-
-    async with httpx.AsyncClient(timeout=20) as client:
-        resp = await client.post(
-            "https://www.kuaishou.com/graphql",
-            json=payload, headers=headers, cookies=cookies,
-        )
-        data = resp.json()
-
-    gql_result = (data.get("data") or {}).get("visionSearchPhoto", {}).get("result")
-    print(f"[graphql] result={gql_result}")
-
-    feeds = (
-        (data.get("data") or {})
-        .get("visionSearchPhoto", {})
-        .get("feeds") or []
-    )
-
-    results, seen = [], set()
-    for feed in feeds:
-        photo = (feed or {}).get("photo") or {}
-        vid = photo.get("id")
-        if not vid or vid in seen:
-            continue
-        seen.add(vid)
-        mv = photo.get("mainMvUrls") or []
-        play_url = (mv[0].get("url") if isinstance(mv[0], dict) else mv[0]) if mv else photo.get("photoUrl")
-        results.append({
-            "id": vid,
-            "caption": photo.get("caption"),
-            "author": (photo.get("author") or {}).get("name"),
-            "cover": photo.get("coverUrl"),
-            "playUrl": play_url,
-        })
-
-    return results[:MAX_RESULTS]
-
-
-async def search_kuaishou(keyword: str) -> list:
+async def search_douyin(keyword: str) -> list:
     async with _lock:  # 串行化, 避免并发请求互相干扰 + 降低被风控概率
         ctx = await get_context()
         page = await ctx.new_page()
@@ -411,19 +218,16 @@ async def search_kuaishou(keyword: str) -> list:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 启动时访问快手首页，让浏览器获取 did 等 session cookie
-    # 这样 GraphQL 搜索就能直接用，不需要用户登录
     try:
         ctx = await get_context()
         page = await ctx.new_page()
-        await page.goto("https://www.kuaishou.com", wait_until="domcontentloaded", timeout=25000)
+        await page.goto("https://www.douyin.com", wait_until="domcontentloaded", timeout=25000)
         await page.wait_for_timeout(3000)
         await page.close()
-        print("[startup] session 预热完成（已获取 did cookie）")
+        print("[startup] 抖音 session 预热完成")
     except Exception as e:
         print(f"[startup] 预热失败（不影响运行）: {e}")
     yield
-    # 关服务时清理浏览器
     global _browser_ctx, _play
     if _browser_ctx:
         await _browser_ctx.close()
@@ -431,7 +235,7 @@ async def lifespan(app: FastAPI):
         await _play.stop()
 
 
-app = FastAPI(title="快手搜索-最小版", lifespan=lifespan)
+app = FastAPI(title="抖音搜索", lifespan=lifespan)
 
 # 允许 GitHub Pages 前端跨域调用
 app.add_middleware(
@@ -445,23 +249,8 @@ app.add_middleware(
 @app.get("/api/search")
 async def api_search(keyword: str = Query(..., min_length=1)):
     try:
-        # 1) REST /rest/v/search/feed（最直接，无需登录）
-        results = await search_via_rest(keyword)
-        source = "rest"
-
-        # 2) GraphQL /graphql（备选）
-        if not results:
-            print("[search] REST 无结果，试 GraphQL")
-            results = await search_via_graphql(keyword)
-            source = "graphql"
-
-        # 3) 完整 Playwright 浏览器（需要登录）
-        if not results:
-            print("[search] GraphQL 无结果，回退到 Playwright")
-            results = await search_kuaishou(keyword)
-            source = "playwright"
-
-        return JSONResponse({"ok": True, "count": len(results), "source": source, "results": results})
+        results = await search_douyin(keyword)
+        return JSONResponse({"ok": True, "count": len(results), "source": "playwright", "results": results})
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
@@ -525,23 +314,20 @@ async def api_debug(keyword: str = Query(..., min_length=1)):
         finally:
             await page.close()
 
-    # 收集所有响应里出现过的字段名
     all_keys: set = set()
     for r in captured:
         _collect_keys(r["body"], all_keys)
 
-    # 判断是否真正跳转到了登录页（URL 编码不算重定向）
-    from urllib.parse import unquote
     login_redirect = (
         "login" in final_url.lower() or
         "passport" in final_url.lower() or
         "signin" in final_url.lower()
     )
 
-    # 视频相关的特征字段是否出现过
-    video_hint_keys = {"photoId","photoIdStr","photo_id","caption","title","photoName",
-                       "playUrl","mainMvUrls","mainMvUrl","videoUrl","photoUrl","srcNoMark",
-                       "coverUrl","coverUrls","feeds","photo","videoList"}
+    # 抖音视频特征字段
+    video_hint_keys = {"aweme_id","item_id","aweme_list","desc","share_desc",
+                       "play_addr","download_addr","cover","dynamic_cover",
+                       "author","nickname","video","statistics"}
     found_video_keys = sorted(all_keys & video_hint_keys)
 
     summary = []
@@ -606,7 +392,7 @@ async def _get_login_page(fresh: bool = False):
             )
             try:
                 await _login_pg.goto(
-                    "https://www.kuaishou.com",
+                    "https://www.douyin.com",
                     wait_until="domcontentloaded",
                     timeout=35000,
                 )
@@ -706,16 +492,16 @@ async def login_open_qr():
     """自动点击「立即登录」→「扫码登录」，让二维码出现"""
     try:
         page = await _get_login_page()
-        # 尝试点击立即登录按钮（多种选择器兼容不同版本）
-        for selector in ["text=立即登录", "text=登录", ".login-btn", "[data-testid='login']"]:
+        # 点击抖音登录按钮（多种选择器兼容不同版本）
+        for selector in ["text=登录", "[data-e2e='login-button']", ".login-button", "text=立即登录"]:
             try:
                 await page.click(selector, timeout=3000)
-                await page.wait_for_timeout(1500)
+                await page.wait_for_timeout(2000)
                 break
             except Exception:
                 continue
-        # 尝试切换到扫码登录 tab
-        for selector in ["text=扫码登录", "text=二维码", ".qrcode-tab"]:
+        # 切换到扫码登录 tab
+        for selector in ["text=扫码登录", "text=二维码登录", "[data-e2e='qrcode-tab']"]:
             try:
                 await page.click(selector, timeout=3000)
                 await page.wait_for_timeout(1000)
@@ -730,9 +516,10 @@ async def login_open_qr():
 @app.get("/api/login/status")
 async def login_status():
     ctx = await get_context()
-    cookies = await ctx.cookies("https://www.kuaishou.com")
+    cookies = await ctx.cookies("https://www.douyin.com")
+    # 抖音登录后会有 sid_guard 或 uid_tt cookie
     logged_in = any(
-        c["name"] in {"kuaishou.server.webp.at", "kuaishou.server.at", "userId"}
+        c["name"] in {"sid_guard", "uid_tt", "sessionid", "passport_auth_status"}
         for c in cookies
     )
     return JSONResponse({"logged_in": logged_in})
@@ -743,7 +530,7 @@ LOGIN_HTML = """<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=3">
-<title>快手扫码登录</title>
+<title>抖音扫码登录</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, "PingFang SC", sans-serif;
@@ -775,8 +562,8 @@ button { flex: 1; min-width: 120px; padding: 12px; font-size: 15px; font-weight:
 </head>
 <body>
 <header>
-  <h1>快手扫码登录</h1>
-  <p>① 看下方截图 &nbsp;② 点登录按钮 &nbsp;③ 扫二维码 &nbsp;④ 点"检查登录"</p>
+  <h1>抖音扫码登录</h1>
+  <p>① 点「自动跳到扫码页」&nbsp;② 截图里出现二维码 &nbsp;③ 用抖音 App 扫 &nbsp;④ 点"检查登录"</p>
 </header>
 
 <div class="shot-wrap" id="shotWrap">
@@ -799,7 +586,7 @@ button { flex: 1; min-width: 120px; padding: 12px; font-size: 15px; font-weight:
   <span class="wait">等待扫码…截图每 3 秒自动刷新</span><br>
   <span class="tip">
     点截图里任何位置 = 浏览器真实点击那里<br>
-    流程：① 点右上角「登录」→ ② 点「扫码登录」→ ③ 用快手 App 扫二维码
+    流程：① 点「自动跳到扫码页」→ ② 等截图刷新出现二维码 → ③ 用抖音 App 扫码
   </span>
 </div>
 
@@ -939,7 +726,7 @@ HTML_PAGE = """
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>快手搜索 · 最小版</title>
+<title>抖音搜索</title>
 <style>
   * { box-sizing: border-box; }
   body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -967,7 +754,7 @@ HTML_PAGE = """
 </head>
 <body>
 <header>
-  <h1>快手搜索 · 最小可运行版（个人学习用）</h1>
+  <h1>抖音搜索（个人学习用）</h1>
   <div class="bar">
     <input id="kw" placeholder="输入关键词，回车搜索…" />
     <button id="btn">搜索</button>

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>快手搜索</title>
+<title>抖音搜索</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 body {
@@ -145,18 +145,18 @@ header {
 <!-- 主界面 -->
 <header>
   <div class="header-row">
-    <span class="logo">快手搜索</span>
+    <span class="logo">抖音搜索</span>
     <button class="login-btn" id="loginBtn" onclick="openLogin()" title="扫码登录">登录</button>
     <button class="cfg-btn" onclick="openCfg()" title="设置后端地址">⚙️</button>
   </div>
   <div class="search-row">
-    <input id="kw" type="search" placeholder="搜索视频…" enterkeyhint="search">
+    <input id="kw" type="search" placeholder="搜索抖音视频…" enterkeyhint="search">
     <button id="btn" onclick="doSearch()">搜索</button>
     <button id="dbgBtn" onclick="doDebug()" title="诊断" style="padding:10px 12px;background:#636366;color:#fff;border:none;border-radius:24px;font-size:13px;cursor:pointer;">诊断</button>
   </div>
 </header>
 
-<div class="status" id="status">首次使用请点右上角 ⚙️ 配置后端地址。</div>
+<div class="status" id="status">首次使用请点右上角 ⚙️ 配置后端地址，再点「登录」扫码登录抖音。</div>
 <div class="grid" id="grid"></div>
 
 <script>
