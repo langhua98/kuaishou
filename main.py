@@ -281,9 +281,22 @@ async def api_search(keyword: str = Query(..., min_length=1)):
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 
+def _collect_keys(data, result: set, depth=0):
+    """递归收集 JSON 里所有层级出现过的 key"""
+    if depth > 6:
+        return
+    if isinstance(data, dict):
+        for k, v in data.items():
+            result.add(k)
+            _collect_keys(v, result, depth + 1)
+    elif isinstance(data, list):
+        for item in data[:8]:
+            _collect_keys(item, result, depth + 1)
+
+
 @app.get("/api/debug")
 async def api_debug(keyword: str = Query(..., min_length=1)):
-    """诊断接口: 返回原始抓取情况, 不做视频提取, 用于排查 0 结果问题"""
+    """诊断接口: 返回原始抓取情况 + 全部字段名, 用于排查 0 结果问题"""
     async with _lock:
         ctx = await get_context()
         page = await ctx.new_page()
@@ -304,27 +317,52 @@ async def api_debug(keyword: str = Query(..., min_length=1)):
         try:
             await page.goto(url, wait_until="domcontentloaded", timeout=30000)
             await page.wait_for_timeout(WAIT_AFTER_LOAD * 1000)
+            for _ in range(3):
+                await page.mouse.wheel(0, 2000)
+                await page.wait_for_timeout(1500)
             final_url = page.url
         except Exception as e:
             print(f"[debug error] {e}")
         finally:
             await page.close()
 
+    # 收集所有响应里出现过的字段名
+    all_keys: set = set()
+    for r in captured:
+        _collect_keys(r["body"], all_keys)
+
+    # 判断是否真正跳转到了登录页（URL 编码不算重定向）
+    from urllib.parse import unquote
+    login_redirect = (
+        "login" in final_url.lower() or
+        "passport" in final_url.lower() or
+        "signin" in final_url.lower()
+    )
+
+    # 视频相关的特征字段是否出现过
+    video_hint_keys = {"photoId","photoIdStr","photo_id","caption","title","photoName",
+                       "playUrl","mainMvUrls","mainMvUrl","videoUrl","photoUrl","srcNoMark",
+                       "coverUrl","coverUrls","feeds","photo","videoList"}
+    found_video_keys = sorted(all_keys & video_hint_keys)
+
     summary = []
     for r in captured[:10]:
         body = r["body"]
         summary.append({
             "url": r["url"],
-            "type": type(body).__name__,
-            "top_keys": list(body.keys())[:15] if isinstance(body, dict) else None,
-            "length": len(body) if isinstance(body, list) else None,
+            "top_keys": list(body.keys())[:20] if isinstance(body, dict) else f"list[{len(body)}]",
         })
 
     return JSONResponse({
-        "search_url": url,
+        "login_redirect": login_redirect,
         "final_url": final_url,
-        "redirected": final_url != url,
         "json_responses_captured": len(captured),
+        "all_keys_count": len(all_keys),
+        "video_hint_keys_found": found_video_keys,
+        "verdict": (
+            "有视频字段，但 looks_like_video() 条件未命中，需调整字段名" if found_video_keys
+            else "无任何视频字段，不登录可能确实拿不到数据"
+        ),
         "summary": summary,
     })
 

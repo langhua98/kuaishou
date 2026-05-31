@@ -253,13 +253,15 @@ async function doDebug() {
   try {
     const res = await fetch(`${base}/api/debug?keyword=${encodeURIComponent(kw)}`);
     const d   = await res.json();
+    const verdict_color = d.video_hint_keys_found && d.video_hint_keys_found.length > 0 ? "#ff9500" : "#ff3b30";
     status.innerHTML = `
       <b>诊断结果</b><br>
-      是否被重定向（登录墙）：${d.redirected ? "<b style='color:#ff3b30'>是 ⚠️ 需要登录</b>" : "否 ✅"}<br>
+      跳转到登录页：${d.login_redirect ? "<b style='color:#ff3b30'>是 ⚠️</b>" : "否 ✅"}<br>
       抓到 JSON 响应数：<b>${d.json_responses_captured}</b><br>
-      最终页面地址：<small>${d.final_url}</small><br>
-      <details><summary style="cursor:pointer;color:#ff7a1a">展开原始数据</summary>
-      <pre style="font-size:10px;overflow:auto;max-height:180px;background:#f2f2f7;padding:8px;border-radius:8px;margin-top:6px">${JSON.stringify(d.summary, null, 2)}</pre></details>
+      发现视频字段：<b style="color:${verdict_color}">${d.video_hint_keys_found && d.video_hint_keys_found.length ? d.video_hint_keys_found.join(", ") : "无"}</b><br>
+      <b>结论：${d.verdict}</b><br>
+      <details><summary style="cursor:pointer;color:#ff7a1a;margin-top:4px">展开原始数据</summary>
+      <pre style="font-size:10px;overflow:auto;max-height:200px;background:#f2f2f7;padding:8px;border-radius:8px;margin-top:6px">${JSON.stringify(d.summary, null, 2)}</pre></details>
     `;
   } catch(e) {
     status.textContent = "诊断失败：" + e.message;
