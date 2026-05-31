@@ -217,7 +217,7 @@ async function doSearch() {
     const data = await res.json();
 
     if (!data.ok) {
-      status.textContent = "出错：" + data.error;
+      status.textContent = "出错：" + (data.error || data.detail || JSON.stringify(data));
       return;
     }
     status.textContent = data.count > 0

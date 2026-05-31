@@ -701,6 +701,32 @@ async def login_click(
         return JSONResponse({"ok": False, "error": str(e)})
 
 
+@app.get("/api/login/open_qr")
+async def login_open_qr():
+    """自动点击「立即登录」→「扫码登录」，让二维码出现"""
+    try:
+        page = await _get_login_page()
+        # 尝试点击立即登录按钮（多种选择器兼容不同版本）
+        for selector in ["text=立即登录", "text=登录", ".login-btn", "[data-testid='login']"]:
+            try:
+                await page.click(selector, timeout=3000)
+                await page.wait_for_timeout(1500)
+                break
+            except Exception:
+                continue
+        # 尝试切换到扫码登录 tab
+        for selector in ["text=扫码登录", "text=二维码", ".qrcode-tab"]:
+            try:
+                await page.click(selector, timeout=3000)
+                await page.wait_for_timeout(1000)
+                break
+            except Exception:
+                continue
+        return JSONResponse({"ok": True, "url": page.url})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
 @app.get("/api/login/status")
 async def login_status():
     ctx = await get_context()
@@ -761,9 +787,12 @@ button { flex: 1; min-width: 120px; padding: 12px; font-size: 15px; font-weight:
 <div id="shotErr"></div>
 
 <div class="actions">
-  <button class="btn-primary" onclick="checkStatus()">✅ 检查是否已登录</button>
-  <button class="btn-secondary" onclick="loadShot(true)">🔄 重新加载页面</button>
-  <button class="btn-secondary" onclick="runDiag()" style="flex:0;min-width:60px;font-size:13px;padding:12px 10px">🔍 诊断</button>
+  <button class="btn-primary" onclick="autoQr()" id="qrBtn">📷 自动跳到扫码页</button>
+  <button class="btn-secondary" onclick="checkStatus()">✅ 检查登录</button>
+</div>
+<div class="actions" style="padding-top:0">
+  <button class="btn-secondary" onclick="loadShot(true)">🔄 重新加载</button>
+  <button class="btn-secondary" onclick="runDiag()" style="flex:0;min-width:60px;font-size:13px">🔍 诊断</button>
 </div>
 <div id="diagResult" style="display:none;padding:10px 16px;font-size:12px;color:#aeaeb2;word-break:break-all;line-height:1.6"></div>
 <div class="status-bar" id="statusBar">
@@ -855,6 +884,18 @@ async function checkStatus() {
     bar.innerHTML = '<span style="color:#ff453a">检查失败：' + e.message + '</span>';
     _autoTimer = setInterval(() => loadShot(false), 3000);
   }
+}
+
+async function autoQr() {
+  const btn = document.getElementById("qrBtn");
+  btn.disabled = true; btn.textContent = "正在操作浏览器…";
+  try {
+    await fetch("/api/login/open_qr");
+    // 等 2 秒让页面跳转完成，再刷新截图
+    await new Promise(r => setTimeout(r, 2000));
+    loadShot(false);
+  } catch(e) { console.warn(e); }
+  finally { btn.disabled = false; btn.textContent = "📷 自动跳到扫码页"; }
 }
 
 async function runDiag() {
