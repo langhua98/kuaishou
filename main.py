@@ -1,8 +1,7 @@
 """
 B站搜索 - 个人学习用途
-====================================================
 使用哔哩哔哩公开搜索 API，无需登录，直接返回视频列表。
-架构: FastAPI + httpx (纯 HTTP，无需浏览器)
+架构: FastAPI + curl_cffi (伪装 Chrome TLS 指纹绕过反爬)
 """
 
 import hashlib
@@ -12,28 +11,17 @@ import time
 import urllib.parse
 from contextlib import asynccontextmanager
 
-import httpx
+from curl_cffi.requests import AsyncSession
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 
 MAX_RESULTS = int(os.getenv("MAX_RESULTS", "20"))
 
-BILI_SEARCH  = "https://api.bilibili.com/x/web-interface/search/type"
-BILI_NAV     = "https://api.bilibili.com/x/web-interface/nav"
-BILI_FINGER  = "https://api.bilibili.com/x/frontend/finger/spi"
+BILI_HOME   = "https://www.bilibili.com/"
+BILI_NAV    = "https://api.bilibili.com/x/web-interface/nav"
+BILI_SEARCH = "https://api.bilibili.com/x/web-interface/search/type"
 
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Referer": "https://www.bilibili.com",
-    "Origin":  "https://www.bilibili.com",
-}
-
-# B站 wbi 签名用的乱序表
 _WBI_TAB = [
     46,47,18, 2,53, 8,23,32,15,50,10,31,58, 3,45,35,
     27,43, 5,49,33, 9,42,19,29,28,14,39,12,38,41,13,
@@ -41,7 +29,7 @@ _WBI_TAB = [
     22,25,54,21,56,59, 6,63,57,62,11,36,20,34,44,52,
 ]
 
-_client: httpx.AsyncClient | None = None
+_session: AsyncSession | None = None
 _wbi_img_key: str = ""
 _wbi_sub_key: str = ""
 
@@ -52,7 +40,6 @@ def _mixin_key(img: str, sub: str) -> str:
 
 
 def _sign(params: dict) -> dict:
-    """给参数字典附加 wts + w_rid 签名"""
     p = dict(params)
     p["wts"] = str(int(time.time()))
     items = sorted(p.items())
@@ -64,33 +51,29 @@ def _sign(params: dict) -> dict:
     return p
 
 
-async def get_client() -> httpx.AsyncClient:
-    global _client, _wbi_img_key, _wbi_sub_key
-    if _client is None:
-        _client = httpx.AsyncClient(headers=HEADERS, timeout=15, follow_redirects=True)
-        # 1. 通过 finger/spi 获取 buvid（不依赖首页，云服务器 IP 也能拿到）
+async def get_session() -> AsyncSession:
+    global _session, _wbi_img_key, _wbi_sub_key
+    if _session is None:
+        _session = AsyncSession(impersonate="chrome124")
+        # 1. 访问首页，让 bilibili 设置 buvid3 等完整 cookie
         try:
-            r = await _client.get(BILI_FINGER)
-            finger = r.json().get("data", {})
-            b3 = finger.get("b_3", "")
-            b4 = finger.get("b_4", "")
-            if b3:
-                _client.cookies.set("buvid3", b3, domain=".bilibili.com")
-            if b4:
-                _client.cookies.set("buvid4", b4, domain=".bilibili.com")
-            print(f"[bilibili] buvid 获取成功: {b3[:8]}...")
+            await _session.get(BILI_HOME, headers={
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "zh-CN,zh;q=0.9",
+            })
+            print("[bilibili] 首页预热完成")
         except Exception as e:
-            print(f"[bilibili] buvid 获取失败: {e}")
+            print(f"[bilibili] 首页预热失败: {e}")
         # 2. 获取 wbi 签名密钥
         try:
-            r = await _client.get(BILI_NAV)
+            r = await _session.get(BILI_NAV, headers={"Referer": BILI_HOME})
             wbi = r.json().get("data", {}).get("wbi_img", {})
             _wbi_img_key = wbi.get("img_url", "").rsplit("/", 1)[-1].split(".")[0]
             _wbi_sub_key = wbi.get("sub_url", "").rsplit("/", 1)[-1].split(".")[0]
-            print(f"[bilibili] wbi keys 获取成功")
+            print("[bilibili] wbi keys 获取成功")
         except Exception as e:
             print(f"[bilibili] wbi keys 获取失败: {e}")
-    return _client
+    return _session
 
 
 def strip_html(text: str) -> str:
@@ -98,7 +81,7 @@ def strip_html(text: str) -> str:
 
 
 async def search_bilibili(keyword: str) -> list:
-    client = await get_client()
+    session = await get_session()
     params = _sign({
         "keyword": keyword,
         "search_type": "video",
@@ -106,14 +89,16 @@ async def search_bilibili(keyword: str) -> list:
         "pagesize": MAX_RESULTS,
         "order": "totalrank",
     })
-    resp = await client.get(BILI_SEARCH, params=params)
-    # 如果响应为空或非 JSON，先记录原始内容方便排查
-    raw = resp.text
-    if not raw.strip():
+    referer = f"https://search.bilibili.com/all?keyword={urllib.parse.quote(keyword)}&search_source=5"
+    resp = await session.get(BILI_SEARCH, params=params, headers={
+        "Referer": referer,
+        "Origin": "https://search.bilibili.com",
+    })
+    if not resp.text.strip():
         raise ValueError(f"B站返回空响应 (HTTP {resp.status_code})")
-    resp.raise_for_status()
+    if not resp.text.strip().startswith("{"):
+        raise ValueError(f"B站返回非JSON响应 (HTTP {resp.status_code}): {resp.text[:80]}")
     data = resp.json()
-
     if data.get("code") != 0:
         raise ValueError(f"B站 API code={data.get('code')}: {data.get('message')}")
 
@@ -138,10 +123,10 @@ async def search_bilibili(keyword: str) -> list:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await get_client()  # 启动时预热，获取 B站 必要 cookie
+    await get_session()
     yield
-    if _client:
-        await _client.aclose()
+    if _session:
+        await _session.close()
 
 
 app = FastAPI(title="B站搜索", lifespan=lifespan)
@@ -231,8 +216,7 @@ async function doSearch() {
   const btn = document.getElementById("btn");
   const status = document.getElementById("status");
   const grid = document.getElementById("grid");
-  btn.disabled = true;
-  grid.innerHTML = "";
+  btn.disabled = true; grid.innerHTML = "";
   status.innerHTML = '<span class="spinner"></span>搜索中…';
   try {
     const res = await fetch("/api/search?keyword=" + encodeURIComponent(kw));
