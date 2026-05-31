@@ -585,7 +585,7 @@ async def api_debug(keyword: str = Query(..., min_length=1)):
 
 _login_pg = None
 _login_pg_lock = asyncio.Lock()
-
+_screenshot_lock = asyncio.Lock()
 
 _login_error: str = ""  # 记录最近一次登录页加载错误
 
@@ -619,7 +619,12 @@ async def login_screenshot(fresh: bool = False):
     from fastapi.responses import Response
     try:
         page = await _get_login_page(fresh=fresh)
-        shot = await page.screenshot(type="jpeg", quality=82)
+        async with _screenshot_lock:
+            try:
+                await page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass
+            shot = await page.screenshot(type="jpeg", quality=75)
         return Response(content=shot, media_type="image/jpeg",
                         headers={"Cache-Control": "no-store"})
     except Exception as e:
@@ -748,22 +753,19 @@ function refreshShot(fresh) {
 
 async function onShotError(img) {
   img.style.display = "none";
-  clearInterval(autoTimer);
   try {
     const r = await fetch("/api/login/pageinfo");
     const d = await r.json();
     const box = document.getElementById("shotErr");
     box.style.display = "block";
-    box.innerHTML = `截图失败——浏览器无法加载快手页面。<br>
-      <b>可能原因：</b>Railway 服务器（美国）被快手 IP 限制，无法访问快手。<br>
+    box.innerHTML = `截图暂时失败，正在重试中…<br>
       当前页面：${d.current_url}<br>
       错误详情：${d.last_error || "无"}<br><br>
-      <b>解决方案：</b><br>
-      1. 在 Railway → Variables 里设置 <code>KUAISHOU_COOKIES</code>（需要电脑先登录）<br>
-      2. 或换一个亚洲区（香港/新加坡）的服务器部署`;
+      <b>请点「🔄 重新加载页面」按钮重试，或稍等几秒后截图会自动刷新。</b>`;
   } catch(e) {
-    document.getElementById("shotErr").style.display = "block";
-    document.getElementById("shotErr").textContent = "截图失败，服务器可能无法访问快手（IP 限制）";
+    const box = document.getElementById("shotErr");
+    box.style.display = "block";
+    box.textContent = "截图暂时失败，正在重试…";
   }
 }
 
