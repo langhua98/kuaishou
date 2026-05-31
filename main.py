@@ -23,6 +23,7 @@ import json
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import quote
 
 import httpx
 from fastapi import FastAPI, Query
@@ -257,7 +258,7 @@ async def search_via_rest(keyword: str) -> list:
         ),
         "Content-Type": "application/json",
         "Origin": "https://www.kuaishou.com",
-        "Referer": f"https://www.kuaishou.com/search/video?searchKey={keyword}",
+        "Referer": f"https://www.kuaishou.com/search/video?searchKey={quote(keyword)}",
     }
     payload = {
         "keyword": keyword,
@@ -314,7 +315,7 @@ async def search_via_graphql(keyword: str) -> list:
         ),
         "Content-Type": "application/json",
         "Origin": "https://www.kuaishou.com",
-        "Referer": f"https://www.kuaishou.com/search/video?searchKey={keyword}",
+        "Referer": f"https://www.kuaishou.com/search/video?searchKey={quote(keyword)}",
     }
     payload = {
         "operationName": "visionSearchPhoto",
