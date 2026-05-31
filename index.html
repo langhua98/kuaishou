@@ -49,6 +49,17 @@ header { position: sticky; top: 0; z-index: 100;
            border-radius: 50%; animation: spin .7s linear infinite;
            vertical-align: middle; margin-right: 6px; }
 @keyframes spin { to { transform: rotate(360deg); } }
+#player-modal { display: none; position: fixed; inset: 0; z-index: 300;
+                background: #000; flex-direction: column; }
+#player-modal.open { display: flex; }
+#player-bar { display: flex; align-items: center; padding: 10px 14px;
+              background: #111; flex-shrink: 0; }
+#player-bar span { color: #fff; font-size: 14px; flex: 1;
+                   overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+#player-bar button { background: none; border: none; color: #fb7299;
+                     font-size: 15px; font-weight: 600; cursor: pointer;
+                     padding: 4px 10px; flex-shrink: 0; }
+#player-frame { flex: 1; width: 100%; border: none; }
 </style>
 </head>
 <body>
@@ -76,6 +87,15 @@ header { position: sticky; top: 0; z-index: 100;
 <div class="status" id="status">无需登录，直接搜索。</div>
 <div class="grid" id="grid"></div>
 
+<div id="player-modal">
+  <div id="player-bar">
+    <span id="player-title"></span>
+    <button onclick="closePlayer()">✕ 关闭</button>
+  </div>
+  <iframe id="player-frame" src="" allowfullscreen
+          allow="autoplay; fullscreen"></iframe>
+</div>
+
 <script>
 const KEY = "bili_backend";
 const DEFAULT_URL = "https://kuaishou-production.up.railway.app";
@@ -100,6 +120,18 @@ document.getElementById("overlay").addEventListener("click", function(e) {
   if (e.target === this) this.style.display = "none";
 });
 
+function openPlayer(bvid, title) {
+  document.getElementById("player-title").textContent = title || "";
+  document.getElementById("player-frame").src =
+    "https://player.bilibili.com/player.html?bvid=" + bvid + "&autoplay=1&danmaku=0&high_quality=1";
+  document.getElementById("player-modal").classList.add("open");
+}
+
+function closePlayer() {
+  document.getElementById("player-frame").src = "";
+  document.getElementById("player-modal").classList.remove("open");
+}
+
 document.getElementById("kw").addEventListener("keydown", e => {
   if (e.key === "Enter") { e.preventDefault(); doSearch(); }
 });
@@ -120,7 +152,7 @@ async function doSearch() {
     for (const v of data.results) {
       const card = document.createElement("div");
       card.className = "card";
-      card.onclick = () => window.open(v.pageUrl, "_blank");
+      card.onclick = () => openPlayer(v.id, v.caption);
       const playNum = typeof v.play === "number" ? v.play.toLocaleString() + " 播放" : "";
       card.innerHTML =
         (v.cover ? '<img src="' + esc(v.cover) + '" referrerpolicy="no-referrer" loading="lazy">'
