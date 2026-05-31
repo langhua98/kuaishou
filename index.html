@@ -146,6 +146,7 @@ header {
   <div class="search-row">
     <input id="kw" type="search" placeholder="搜索视频…" enterkeyhint="search">
     <button id="btn" onclick="doSearch()">搜索</button>
+    <button id="dbgBtn" onclick="doDebug()" title="诊断" style="padding:10px 12px;background:#636366;color:#fff;border:none;border-radius:24px;font-size:13px;cursor:pointer;">诊断</button>
   </div>
 </header>
 
@@ -238,6 +239,32 @@ async function doSearch() {
     status.innerHTML = `连接失败：${e.message}<br><small>当前地址：${saved || "未设置"} — 点 ⚙️ 重新确认</small>`;
   } finally {
     btn.disabled = false;
+  }
+}
+
+async function doDebug() {
+  const kw   = document.getElementById("kw").value.trim() || "跳舞";
+  const base = getUrl();
+  if (!base) { openCfg(); return; }
+  const status = document.getElementById("status");
+  const dbgBtn = document.getElementById("dbgBtn");
+  dbgBtn.disabled = true;
+  status.innerHTML = '<span class="spinner"></span>诊断中，约需 15 秒…';
+  try {
+    const res = await fetch(`${base}/api/debug?keyword=${encodeURIComponent(kw)}`);
+    const d   = await res.json();
+    status.innerHTML = `
+      <b>诊断结果</b><br>
+      是否被重定向（登录墙）：${d.redirected ? "<b style='color:#ff3b30'>是 ⚠️ 需要登录</b>" : "否 ✅"}<br>
+      抓到 JSON 响应数：<b>${d.json_responses_captured}</b><br>
+      最终页面地址：<small>${d.final_url}</small><br>
+      <details><summary style="cursor:pointer;color:#ff7a1a">展开原始数据</summary>
+      <pre style="font-size:10px;overflow:auto;max-height:180px;background:#f2f2f7;padding:8px;border-radius:8px;margin-top:6px">${JSON.stringify(d.summary, null, 2)}</pre></details>
+    `;
+  } catch(e) {
+    status.textContent = "诊断失败：" + e.message;
+  } finally {
+    dbgBtn.disabled = false;
   }
 }
 </script>

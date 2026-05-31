@@ -44,6 +44,12 @@ USER_DATA_DIR = str(Path("./kuaishou_userdata").resolve())
 # 本地开发默认弹出浏览器窗口(方便登录/过验证码); 云部署时设环境变量 HEADLESS=true
 HEADLESS = os.getenv("HEADLESS", "false").lower() == "true"
 
+# 云端无法扫码登录, 可把浏览器 Cookie 粘贴到 Railway 环境变量 KUAISHOU_COOKIES
+# 支持两种格式:
+#   1) 浏览器复制的原始字符串: "did=xxx; kuaishou.server.webp.at=yyy; ..."
+#   2) JSON 数组: [{"name":"did","value":"xxx","domain":".kuaishou.com"}, ...]
+KUAISHOU_COOKIES = os.getenv("KUAISHOU_COOKIES", "")
+
 # 抓取时等待 XHR 加载的时间(秒)。网慢就调大
 WAIT_AFTER_LOAD = 6
 
@@ -143,6 +149,26 @@ def deep_find_videos(data, found: list, seen_ids: set):
 
 
 # ---------------------------------------------------------------------------
+# Cookie 辅助
+# ---------------------------------------------------------------------------
+
+def parse_cookie_string(s: str) -> list:
+    """把浏览器 Cookie 字符串解析为 Playwright add_cookies 所需的列表"""
+    result = []
+    for part in s.split(";"):
+        part = part.strip()
+        if "=" in part:
+            name, _, value = part.partition("=")
+            result.append({
+                "name": name.strip(),
+                "value": value.strip(),
+                "domain": ".kuaishou.com",
+                "path": "/",
+            })
+    return result
+
+
+# ---------------------------------------------------------------------------
 # 抓取核心
 # ---------------------------------------------------------------------------
 
@@ -167,6 +193,17 @@ async def get_context():
                 "Chrome/124.0.0.0 Safari/537.36"
             ),
         )
+        if KUAISHOU_COOKIES:
+            try:
+                cookies = (
+                    json.loads(KUAISHOU_COOKIES)
+                    if KUAISHOU_COOKIES.strip().startswith("[")
+                    else parse_cookie_string(KUAISHOU_COOKIES)
+                )
+                await _browser_ctx.add_cookies(cookies)
+                print(f"[cookies] 注入 {len(cookies)} 条 cookie")
+            except Exception as e:
+                print(f"[cookies] 注入失败: {e}")
     return _browser_ctx
 
 
@@ -242,6 +279,54 @@ async def api_search(keyword: str = Query(..., min_length=1)):
         return JSONResponse({"ok": True, "count": len(results), "results": results})
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+@app.get("/api/debug")
+async def api_debug(keyword: str = Query(..., min_length=1)):
+    """诊断接口: 返回原始抓取情况, 不做视频提取, 用于排查 0 结果问题"""
+    async with _lock:
+        ctx = await get_context()
+        page = await ctx.new_page()
+        captured = []
+
+        async def on_resp(resp):
+            try:
+                ct = resp.headers.get("content-type", "")
+                if "application/json" in ct or "text/json" in ct:
+                    body = await resp.json()
+                    captured.append({"url": resp.url, "body": body})
+            except Exception:
+                pass
+
+        page.on("response", on_resp)
+        url = SEARCH_URL.format(keyword=keyword)
+        final_url = url
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            await page.wait_for_timeout(WAIT_AFTER_LOAD * 1000)
+            final_url = page.url
+        except Exception as e:
+            print(f"[debug error] {e}")
+        finally:
+            await page.close()
+
+    summary = []
+    for r in captured[:10]:
+        body = r["body"]
+        summary.append({
+            "url": r["url"],
+            "type": type(body).__name__,
+            "top_keys": list(body.keys())[:15] if isinstance(body, dict) else None,
+            "length": len(body) if isinstance(body, list) else None,
+        })
+
+    return JSONResponse({
+        "search_url": url,
+        "final_url": final_url,
+        "redirected": final_url != url,
+        "json_responses_captured": len(captured),
+        "summary": summary,
+    })
 
 
 @app.get("/", response_class=HTMLResponse)
