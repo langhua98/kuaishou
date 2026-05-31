@@ -1,243 +1,79 @@
 """
-快手搜索 - 最小可运行版本 (个人学习用途)
-================================================
-架构: FastAPI(Web服务) + Playwright(浏览器自动化抓取) + 内嵌前端页面
-
-工作原理:
-  1. 用真实浏览器打开快手搜索页, 让它自己执行 JS / 生成签名
-  2. 监听浏览器发出的所有网络响应, 把像"视频数据"的 JSON 收集起来
-  3. 递归扫描这些 JSON, 启发式地把视频对象捞出来
-  4. 返回给前端展示
-
-为什么用"拦截响应 + 递归提取"而不是写死接口字段:
-  快手的接口路径、字段名、数据嵌套层级随时会变。与其猜某个固定接口,
-  不如把浏览器收到的所有 JSON 都扫一遍, 找符合"视频"特征的对象, 这样更耐变化。
-
-⚠️ 你本地跑起来后, 大概率需要根据实际情况调整的两处, 我都用 [需实测调整] 标注了:
-   - SEARCH_URL: 快手搜索页的 URL 格式
-   - looks_like_video(): 判断"这是不是一个视频对象"的字段特征
+B站搜索 - 个人学习用途
+====================================================
+使用哔哩哔哩公开搜索 API，无需登录，直接返回视频列表。
+架构: FastAPI + httpx (纯 HTTP，无需浏览器)
 """
 
-import asyncio
-import json
 import os
+import re
 from contextlib import asynccontextmanager
-from pathlib import Path
-from urllib.parse import quote
 
 import httpx
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
-from playwright.async_api import async_playwright
 
-# ---------------------------------------------------------------------------
-# 配置
-# ---------------------------------------------------------------------------
+MAX_RESULTS = int(os.getenv("MAX_RESULTS", "20"))
 
-SEARCH_URL = "https://www.douyin.com/search/{keyword}?type=video"
+BILI_SEARCH = "https://api.bilibili.com/x/web-interface/search/type"
 
-USER_DATA_DIR = str(Path("./douyin_userdata").resolve())
-
-HEADLESS = os.getenv("HEADLESS", "false").lower() == "true"
-
-# 可把抖音 Cookie 粘贴到 Railway 环境变量 DOUYIN_COOKIES
-DOUYIN_COOKIES = os.getenv("DOUYIN_COOKIES", "")
-
-WAIT_AFTER_LOAD = 7
-
-MAX_RESULTS = 20
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Referer": "https://www.bilibili.com",
+}
 
 
-# ---------------------------------------------------------------------------
-# 启发式: 判断一个 dict 是不是"视频对象", 并从中提取我们要的字段
-# ---------------------------------------------------------------------------
-
-def looks_like_video(obj: dict) -> bool:
-    """判断一个 JSON 对象是不是抖音视频条目。
-    抖音视频对象特征: aweme_id (或 item_id) + video 子字典
-    """
-    if not isinstance(obj, dict):
-        return False
-    has_id = ("aweme_id" in obj) or ("item_id" in obj)
-    has_video = isinstance(obj.get("video"), dict)
-    return has_id and has_video
+def strip_html(text: str) -> str:
+    return re.sub(r"<[^>]+>", "", text or "")
 
 
-def _first_url(addr: dict) -> str | None:
-    """从抖音 addr 结构 {"url_list": [...]} 取第一个 url"""
-    if not isinstance(addr, dict):
-        return None
-    urls = addr.get("url_list") or []
-    return urls[0] if urls else None
-
-
-def normalize(obj: dict) -> dict:
-    """把抖音视频原始对象规整成前端统一结构"""
-    video = obj.get("video") or {}
-    author = obj.get("author") or {}
-    play_url = (
-        _first_url(video.get("play_addr"))
-        or _first_url(video.get("download_addr"))
-        or _first_url(video.get("play_addr_h264"))
-    )
-    cover = (
-        _first_url(video.get("cover"))
-        or _first_url(video.get("dynamic_cover"))
-        or _first_url(video.get("origin_cover"))
-    )
-    return {
-        "id": obj.get("aweme_id") or obj.get("item_id"),
-        "caption": obj.get("desc") or obj.get("share_desc"),
-        "author": author.get("nickname") if isinstance(author, dict) else None,
-        "cover": cover,
-        "playUrl": play_url,
+async def search_bilibili(keyword: str) -> list:
+    params = {
+        "keyword": keyword,
+        "search_type": "video",
+        "page": 1,
+        "pagesize": MAX_RESULTS,
+        "order": "totalrank",
     }
+    async with httpx.AsyncClient(timeout=15, headers=HEADERS) as client:
+        resp = await client.get(BILI_SEARCH, params=params)
+        resp.raise_for_status()
+        data = resp.json()
 
+    if data.get("code") != 0:
+        raise ValueError(f"B站 API 错误: code={data.get('code')} msg={data.get('message')}")
 
-def deep_find_videos(data, found: list, seen_ids: set):
-    """递归遍历任意 JSON 结构, 把所有像视频的对象捞出来"""
-    if isinstance(data, dict):
-        if looks_like_video(data):
-            v = normalize(data)
-            vid = v.get("id") or v.get("playUrl")
-            if vid and vid not in seen_ids:
-                seen_ids.add(vid)
-                found.append(v)
-        # 不管命没命中, 都继续往子节点找(视频可能嵌套在更深处)
-        for val in data.values():
-            deep_find_videos(val, found, seen_ids)
-    elif isinstance(data, list):
-        for item in data:
-            deep_find_videos(item, found, seen_ids)
+    items = (data.get("data") or {}).get("result") or []
+    results = []
+    for item in items[:MAX_RESULTS]:
+        bvid = item.get("bvid") or ""
+        pic = item.get("pic", "")
+        if pic.startswith("//"):
+            pic = "https:" + pic
+        results.append({
+            "id": bvid,
+            "caption": strip_html(item.get("title", "")),
+            "author": item.get("author", ""),
+            "cover": pic,
+            "pageUrl": f"https://www.bilibili.com/video/{bvid}" if bvid else item.get("arcurl", ""),
+            "play": item.get("play", 0),
+            "duration": item.get("duration", ""),
+        })
+    return results
 
-
-# ---------------------------------------------------------------------------
-# Cookie 辅助
-# ---------------------------------------------------------------------------
-
-def parse_cookie_string(s: str, domain: str = ".douyin.com") -> list:
-    result = []
-    for part in s.split(";"):
-        part = part.strip()
-        if "=" in part:
-            name, _, value = part.partition("=")
-            result.append({"name": name.strip(), "value": value.strip(),
-                           "domain": domain, "path": "/"})
-    return result
-
-
-# ---------------------------------------------------------------------------
-# 抓取核心
-# ---------------------------------------------------------------------------
-
-# 全局保存一个浏览器上下文, 复用登录态, 避免每次搜索都重开
-_browser_ctx = None
-_play = None
-_lock = asyncio.Lock()
-
-
-async def get_context():
-    global _browser_ctx, _play
-    if _browser_ctx is None:
-        _play = await async_playwright().start()
-        # launch_persistent_context: 把登录态/cookie 存到 USER_DATA_DIR, 下次复用
-        _browser_ctx = await _play.chromium.launch_persistent_context(
-            USER_DATA_DIR,
-            headless=HEADLESS,
-            viewport={"width": 1280, "height": 900},
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
-            # 关闭自动化检测特征，让快手认为这是普通浏览器
-            args=["--disable-blink-features=AutomationControlled"],
-            ignore_default_args=["--enable-automation"],
-        )
-        # 注入脚本，屏蔽 navigator.webdriver 标志
-        await _browser_ctx.add_init_script(
-            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-        )
-        if DOUYIN_COOKIES:
-            try:
-                cookies = (
-                    json.loads(DOUYIN_COOKIES)
-                    if DOUYIN_COOKIES.strip().startswith("[")
-                    else parse_cookie_string(DOUYIN_COOKIES)
-                )
-                await _browser_ctx.add_cookies(cookies)
-                print(f"[cookies] 注入 {len(cookies)} 条 cookie")
-            except Exception as e:
-                print(f"[cookies] 注入失败: {e}")
-    return _browser_ctx
-
-
-async def search_douyin(keyword: str) -> list:
-    async with _lock:  # 串行化, 避免并发请求互相干扰 + 降低被风控概率
-        ctx = await get_context()
-        page = await ctx.new_page()
-
-        captured_json = []  # 收集所有"长得像数据"的响应体
-
-        async def on_response(resp):
-            try:
-                ct = resp.headers.get("content-type", "")
-                if "application/json" in ct or "text/json" in ct:
-                    body = await resp.json()
-                    captured_json.append(body)
-            except Exception:
-                pass  # 拿不到/解析失败就跳过, 不影响主流程
-
-        page.on("response", on_response)
-
-        url = SEARCH_URL.format(keyword=keyword)
-        try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            # 给页面时间发 XHR、加载结果。也可在这窗口里手动过验证码/滑块。
-            await page.wait_for_timeout(WAIT_AFTER_LOAD * 1000)
-            # 往下滚一点, 触发更多内容加载
-            for _ in range(3):
-                await page.mouse.wheel(0, 2000)
-                await page.wait_for_timeout(1500)
-        except Exception as e:
-            print(f"[抓取页面时出错] {e}")
-        finally:
-            videos = []
-            seen = set()
-            for blob in captured_json:
-                deep_find_videos(blob, videos, seen)
-            await page.close()
-
-        return videos[:MAX_RESULTS]
-
-
-# ---------------------------------------------------------------------------
-# FastAPI
-# ---------------------------------------------------------------------------
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    try:
-        ctx = await get_context()
-        page = await ctx.new_page()
-        await page.goto("https://www.douyin.com", wait_until="domcontentloaded", timeout=25000)
-        await page.wait_for_timeout(3000)
-        await page.close()
-        print("[startup] 抖音 session 预热完成")
-    except Exception as e:
-        print(f"[startup] 预热失败（不影响运行）: {e}")
     yield
-    global _browser_ctx, _play
-    if _browser_ctx:
-        await _browser_ctx.close()
-    if _play:
-        await _play.stop()
 
 
-app = FastAPI(title="抖音搜索", lifespan=lifespan)
+app = FastAPI(title="B站搜索", lifespan=lifespan)
 
-# 允许 GitHub Pages 前端跨域调用
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -249,466 +85,10 @@ app.add_middleware(
 @app.get("/api/search")
 async def api_search(keyword: str = Query(..., min_length=1)):
     try:
-        results = await search_douyin(keyword)
-        return JSONResponse({"ok": True, "count": len(results), "source": "playwright", "results": results})
+        results = await search_bilibili(keyword)
+        return JSONResponse({"ok": True, "count": len(results), "results": results})
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
-
-
-def _collect_keys(data, result: set, depth=0):
-    """递归收集 JSON 里所有层级出现过的 key"""
-    if depth > 6:
-        return
-    if isinstance(data, dict):
-        for k, v in data.items():
-            result.add(k)
-            _collect_keys(v, result, depth + 1)
-    elif isinstance(data, list):
-        for item in data[:8]:
-            _collect_keys(item, result, depth + 1)
-
-
-@app.get("/api/debug")
-async def api_debug(keyword: str = Query(..., min_length=1)):
-    """诊断接口: 捕获请求体+响应体, 帮助还原真实 API 调用方式"""
-    async with _lock:
-        ctx = await get_context()
-        page = await ctx.new_page()
-        captured = []
-        search_requests = []  # 专门记录搜索相关的请求
-
-        async def on_req(req):
-            try:
-                if "search" in req.url and "kuaishou.com" in req.url:
-                    search_requests.append({
-                        "url": req.url,
-                        "method": req.method,
-                        "post_data": req.post_data,
-                        "headers": dict(req.headers),
-                    })
-            except Exception:
-                pass
-
-        async def on_resp(resp):
-            try:
-                ct = resp.headers.get("content-type", "")
-                if "application/json" in ct or "text/json" in ct:
-                    body = await resp.json()
-                    captured.append({"url": resp.url, "body": body})
-            except Exception:
-                pass
-
-        page.on("request", on_req)
-        page.on("response", on_resp)
-        url = SEARCH_URL.format(keyword=keyword)
-        final_url = url
-        try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            await page.wait_for_timeout(WAIT_AFTER_LOAD * 1000)
-            for _ in range(3):
-                await page.mouse.wheel(0, 2000)
-                await page.wait_for_timeout(1500)
-            final_url = page.url
-        except Exception as e:
-            print(f"[debug error] {e}")
-        finally:
-            await page.close()
-
-    all_keys: set = set()
-    for r in captured:
-        _collect_keys(r["body"], all_keys)
-
-    login_redirect = (
-        "login" in final_url.lower() or
-        "passport" in final_url.lower() or
-        "signin" in final_url.lower()
-    )
-
-    # 抖音视频特征字段
-    video_hint_keys = {"aweme_id","item_id","aweme_list","desc","share_desc",
-                       "play_addr","download_addr","cover","dynamic_cover",
-                       "author","nickname","video","statistics"}
-    found_video_keys = sorted(all_keys & video_hint_keys)
-
-    summary = []
-    for r in captured[:10]:
-        body = r["body"]
-        summary.append({
-            "url": r["url"],
-            "top_keys": list(body.keys())[:20] if isinstance(body, dict) else f"list[{len(body)}]",
-            # 对搜索接口显示完整响应体（方便分析错误码）
-            "full_body": body if "search" in r["url"] else None,
-        })
-
-    # 清理请求头中的敏感信息，只保留有用字段
-    clean_requests = []
-    for req in search_requests:
-        clean_requests.append({
-            "url": req["url"],
-            "method": req["method"],
-            "post_data": req["post_data"],
-            "cookie_keys": [k for k in (req.get("headers") or {}) if k.lower() == "cookie"],
-        })
-
-    return JSONResponse({
-        "login_redirect": login_redirect,
-        "final_url": final_url,
-        "json_responses_captured": len(captured),
-        "all_keys_count": len(all_keys),
-        "video_hint_keys_found": found_video_keys,
-        "verdict": (
-            "有视频字段，但 looks_like_video() 条件未命中，需调整字段名" if found_video_keys
-            else "无任何视频字段，不登录可能确实拿不到数据"
-        ),
-        "search_requests_intercepted": clean_requests,
-        "summary": summary,
-    })
-
-
-# ---------------------------------------------------------------------------
-# 扫码登录 (云端无法弹窗，通过截图让用户远程扫快手二维码)
-# ---------------------------------------------------------------------------
-
-_login_pg = None
-_login_pg_lock = asyncio.Lock()
-_screenshot_lock = asyncio.Lock()
-
-_login_error: str = ""      # 记录最近一次登录页加载错误
-_screenshot_error: str = "" # 记录最近一次截图错误
-
-
-async def _get_login_page(fresh: bool = False):
-    global _login_pg, _login_error
-    ctx = await get_context()
-    async with _login_pg_lock:
-        if fresh or _login_pg is None or _login_pg.is_closed():
-            if _login_pg and not _login_pg.is_closed():
-                await _login_pg.close()
-            _login_pg = await ctx.new_page()
-            # 屏蔽视频/字体等大文件，减少内存占用（保留图片，因为二维码需要）
-            await _login_pg.route(
-                "**/*.{mp4,webm,ogg,woff,woff2,ttf,eot}",
-                lambda route: route.abort()
-            )
-            try:
-                await _login_pg.goto(
-                    "https://www.douyin.com",
-                    wait_until="domcontentloaded",
-                    timeout=35000,
-                )
-                await _login_pg.wait_for_timeout(3000)
-                _login_error = ""
-                print(f"[login] 页面加载完成, URL={_login_pg.url}")
-            except Exception as e:
-                _login_error = str(e)
-                print(f"[login] 页面加载失败: {e}")
-    return _login_pg
-
-
-@app.get("/api/login/screenshot")
-async def login_screenshot(fresh: bool = False):
-    """返回当前浏览器页面截图(JPEG)；失败时返回 JSON 错误信息"""
-    global _screenshot_error
-    from fastapi.responses import Response
-
-    # 如果已有截图在进行中，等待而不是堆叠请求
-    if _screenshot_lock.locked() and not fresh:
-        return JSONResponse({"error": "busy, retry"}, status_code=503)
-
-    try:
-        page = await _get_login_page(fresh=fresh)
-        # 页面关闭时自动重建
-        if page.is_closed():
-            page = await _get_login_page(fresh=True)
-        async with _screenshot_lock:
-            shot = await page.screenshot(type="jpeg", quality=60, timeout=20000)
-        print(f"[login/screenshot] 成功, size={len(shot)} bytes, url={page.url}")
-        _screenshot_error = ""
-        return Response(content=shot, media_type="image/jpeg",
-                        headers={"Cache-Control": "no-store"})
-    except Exception as e:
-        _screenshot_error = str(e)
-        print(f"[login/screenshot] 失败: {type(e).__name__}: {e}")
-        return JSONResponse({"error": f"{type(e).__name__}: {e}", "login_error": _login_error}, status_code=500)
-
-
-@app.get("/api/login/pageinfo")
-async def login_pageinfo():
-    url = _login_pg.url if (_login_pg and not _login_pg.is_closed()) else "未初始化"
-    closed = (_login_pg is None) or _login_pg.is_closed()
-    return JSONResponse({
-        "current_url": url,
-        "page_closed": closed,
-        "last_error": _login_error,
-        "screenshot_error": _screenshot_error,
-    })
-
-
-@app.get("/api/login/diag")
-async def login_diag():
-    """诊断端点：直接截图 about:blank 验证 Playwright 是否正常"""
-    from fastapi.responses import Response
-    try:
-        ctx = await get_context()
-        pg = await ctx.new_page()
-        await pg.goto("about:blank")
-        shot = await pg.screenshot(type="jpeg", quality=50)
-        await pg.close()
-        pg2_url = _login_pg.url if (_login_pg and not _login_pg.is_closed()) else "none"
-        return JSONResponse({
-            "blank_screenshot_ok": True,
-            "blank_screenshot_size": len(shot),
-            "login_page_url": pg2_url,
-            "login_page_closed": (_login_pg is None or _login_pg.is_closed()),
-            "screenshot_error": _screenshot_error,
-            "login_error": _login_error,
-        })
-    except Exception as e:
-        return JSONResponse({"blank_screenshot_ok": False, "error": str(e)}, status_code=500)
-
-
-@app.get("/api/login/click")
-async def login_click(
-    x: float = Query(...),
-    y: float = Query(...),
-    iw: float = Query(1280),
-    ih: float = Query(900),
-):
-    """把手机上点击截图的坐标，映射到浏览器里执行真实点击"""
-    try:
-        page = await _get_login_page()
-        vp = page.viewport_size or {"width": 1280, "height": 900}
-        bx = x * vp["width"]  / iw
-        by = y * vp["height"] / ih
-        await page.mouse.click(bx, by)
-        await page.wait_for_timeout(1200)
-        return JSONResponse({"ok": True})
-    except Exception as e:
-        return JSONResponse({"ok": False, "error": str(e)})
-
-
-@app.get("/api/login/open_qr")
-async def login_open_qr():
-    """自动点击「立即登录」→「扫码登录」，让二维码出现"""
-    try:
-        page = await _get_login_page()
-        # 点击抖音登录按钮（多种选择器兼容不同版本）
-        for selector in ["text=登录", "[data-e2e='login-button']", ".login-button", "text=立即登录"]:
-            try:
-                await page.click(selector, timeout=3000)
-                await page.wait_for_timeout(2000)
-                break
-            except Exception:
-                continue
-        # 切换到扫码登录 tab
-        for selector in ["text=扫码登录", "text=二维码登录", "[data-e2e='qrcode-tab']"]:
-            try:
-                await page.click(selector, timeout=3000)
-                await page.wait_for_timeout(1000)
-                break
-            except Exception:
-                continue
-        return JSONResponse({"ok": True, "url": page.url})
-    except Exception as e:
-        return JSONResponse({"ok": False, "error": str(e)})
-
-
-@app.get("/api/login/status")
-async def login_status():
-    ctx = await get_context()
-    cookies = await ctx.cookies("https://www.douyin.com")
-    # 抖音登录后会有 sid_guard 或 uid_tt cookie
-    logged_in = any(
-        c["name"] in {"sid_guard", "uid_tt", "sessionid", "passport_auth_status"}
-        for c in cookies
-    )
-    return JSONResponse({"logged_in": logged_in})
-
-
-LOGIN_HTML = """<!DOCTYPE html>
-<html lang="zh">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=3">
-<title>抖音扫码登录</title>
-<style>
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: -apple-system, "PingFang SC", sans-serif;
-       background: #1c1c1e; color: #fff; min-height: 100vh; }
-header { padding: 16px; text-align: center; border-bottom: 1px solid #3a3a3c; }
-header h1 { font-size: 17px; }
-header p  { font-size: 13px; color: #aeaeb2; margin-top: 4px; }
-.shot-wrap { display: flex; justify-content: center; padding: 12px; position: relative; }
-#shot { width: 100%; max-width: 600px; border-radius: 10px;
-        border: 2px solid #3a3a3c; cursor: pointer; display: block; }
-#placeholder { width: 100%; max-width: 600px; aspect-ratio: 1280/900;
-               background: #2c2c2e; border-radius: 10px; border: 2px solid #3a3a3c;
-               display: flex; align-items: center; justify-content: center;
-               color: #aeaeb2; font-size: 14px; }
-#clickFeedback { display:none; position:absolute; width:24px; height:24px;
-                 border-radius:50%; background:rgba(255,122,26,.7);
-                 transform:translate(-50%,-50%); pointer-events:none; }
-.actions { display: flex; gap: 10px; padding: 0 16px 16px; flex-wrap: wrap; }
-button { flex: 1; min-width: 120px; padding: 12px; font-size: 15px; font-weight: 600;
-         border: none; border-radius: 12px; cursor: pointer; }
-.btn-primary { background: #ff7a1a; color: #fff; }
-.btn-secondary { background: #3a3a3c; color: #fff; }
-#shotErr { display:none; color:#ff9500; padding:10px 16px; font-size:13px; line-height:1.6; }
-.status-bar { text-align: center; padding: 10px 16px 20px; font-size: 14px; line-height: 1.6; }
-.ok   { color: #30d158; }
-.wait { color: #ffd60a; }
-.tip  { color: #aeaeb2; font-size: 13px; }
-</style>
-</head>
-<body>
-<header>
-  <h1>抖音扫码登录</h1>
-  <p>① 点「自动跳到扫码页」&nbsp;② 截图里出现二维码 &nbsp;③ 用抖音 App 扫 &nbsp;④ 点"检查登录"</p>
-</header>
-
-<div class="shot-wrap" id="shotWrap">
-  <div id="placeholder">截图加载中，请稍候…</div>
-  <img id="shot" style="display:none" alt="浏览器截图">
-  <div id="clickFeedback"></div>
-</div>
-<div id="shotErr"></div>
-
-<div class="actions">
-  <button class="btn-primary" onclick="autoQr()" id="qrBtn">📷 自动跳到扫码页</button>
-  <button class="btn-secondary" onclick="checkStatus()">✅ 检查登录</button>
-</div>
-<div class="actions" style="padding-top:0">
-  <button class="btn-secondary" onclick="loadShot(true)">🔄 重新加载</button>
-  <button class="btn-secondary" onclick="runDiag()" style="flex:0;min-width:60px;font-size:13px">🔍 诊断</button>
-</div>
-<div id="diagResult" style="display:none;padding:10px 16px;font-size:12px;color:#aeaeb2;word-break:break-all;line-height:1.6"></div>
-<div class="status-bar" id="statusBar">
-  <span class="wait">等待扫码…截图每 3 秒自动刷新</span><br>
-  <span class="tip">
-    点截图里任何位置 = 浏览器真实点击那里<br>
-    流程：① 点「自动跳到扫码页」→ ② 等截图刷新出现二维码 → ③ 用抖音 App 扫码
-  </span>
-</div>
-
-<script>
-let _currentCtrl = null;
-let _autoTimer   = null;
-let _currentBlobUrl = null;
-
-// 用 fetch 取截图，避免 img.src 换源时触发 onerror 的误报
-async function loadShot(fresh) {
-  if (_currentCtrl) { _currentCtrl.abort(); _currentCtrl = null; }
-  const ctrl = new AbortController();
-  _currentCtrl = ctrl;
-
-  const url = "/api/login/screenshot" + (fresh ? "?fresh=true&" : "?") + "_=" + Date.now();
-  try {
-    const resp = await fetch(url, { signal: ctrl.signal });
-    if (resp.status === 503) return; // 服务器忙，等下次定时刷新
-    if (!resp.ok) {
-      // 服务器真实错误
-      let errMsg = "HTTP " + resp.status;
-      try { const j = await resp.json(); errMsg = j.error || errMsg; } catch(_) {}
-      showErr(errMsg);
-      return;
-    }
-    const blob = await resp.blob();
-    const newUrl = URL.createObjectURL(blob);
-
-    // 替换图片
-    const img = document.getElementById("shot");
-    img.onclick = sendClick;
-    img.src = newUrl;
-    img.style.display = "block";
-    document.getElementById("placeholder").style.display = "none";
-    document.getElementById("shotErr").style.display = "none";
-
-    // 释放旧 blob URL
-    if (_currentBlobUrl) URL.revokeObjectURL(_currentBlobUrl);
-    _currentBlobUrl = newUrl;
-  } catch(e) {
-    if (e.name === "AbortError") return; // 被新请求取消，忽略
-    showErr(e.message);
-  } finally {
-    if (_currentCtrl === ctrl) _currentCtrl = null;
-  }
-}
-
-function showErr(msg) {
-  document.getElementById("shotErr").style.display = "block";
-  document.getElementById("shotErr").textContent = "截图失败：" + msg + "（将自动重试）";
-}
-
-async function sendClick(e) {
-  const img = document.getElementById("shot");
-  const rect = img.getBoundingClientRect();
-  const x = e.clientX - rect.left;
-  const y = e.clientY - rect.top;
-  const fb = document.getElementById("clickFeedback");
-  fb.style.left = x + "px"; fb.style.top = y + "px"; fb.style.display = "block";
-  setTimeout(() => fb.style.display = "none", 600);
-  try {
-    await fetch("/api/login/click?x=" + x + "&y=" + y + "&iw=" + rect.width + "&ih=" + rect.height);
-    setTimeout(() => loadShot(false), 800);
-  } catch(err) { console.warn(err); }
-}
-
-async function checkStatus() {
-  clearInterval(_autoTimer); _autoTimer = null;
-  const bar = document.getElementById("statusBar");
-  bar.innerHTML = '<span class="wait">检查中…</span>';
-  try {
-    const r = await fetch("/api/login/status");
-    const d = await r.json();
-    if (d.logged_in) {
-      bar.innerHTML = '<span class="ok">✅ 登录成功！可以回到搜索页搜索了。</span><br>' +
-        '<a href="/" style="color:#ff7a1a;font-size:14px">← 返回搜索首页</a>';
-    } else {
-      bar.innerHTML = '<span class="wait">未检测到登录，请继续扫码。</span>';
-      _autoTimer = setInterval(() => loadShot(false), 3000);
-    }
-  } catch(e) {
-    bar.innerHTML = '<span style="color:#ff453a">检查失败：' + e.message + '</span>';
-    _autoTimer = setInterval(() => loadShot(false), 3000);
-  }
-}
-
-async function autoQr() {
-  const btn = document.getElementById("qrBtn");
-  btn.disabled = true; btn.textContent = "正在操作浏览器…";
-  try {
-    await fetch("/api/login/open_qr");
-    // 等 2 秒让页面跳转完成，再刷新截图
-    await new Promise(r => setTimeout(r, 2000));
-    loadShot(false);
-  } catch(e) { console.warn(e); }
-  finally { btn.disabled = false; btn.textContent = "📷 自动跳到扫码页"; }
-}
-
-async function runDiag() {
-  const box = document.getElementById("diagResult");
-  box.style.display = "block";
-  box.textContent = "诊断中…";
-  try {
-    const r = await fetch("/api/login/diag");
-    const d = await r.json();
-    box.textContent = JSON.stringify(d, null, 2);
-  } catch(e) {
-    box.textContent = "诊断失败: " + e.message;
-  }
-}
-
-// 启动
-_autoTimer = setInterval(() => loadShot(false), 3000);
-loadShot(false);
-</script>
-</body>
-</html>"""
-
-
-@app.get("/login", response_class=HTMLResponse)
-async def login_view():
-    return LOGIN_HTML
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -716,90 +96,96 @@ async def index():
     return HTML_PAGE
 
 
-# ---------------------------------------------------------------------------
-# 内嵌前端 (一个文件搞定, 启动后访问 http://127.0.0.1:8000 即可)
-# ---------------------------------------------------------------------------
-
-HTML_PAGE = """
-<!DOCTYPE html>
+HTML_PAGE = """<!DOCTYPE html>
 <html lang="zh">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>抖音搜索</title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>B站搜索</title>
 <style>
-  * { box-sizing: border-box; }
-  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-         margin: 0; background: #f5f5f7; color: #1d1d1f; }
-  header { padding: 24px 20px; background: #fff; border-bottom: 1px solid #e5e5ea; }
-  h1 { font-size: 18px; margin: 0 0 14px; }
-  .bar { display: flex; gap: 8px; max-width: 720px; }
-  input { flex: 1; padding: 10px 12px; font-size: 15px; border: 1px solid #d0d0d5;
-          border-radius: 8px; outline: none; }
-  input:focus { border-color: #ff7a1a; }
-  button { padding: 10px 20px; font-size: 15px; border: none; border-radius: 8px;
-           background: #ff7a1a; color: #fff; cursor: pointer; }
-  button:disabled { opacity: .5; cursor: default; }
-  .status { max-width: 720px; margin: 12px auto 0; padding: 0 20px; color: #6e6e73; font-size: 14px; }
-  .grid { max-width: 1100px; margin: 20px auto; padding: 0 20px;
-          display: grid; grid-template-columns: repeat(auto-fill, minmax(220px,1fr)); gap: 16px; }
-  .card { background: #fff; border-radius: 12px; overflow: hidden; border: 1px solid #e5e5ea; }
-  .card .cover { width: 100%; aspect-ratio: 9/12; object-fit: cover; background: #eee; display: block; }
-  .card .body { padding: 10px 12px; }
-  .card .cap { font-size: 14px; line-height: 1.4; max-height: 40px; overflow: hidden; }
-  .card .author { font-size: 12px; color: #8e8e93; margin-top: 6px; }
-  .card a { font-size: 13px; color: #ff7a1a; text-decoration: none; display: inline-block; margin-top: 8px; }
-  video { width: 100%; display: block; background:#000; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, "PingFang SC", sans-serif;
+       background: #f2f2f7; color: #1c1c1e; min-height: 100vh; }
+header { position: sticky; top: 0; z-index: 100;
+         background: rgba(255,255,255,.95); backdrop-filter: blur(12px);
+         border-bottom: 1px solid #e5e5ea; padding: 12px 14px 10px; }
+.row1 { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.logo { font-size: 16px; font-weight: 700; flex: 1; color: #fb7299; }
+.search-row { display: flex; gap: 8px; }
+.search-row input { flex: 1; padding: 10px 16px; border: 1.5px solid #d1d1d6;
+                    border-radius: 24px; font-size: 15px; outline: none; background: #f2f2f7; }
+.search-row input:focus { border-color: #fb7299; background: #fff; }
+.search-row button { padding: 10px 18px; background: #fb7299; color: #fff;
+                     border: none; border-radius: 24px; font-size: 15px;
+                     font-weight: 600; cursor: pointer; white-space: nowrap; }
+.search-row button:disabled { opacity: .45; }
+.status { padding: 10px 14px; font-size: 13px; color: #8e8e93; min-height: 36px; }
+.grid { display: grid; grid-template-columns: repeat(2, 1fr);
+        gap: 10px; padding: 0 10px 30px; }
+.card { background: #fff; border-radius: 14px; overflow: hidden;
+        box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+.card img { width: 100%; aspect-ratio: 16/10; object-fit: cover; display: block; background: #eee; }
+.card .info { padding: 8px 10px 10px; }
+.card .cap { font-size: 13px; line-height: 1.4; overflow: hidden;
+             display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.card .meta { font-size: 11px; color: #aeaeb2; margin-top: 4px; }
+.card a { display: inline-block; margin-top: 6px; font-size: 12px;
+          color: #fb7299; text-decoration: none; }
+.spinner { display: inline-block; width: 16px; height: 16px;
+           border: 2px solid #e5e5ea; border-top-color: #fb7299;
+           border-radius: 50%; animation: spin .7s linear infinite;
+           vertical-align: middle; margin-right: 6px; }
+@keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
 <header>
-  <h1>抖音搜索（个人学习用）</h1>
-  <div class="bar">
-    <input id="kw" placeholder="输入关键词，回车搜索…" />
-    <button id="btn">搜索</button>
+  <div class="row1"><span class="logo">📺 B站搜索</span></div>
+  <div class="search-row">
+    <input id="kw" type="search" placeholder="搜索B站视频…" enterkeyhint="search">
+    <button id="btn" onclick="doSearch()">搜索</button>
   </div>
 </header>
-<div class="status" id="status">提示：首次使用请在弹出的浏览器窗口里登录快手；搜索较慢属正常（后台真实浏览器在跑）。</div>
+<div class="status" id="status">输入关键词开始搜索，无需登录。</div>
 <div class="grid" id="grid"></div>
-
 <script>
-const $ = s => document.querySelector(s);
-const btn = $("#btn"), kw = $("#kw"), grid = $("#grid"), status = $("#status");
-
+const esc = s => (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+document.getElementById("kw").addEventListener("keydown", e => {
+  if (e.key === "Enter") { e.preventDefault(); doSearch(); }
+});
 async function doSearch() {
-  const k = kw.value.trim();
-  if (!k) return;
+  const kw = document.getElementById("kw").value.trim();
+  if (!kw) return;
+  const btn = document.getElementById("btn");
+  const status = document.getElementById("status");
+  const grid = document.getElementById("grid");
   btn.disabled = true;
   grid.innerHTML = "";
-  status.textContent = "搜索中……（后台浏览器执行中，请稍候十几秒）";
+  status.innerHTML = '<span class="spinner"></span>搜索中…';
   try {
-    const r = await fetch("/api/search?keyword=" + encodeURIComponent(k));
-    const data = await r.json();
-    if (!data.ok) { status.textContent = "出错：" + data.error; return; }
-    status.textContent = `共找到 ${data.count} 条结果` + (data.count === 0 ? "（可能未登录/被风控/字段需调整，详见终端日志与 README）" : "");
+    const res = await fetch("/api/search?keyword=" + encodeURIComponent(kw));
+    const data = await res.json();
+    if (!data.ok) { status.textContent = "出错：" + (data.error || JSON.stringify(data)); return; }
+    status.textContent = data.count > 0 ? "找到 " + data.count + " 条结果" : "未找到结果";
     for (const v of data.results) {
       const card = document.createElement("div");
       card.className = "card";
-      const cover = v.cover ? `<img class="cover" src="${v.cover}" referrerpolicy="no-referrer">` : "";
-      const player = v.playUrl ? `<video class="cover" src="${v.playUrl}" controls preload="none" poster="${v.cover||''}"></video>` : cover;
-      card.innerHTML = `
-        ${player || '<div class="cover"></div>'}
-        <div class="body">
-          <div class="cap">${(v.caption||"(无标题)").replace(/</g,"&lt;")}</div>
-          <div class="author">${v.author||""}</div>
-          ${v.playUrl ? `<a href="${v.playUrl}" target="_blank">在新标签打开</a>` : ""}
-        </div>`;
+      const playNum = typeof v.play === "number" ? v.play.toLocaleString() + " 播放" : "";
+      card.innerHTML =
+        (v.cover ? '<img src="' + esc(v.cover) + '" referrerpolicy="no-referrer" loading="lazy">' : '<div style="aspect-ratio:16/10;background:#eee"></div>') +
+        '<div class="info">' +
+          '<div class="cap">' + esc(v.caption || "(无标题)") + '</div>' +
+          '<div class="meta">' + esc(v.author || "") + (playNum ? " · " + playNum : "") + (v.duration ? " · " + esc(v.duration) : "") + '</div>' +
+          (v.pageUrl ? '<a href="' + esc(v.pageUrl) + '" target="_blank">去B站看 ↗</a>' : '') +
+        '</div>';
       grid.appendChild(card);
     }
-  } catch (e) {
-    status.textContent = "请求失败：" + e;
+  } catch(e) {
+    status.textContent = "请求失败：" + e.message;
   } finally {
     btn.disabled = false;
   }
 }
-btn.onclick = doSearch;
-kw.addEventListener("keydown", e => { if (e.key === "Enter") doSearch(); });
 </script>
 </body>
 </html>
