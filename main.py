@@ -194,6 +194,13 @@ async def get_context():
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/124.0.0.0 Safari/537.36"
             ),
+            # 关闭自动化检测特征，让快手认为这是普通浏览器
+            args=["--disable-blink-features=AutomationControlled"],
+            ignore_default_args=["--enable-automation"],
+        )
+        # 注入脚本，屏蔽 navigator.webdriver 标志
+        await _browser_ctx.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
         )
         if KUAISHOU_COOKIES:
             try:
@@ -591,32 +598,18 @@ async def _get_login_page(fresh: bool = False):
             if _login_pg and not _login_pg.is_closed():
                 await _login_pg.close()
             _login_pg = await ctx.new_page()
-            # 依次尝试几个 URL，哪个能加载就用哪个
-            urls = [
-                "https://www.kuaishou.com",
-                "https://kuaishou.com",
-            ]
-            for u in urls:
-                try:
-                    await _login_pg.goto(u, wait_until="domcontentloaded", timeout=20000)
-                    await _login_pg.wait_for_timeout(3000)
-                    _login_error = ""
-                    print(f"[login] 成功加载: {u}  当前URL: {_login_pg.url}")
-                    break
-                except Exception as e:
-                    _login_error = str(e)
-                    print(f"[login] 加载失败 {u}: {e}")
-            # 尝试点击扫码登录入口
             try:
-                for sel in ["text=扫码登录", "text=二维码", "[class*='qrcode']", "[class*='scan']"]:
-                    el = _login_pg.locator(sel).first
-                    if await el.count() > 0:
-                        await el.click(timeout=3000)
-                        await _login_pg.wait_for_timeout(2000)
-                        print(f"[login] 点击扫码入口: {sel}")
-                        break
-            except Exception:
-                pass
+                await _login_pg.goto(
+                    "https://www.kuaishou.com",
+                    wait_until="load",
+                    timeout=30000,
+                )
+                await _login_pg.wait_for_timeout(5000)
+                _login_error = ""
+                print(f"[login] 加载完成, URL: {_login_pg.url}")
+            except Exception as e:
+                _login_error = str(e)
+                print(f"[login] 加载失败: {e}")
     return _login_pg
 
 
@@ -637,9 +630,28 @@ async def login_screenshot(fresh: bool = False):
 
 @app.get("/api/login/pageinfo")
 async def login_pageinfo():
-    """返回登录页当前 URL 和错误信息，用于诊断"""
     url = _login_pg.url if (_login_pg and not _login_pg.is_closed()) else "未初始化"
     return JSONResponse({"current_url": url, "last_error": _login_error})
+
+
+@app.get("/api/login/click")
+async def login_click(
+    x: float = Query(...),
+    y: float = Query(...),
+    iw: float = Query(1280),
+    ih: float = Query(900),
+):
+    """把手机上点击截图的坐标，映射到浏览器里执行真实点击"""
+    try:
+        page = await _get_login_page()
+        vp = page.viewport_size or {"width": 1280, "height": 900}
+        bx = x * vp["width"]  / iw
+        by = y * vp["height"] / ih
+        await page.mouse.click(bx, by)
+        await page.wait_for_timeout(1200)
+        return JSONResponse({"ok": True})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
 @app.get("/api/login/status")
@@ -687,9 +699,12 @@ button { flex: 1; min-width: 120px; padding: 12px; font-size: 15px; font-weight:
   <p>① 看下方截图里的二维码 &nbsp;② 用快手 App 扫 &nbsp;③ 点"检查登录"</p>
 </header>
 
-<div class="shot-wrap">
+<div class="shot-wrap" style="position:relative">
   <img id="shot" src="/api/login/screenshot" alt="截图加载中，请稍候…"
-       onerror="onShotError(this)">
+       onerror="onShotError(this)" onclick="sendClick(event)" style="cursor:pointer">
+  <div id="clickFeedback" style="display:none;position:absolute;width:24px;height:24px;
+       border-radius:50%;background:rgba(255,122,26,.7);transform:translate(-50%,-50%);
+       pointer-events:none"></div>
 </div>
 <div id="shotErr" style="display:none;color:#ff453a;padding:12px 16px;font-size:13px;line-height:1.6"></div>
 
@@ -700,13 +715,29 @@ button { flex: 1; min-width: 120px; padding: 12px; font-size: 15px; font-weight:
 <div class="status-bar" id="statusBar">
   <span class="wait">等待扫码…截图每 2 秒自动刷新</span><br>
   <span class="tip">
-    看到二维码后：长按截图图片 → iOS 相机会识别二维码 → 打开快手 App 扫描<br>
-    或截图后用快手 App 的「扫一扫」功能扫屏幕上的码
+    截图可以点击，点哪里浏览器就点哪里。<br>
+    操作流程：① 点页面右上角「登录」按钮 → ② 点「扫码登录」→ ③ 对着二维码截图 → ④ 用快手 App 扫一扫从相册识别
   </span>
 </div>
 
 <script>
-let autoTimer = setInterval(refreshShot, 2000);
+let autoTimer = setInterval(refreshShot, 2500);
+
+async function sendClick(e) {
+  const img = document.getElementById("shot");
+  const rect = img.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  // 显示点击反馈圆点
+  const fb = document.getElementById("clickFeedback");
+  fb.style.left = x + "px"; fb.style.top = y + "px"; fb.style.display = "block";
+  setTimeout(() => fb.style.display = "none", 600);
+  try {
+    await fetch(`/api/login/click?x=${x}&y=${y}&iw=${rect.width}&ih=${rect.height}`);
+    // 点击后立刻刷新截图
+    setTimeout(refreshShot, 800);
+  } catch(err) { console.warn(err); }
+}
 
 function refreshShot(fresh) {
   const img = document.getElementById("shot");
