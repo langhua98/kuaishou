@@ -24,6 +24,7 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import httpx
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -207,6 +208,94 @@ async def get_context():
     return _browser_ctx
 
 
+# ---------------------------------------------------------------------------
+# 方案一: 直接调 GraphQL（快手前端用的接口）
+# 只需浏览器自动分配的 did cookie，不需要用户账号登录。
+# 快手前端遇到未登录会不发请求；我们跳过前端直接调，通常能绕过这个限制。
+# ---------------------------------------------------------------------------
+
+_GQL_QUERY = """
+query visionSearchPhoto($keyword: String!, $pcursor: String, $page: String) {
+  visionSearchPhoto(keyword: $keyword, pcursor: $pcursor, page: $page) {
+    result
+    feeds {
+      photo {
+        id
+        caption
+        photoUrl
+        coverUrl
+        duration
+        viewCount
+        author { id name headerUrl }
+        mainMvUrls { url }
+      }
+    }
+    pcursor
+  }
+}
+"""
+
+
+async def search_via_graphql(keyword: str) -> list:
+    ctx = await get_context()
+    raw = await ctx.cookies("https://www.kuaishou.com")
+    cookies = {c["name"]: c["value"] for c in raw}
+
+    if not cookies.get("did"):
+        print("[graphql] 没有 did cookie，跳过")
+        return []
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Content-Type": "application/json",
+        "Origin": "https://www.kuaishou.com",
+        "Referer": f"https://www.kuaishou.com/search/video?searchKey={keyword}",
+    }
+    payload = {
+        "operationName": "visionSearchPhoto",
+        "variables": {"keyword": keyword, "pcursor": "", "page": "search"},
+        "query": _GQL_QUERY,
+    }
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        resp = await client.post(
+            "https://www.kuaishou.com/graphql",
+            json=payload, headers=headers, cookies=cookies,
+        )
+        data = resp.json()
+
+    print(f"[graphql] result={data.get('data', {}).get('visionSearchPhoto', {}).get('result')}")
+
+    feeds = (
+        (data.get("data") or {})
+        .get("visionSearchPhoto", {})
+        .get("feeds") or []
+    )
+
+    results, seen = [], set()
+    for feed in feeds:
+        photo = (feed or {}).get("photo") or {}
+        vid = photo.get("id")
+        if not vid or vid in seen:
+            continue
+        seen.add(vid)
+        mv = photo.get("mainMvUrls") or []
+        play_url = (mv[0].get("url") if isinstance(mv[0], dict) else mv[0]) if mv else photo.get("photoUrl")
+        results.append({
+            "id": vid,
+            "caption": photo.get("caption"),
+            "author": (photo.get("author") or {}).get("name"),
+            "cover": photo.get("coverUrl"),
+            "playUrl": play_url,
+        })
+
+    return results[:MAX_RESULTS]
+
+
 async def search_kuaishou(keyword: str) -> list:
     async with _lock:  # 串行化, 避免并发请求互相干扰 + 降低被风控概率
         ctx = await get_context()
@@ -252,6 +341,17 @@ async def search_kuaishou(keyword: str) -> list:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # 启动时访问快手首页，让浏览器获取 did 等 session cookie
+    # 这样 GraphQL 搜索就能直接用，不需要用户登录
+    try:
+        ctx = await get_context()
+        page = await ctx.new_page()
+        await page.goto("https://www.kuaishou.com", wait_until="domcontentloaded", timeout=25000)
+        await page.wait_for_timeout(3000)
+        await page.close()
+        print("[startup] session 预热完成（已获取 did cookie）")
+    except Exception as e:
+        print(f"[startup] 预热失败（不影响运行）: {e}")
     yield
     # 关服务时清理浏览器
     global _browser_ctx, _play
@@ -275,8 +375,17 @@ app.add_middleware(
 @app.get("/api/search")
 async def api_search(keyword: str = Query(..., min_length=1)):
     try:
-        results = await search_kuaishou(keyword)
-        return JSONResponse({"ok": True, "count": len(results), "results": results})
+        # 先试直接 GraphQL（快、无需用户登录）
+        results = await search_via_graphql(keyword)
+        source = "graphql"
+
+        # GraphQL 没数据，回退到完整浏览器渲染（需要登录才有效）
+        if not results:
+            print("[search] GraphQL 无结果，回退到 Playwright")
+            results = await search_kuaishou(keyword)
+            source = "playwright"
+
+        return JSONResponse({"ok": True, "count": len(results), "source": source, "results": results})
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
