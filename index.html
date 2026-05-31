@@ -132,7 +132,7 @@ header {
   <div class="sheet">
     <h2>设置后端地址</h2>
     <p>填入你在 Railway / Render 等平台部署好的服务地址。<br>格式：<code>https://xxx.railway.app</code>（结尾不加斜杠）</p>
-    <input id="urlInput" type="url" placeholder="https://your-app.railway.app" autocapitalize="none" spellcheck="false">
+    <input id="urlInput" type="text" inputmode="url" placeholder="https://your-app.railway.app" autocapitalize="none" autocorrect="off" spellcheck="false">
     <button class="save-btn" onclick="saveUrl()">保存</button>
   </div>
 </div>
@@ -159,11 +159,19 @@ const esc = s => (s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>
 function getUrl() { return localStorage.getItem(KEY) || ""; }
 
 function saveUrl() {
-  const v = document.getElementById("urlInput").value.trim().replace(/\/+$/, "");
+  let v = document.getElementById("urlInput").value.trim().replace(/\/+$/, "");
   if (!v) return;
+  // 自动补 https:// 前缀
+  if (!/^https?:\/\//i.test(v)) v = "https://" + v;
+  try {
+    new URL(v); // 验证格式是否合法
+  } catch (_) {
+    alert("地址格式不对，请填入完整地址，例如：\nhttps://xxxx.railway.app");
+    return;
+  }
   localStorage.setItem(KEY, v);
   document.getElementById("overlay").style.display = "none";
-  document.getElementById("status").textContent = "后端地址已保存，可以搜索了。";
+  document.getElementById("status").textContent = "后端地址已保存：" + v;
 }
 
 function openCfg() {
@@ -226,7 +234,8 @@ async function doSearch() {
       grid.appendChild(card);
     }
   } catch (e) {
-    status.textContent = "连接失败：" + e.message;
+    const saved = getUrl();
+    status.innerHTML = `连接失败：${e.message}<br><small>当前地址：${saved || "未设置"} — 点 ⚙️ 重新确认</small>`;
   } finally {
     btn.disabled = false;
   }
