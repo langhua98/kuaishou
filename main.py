@@ -5,8 +5,11 @@ B站搜索 - 个人学习用途
 架构: FastAPI + httpx (纯 HTTP，无需浏览器)
 """
 
+import hashlib
 import os
 import re
+import time
+import urllib.parse
 from contextlib import asynccontextmanager
 
 import httpx
@@ -17,6 +20,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 MAX_RESULTS = int(os.getenv("MAX_RESULTS", "20"))
 
 BILI_SEARCH = "https://api.bilibili.com/x/web-interface/search/type"
+BILI_NAV    = "https://api.bilibili.com/x/web-interface/nav"
 BILI_HOME   = "https://www.bilibili.com"
 
 HEADERS = {
@@ -29,24 +33,56 @@ HEADERS = {
     "Origin":  "https://www.bilibili.com",
 }
 
-# 持久化 httpx client，保持 cookie jar（buvid3 等必要 cookie）
+# B站 wbi 签名用的乱序表
+_WBI_TAB = [
+    46,47,18, 2,53, 8,23,32,15,50,10,31,58, 3,45,35,
+    27,43, 5,49,33, 9,42,19,29,28,14,39,12,38,41,13,
+    37,48, 7,16,24,55,40,61,26,17, 0, 1,60,51,30, 4,
+    22,25,54,21,56,59, 6,63,57,62,11,36,20,34,44,52,
+]
+
 _client: httpx.AsyncClient | None = None
+_wbi_img_key: str = ""
+_wbi_sub_key: str = ""
+
+
+def _mixin_key(img: str, sub: str) -> str:
+    raw = img + sub
+    return "".join(raw[i] for i in _WBI_TAB if i < len(raw))[:32]
+
+
+def _sign(params: dict) -> dict:
+    """给参数字典附加 wts + w_rid 签名"""
+    p = dict(params)
+    p["wts"] = str(int(time.time()))
+    items = sorted(p.items())
+    qs = urllib.parse.urlencode([
+        (k, re.sub(r"[!'()*]", "", str(v)))
+        for k, v in items
+    ])
+    p["w_rid"] = hashlib.md5((qs + _mixin_key(_wbi_img_key, _wbi_sub_key)).encode()).hexdigest()
+    return p
 
 
 async def get_client() -> httpx.AsyncClient:
-    global _client
+    global _client, _wbi_img_key, _wbi_sub_key
     if _client is None:
-        _client = httpx.AsyncClient(
-            headers=HEADERS,
-            timeout=15,
-            follow_redirects=True,
-        )
-        # 访问首页，让 B站 设置 buvid3 等必要 cookie
+        _client = httpx.AsyncClient(headers=HEADERS, timeout=15, follow_redirects=True)
+        # 1. 访问首页获取 buvid3 等 cookie
         try:
             await _client.get(BILI_HOME)
-            print("[bilibili] 首页预热完成，已获取 cookie")
+            print("[bilibili] 首页预热完成")
         except Exception as e:
-            print(f"[bilibili] 预热失败: {e}")
+            print(f"[bilibili] 首页预热失败: {e}")
+        # 2. 获取 wbi 签名密钥
+        try:
+            r = await _client.get(BILI_NAV)
+            wbi = r.json().get("data", {}).get("wbi_img", {})
+            _wbi_img_key = wbi.get("img_url", "").rsplit("/", 1)[-1].split(".")[0]
+            _wbi_sub_key = wbi.get("sub_url", "").rsplit("/", 1)[-1].split(".")[0]
+            print(f"[bilibili] wbi keys 获取成功")
+        except Exception as e:
+            print(f"[bilibili] wbi keys 获取失败: {e}")
     return _client
 
 
@@ -56,19 +92,23 @@ def strip_html(text: str) -> str:
 
 async def search_bilibili(keyword: str) -> list:
     client = await get_client()
-    params = {
+    params = _sign({
         "keyword": keyword,
         "search_type": "video",
         "page": 1,
         "pagesize": MAX_RESULTS,
         "order": "totalrank",
-    }
+    })
     resp = await client.get(BILI_SEARCH, params=params)
+    # 如果响应为空或非 JSON，先记录原始内容方便排查
+    raw = resp.text
+    if not raw.strip():
+        raise ValueError(f"B站返回空响应 (HTTP {resp.status_code})")
     resp.raise_for_status()
     data = resp.json()
 
     if data.get("code") != 0:
-        raise ValueError(f"B站 API 错误: code={data.get('code')} msg={data.get('message')}")
+        raise ValueError(f"B站 API code={data.get('code')}: {data.get('message')}")
 
     items = (data.get("data") or {}).get("result") or []
     results = []
