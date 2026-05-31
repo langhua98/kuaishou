@@ -785,7 +785,7 @@ async function loadShot(fresh) {
   const ctrl = new AbortController();
   _currentCtrl = ctrl;
 
-  const url = "/api/login/screenshot" + (fresh ? "?fresh=true" : "") + "&_=" + Date.now();
+  const url = "/api/login/screenshot" + (fresh ? "?fresh=true&" : "?") + "_=" + Date.now();
   try {
     const resp = await fetch(url, { signal: ctrl.signal });
     if (resp.status === 503) return; // 服务器忙，等下次定时刷新
