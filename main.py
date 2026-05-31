@@ -684,16 +684,23 @@ body { font-family: -apple-system, "PingFang SC", sans-serif;
 header { padding: 16px; text-align: center; border-bottom: 1px solid #3a3a3c; }
 header h1 { font-size: 17px; }
 header p  { font-size: 13px; color: #aeaeb2; margin-top: 4px; }
-.shot-wrap { display: flex; justify-content: center; padding: 12px; }
-.shot-wrap img { width: 100%; max-width: 600px; border-radius: 10px;
-                 border: 2px solid #3a3a3c; }
+.shot-wrap { display: flex; justify-content: center; padding: 12px; position: relative; }
+#shot { width: 100%; max-width: 600px; border-radius: 10px;
+        border: 2px solid #3a3a3c; cursor: pointer; display: block; }
+#placeholder { width: 100%; max-width: 600px; aspect-ratio: 1280/900;
+               background: #2c2c2e; border-radius: 10px; border: 2px solid #3a3a3c;
+               display: flex; align-items: center; justify-content: center;
+               color: #aeaeb2; font-size: 14px; }
+#clickFeedback { display:none; position:absolute; width:24px; height:24px;
+                 border-radius:50%; background:rgba(255,122,26,.7);
+                 transform:translate(-50%,-50%); pointer-events:none; }
 .actions { display: flex; gap: 10px; padding: 0 16px 16px; flex-wrap: wrap; }
 button { flex: 1; min-width: 120px; padding: 12px; font-size: 15px; font-weight: 600;
          border: none; border-radius: 12px; cursor: pointer; }
 .btn-primary { background: #ff7a1a; color: #fff; }
 .btn-secondary { background: #3a3a3c; color: #fff; }
-.status-bar { text-align: center; padding: 10px 16px 20px;
-              font-size: 14px; line-height: 1.6; }
+#shotErr { display:none; color:#ff9500; padding:10px 16px; font-size:13px; line-height:1.6; }
+.status-bar { text-align: center; padding: 10px 16px 20px; font-size: 14px; line-height: 1.6; }
 .ok   { color: #30d158; }
 .wait { color: #ffd60a; }
 .tip  { color: #aeaeb2; font-size: 13px; }
@@ -702,94 +709,113 @@ button { flex: 1; min-width: 120px; padding: 12px; font-size: 15px; font-weight:
 <body>
 <header>
   <h1>快手扫码登录</h1>
-  <p>① 看下方截图里的二维码 &nbsp;② 用快手 App 扫 &nbsp;③ 点"检查登录"</p>
+  <p>① 看下方截图 &nbsp;② 点登录按钮 &nbsp;③ 扫二维码 &nbsp;④ 点"检查登录"</p>
 </header>
 
-<div class="shot-wrap" style="position:relative">
-  <img id="shot" src="/api/login/screenshot" alt="截图加载中，请稍候…"
-       onerror="onShotError(this)" onclick="sendClick(event)" style="cursor:pointer">
-  <div id="clickFeedback" style="display:none;position:absolute;width:24px;height:24px;
-       border-radius:50%;background:rgba(255,122,26,.7);transform:translate(-50%,-50%);
-       pointer-events:none"></div>
+<div class="shot-wrap" id="shotWrap">
+  <div id="placeholder">截图加载中，请稍候…</div>
+  <img id="shot" style="display:none" alt="浏览器截图">
+  <div id="clickFeedback"></div>
 </div>
-<div id="shotErr" style="display:none;color:#ff453a;padding:12px 16px;font-size:13px;line-height:1.6"></div>
+<div id="shotErr"></div>
 
 <div class="actions">
   <button class="btn-primary" onclick="checkStatus()">✅ 检查是否已登录</button>
-  <button class="btn-secondary" onclick="refreshShot(true)">🔄 重新加载页面</button>
+  <button class="btn-secondary" onclick="loadShot(true)">🔄 重新加载页面</button>
 </div>
 <div class="status-bar" id="statusBar">
-  <span class="wait">等待扫码…截图每 2 秒自动刷新</span><br>
+  <span class="wait">等待扫码…截图每 3 秒自动刷新</span><br>
   <span class="tip">
-    截图可以点击，点哪里浏览器就点哪里。<br>
-    操作流程：① 点页面右上角「登录」按钮 → ② 点「扫码登录」→ ③ 对着二维码截图 → ④ 用快手 App 扫一扫从相册识别
+    点截图里任何位置 = 浏览器真实点击那里<br>
+    流程：① 点右上角「登录」→ ② 点「扫码登录」→ ③ 用快手 App 扫二维码
   </span>
 </div>
 
 <script>
-let autoTimer = setInterval(refreshShot, 2500);
+let _currentCtrl = null;
+let _autoTimer   = null;
+let _currentBlobUrl = null;
+
+// 用 fetch 取截图，避免 img.src 换源时触发 onerror 的误报
+async function loadShot(fresh) {
+  if (_currentCtrl) { _currentCtrl.abort(); _currentCtrl = null; }
+  const ctrl = new AbortController();
+  _currentCtrl = ctrl;
+
+  const url = "/api/login/screenshot" + (fresh ? "?fresh=true" : "") + "&_=" + Date.now();
+  try {
+    const resp = await fetch(url, { signal: ctrl.signal });
+    if (!resp.ok) {
+      // 服务器真实错误
+      let errMsg = "HTTP " + resp.status;
+      try { const j = await resp.json(); errMsg = j.error || errMsg; } catch(_) {}
+      showErr(errMsg);
+      return;
+    }
+    const blob = await resp.blob();
+    const newUrl = URL.createObjectURL(blob);
+
+    // 替换图片
+    const img = document.getElementById("shot");
+    img.onclick = sendClick;
+    img.src = newUrl;
+    img.style.display = "block";
+    document.getElementById("placeholder").style.display = "none";
+    document.getElementById("shotErr").style.display = "none";
+
+    // 释放旧 blob URL
+    if (_currentBlobUrl) URL.revokeObjectURL(_currentBlobUrl);
+    _currentBlobUrl = newUrl;
+  } catch(e) {
+    if (e.name === "AbortError") return; // 被新请求取消，忽略
+    showErr(e.message);
+  } finally {
+    if (_currentCtrl === ctrl) _currentCtrl = null;
+  }
+}
+
+function showErr(msg) {
+  document.getElementById("shotErr").style.display = "block";
+  document.getElementById("shotErr").textContent = "截图失败：" + msg + "（将自动重试）";
+}
 
 async function sendClick(e) {
   const img = document.getElementById("shot");
   const rect = img.getBoundingClientRect();
   const x = e.clientX - rect.left;
   const y = e.clientY - rect.top;
-  // 显示点击反馈圆点
   const fb = document.getElementById("clickFeedback");
   fb.style.left = x + "px"; fb.style.top = y + "px"; fb.style.display = "block";
   setTimeout(() => fb.style.display = "none", 600);
   try {
-    await fetch(`/api/login/click?x=${x}&y=${y}&iw=${rect.width}&ih=${rect.height}`);
-    // 点击后立刻刷新截图
-    setTimeout(refreshShot, 800);
+    await fetch("/api/login/click?x=" + x + "&y=" + y + "&iw=" + rect.width + "&ih=" + rect.height);
+    setTimeout(() => loadShot(false), 800);
   } catch(err) { console.warn(err); }
 }
 
-function refreshShot(fresh) {
-  const img = document.getElementById("shot");
-  document.getElementById("shotErr").style.display = "none";
-  img.style.display = "block";
-  img.src = "/api/login/screenshot" + (fresh ? "?fresh=true" : "") + "&_=" + Date.now();
-}
-
-async function onShotError(img) {
-  img.style.display = "none";
-  try {
-    const r = await fetch("/api/login/pageinfo");
-    const d = await r.json();
-    const box = document.getElementById("shotErr");
-    box.style.display = "block";
-    box.innerHTML = `截图暂时失败，正在重试中…<br>
-      当前页面：${d.current_url}<br>
-      截图错误：${d.screenshot_error || "无"}<br>
-      加载错误：${d.last_error || "无"}<br><br>
-      <b>请点「🔄 重新加载页面」按钮重试，或稍等几秒后截图会自动刷新。</b>`;
-  } catch(e) {
-    const box = document.getElementById("shotErr");
-    box.style.display = "block";
-    box.textContent = "截图暂时失败，正在重试…";
-  }
-}
-
 async function checkStatus() {
-  clearInterval(autoTimer);
+  clearInterval(_autoTimer); _autoTimer = null;
   const bar = document.getElementById("statusBar");
   bar.innerHTML = '<span class="wait">检查中…</span>';
   try {
     const r = await fetch("/api/login/status");
     const d = await r.json();
     if (d.logged_in) {
-      bar.innerHTML = '<span class="ok">✅ 登录成功！回到搜索页搜索吧。</span><br>' +
-        '<a href="/" style="color:#ff7a1a;font-size:14px">返回搜索首页</a>';
+      bar.innerHTML = '<span class="ok">✅ 登录成功！可以回到搜索页搜索了。</span><br>' +
+        '<a href="/" style="color:#ff7a1a;font-size:14px">← 返回搜索首页</a>';
     } else {
-      bar.innerHTML = '<span class="wait">未检测到登录，请在截图里找到二维码后用快手 App 扫一下。</span>';
-      autoTimer = setInterval(refreshShot, 2000);
+      bar.innerHTML = '<span class="wait">未检测到登录，请继续扫码。</span>';
+      _autoTimer = setInterval(() => loadShot(false), 3000);
     }
   } catch(e) {
     bar.innerHTML = '<span style="color:#ff453a">检查失败：' + e.message + '</span>';
-    autoTimer = setInterval(refreshShot, 2000);
+    _autoTimer = setInterval(() => loadShot(false), 3000);
   }
 }
+
+// 启动
+_autoTimer = setInterval(() => loadShot(false), 3000);
+loadShot(false);
 </script>
 </body>
 </html>"""
