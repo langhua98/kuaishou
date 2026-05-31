@@ -593,8 +593,8 @@ async def _get_login_page(fresh: bool = False):
             _login_pg = await ctx.new_page()
             # 依次尝试几个 URL，哪个能加载就用哪个
             urls = [
-                "https://www.kuaishou.com/passport/account/log-in?from=web",
                 "https://www.kuaishou.com",
+                "https://kuaishou.com",
             ]
             for u in urls:
                 try:
