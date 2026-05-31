@@ -588,12 +588,28 @@ async def _get_login_page(fresh: bool = False):
             if _login_pg and not _login_pg.is_closed():
                 await _login_pg.close()
             _login_pg = await ctx.new_page()
+            # 直接打开快手登录页, 自动显示二维码
             await _login_pg.goto(
-                "https://www.kuaishou.com",
+                "https://www.kuaishou.com/passport/account/log-in?from=web",
                 wait_until="domcontentloaded",
                 timeout=25000,
             )
-            await _login_pg.wait_for_timeout(3000)
+            await _login_pg.wait_for_timeout(4000)
+            # 尝试切换到扫码登录 tab（快手登录页上有"扫码登录"按钮）
+            try:
+                qr_selectors = [
+                    "text=扫码登录", "text=二维码", "[class*='qrcode']",
+                    "[class*='scan']", "[data-testid*='qr']",
+                ]
+                for sel in qr_selectors:
+                    el = _login_pg.locator(sel).first
+                    if await el.count() > 0:
+                        await el.click(timeout=3000)
+                        await _login_pg.wait_for_timeout(2000)
+                        print(f"[login] 点击了扫码入口: {sel}")
+                        break
+            except Exception as e:
+                print(f"[login] 自动点击扫码失败(不影响): {e}")
     return _login_pg
 
 
@@ -649,20 +665,23 @@ button { flex: 1; min-width: 120px; padding: 12px; font-size: 15px; font-weight:
 <body>
 <header>
   <h1>快手扫码登录</h1>
-  <p>用快手 App 扫描下方截图中的二维码完成登录</p>
+  <p>① 看下方截图里的二维码 &nbsp;② 用快手 App 扫 &nbsp;③ 点"检查登录"</p>
 </header>
 
 <div class="shot-wrap">
-  <img id="shot" src="/api/login/screenshot" alt="浏览器截图加载中…">
+  <img id="shot" src="/api/login/screenshot" alt="截图加载中，请稍候…">
 </div>
 
 <div class="actions">
-  <button class="btn-primary"  onclick="checkStatus()">检查是否已登录</button>
-  <button class="btn-secondary" onclick="refreshShot(true)">刷新页面</button>
+  <button class="btn-primary" onclick="checkStatus()">✅ 检查是否已登录</button>
+  <button class="btn-secondary" onclick="refreshShot(true)">🔄 重新加载页面</button>
 </div>
 <div class="status-bar" id="statusBar">
-  <span class="wait">等待扫码…</span><br>
-  <span class="tip">截图每 2 秒自动刷新。找到二维码后，用快手 App 扫描截图里的码。</span>
+  <span class="wait">等待扫码…截图每 2 秒自动刷新</span><br>
+  <span class="tip">
+    看到二维码后：长按截图图片 → iOS 相机会识别二维码 → 打开快手 App 扫描<br>
+    或截图后用快手 App 的「扫一扫」功能扫屏幕上的码
+  </span>
 </div>
 
 <script>
