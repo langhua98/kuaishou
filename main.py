@@ -599,20 +599,23 @@ async def _get_login_page(fresh: bool = False):
             if _login_pg and not _login_pg.is_closed():
                 await _login_pg.close()
             _login_pg = await ctx.new_page()
-            _login_pg.set_default_timeout(30000)
+            # 屏蔽视频/字体等大文件，减少内存占用（保留图片，因为二维码需要）
+            await _login_pg.route(
+                "**/*.{mp4,webm,ogg,woff,woff2,ttf,eot}",
+                lambda route: route.abort()
+            )
             try:
                 await _login_pg.goto(
                     "https://www.kuaishou.com",
                     wait_until="domcontentloaded",
-                    timeout=30000,
+                    timeout=35000,
                 )
-                # 等页面 JS 完成初始化，不等 networkidle（快手会长期发心跳包）
-                await _login_pg.wait_for_timeout(4000)
+                await _login_pg.wait_for_timeout(3000)
                 _login_error = ""
-                print(f"[login] 加载完成, URL: {_login_pg.url}")
+                print(f"[login] 页面加载完成, URL={_login_pg.url}")
             except Exception as e:
                 _login_error = str(e)
-                print(f"[login] 加载失败: {e}")
+                print(f"[login] 页面加载失败: {e}")
     return _login_pg
 
 
@@ -621,23 +624,61 @@ async def login_screenshot(fresh: bool = False):
     """返回当前浏览器页面截图(JPEG)；失败时返回 JSON 错误信息"""
     global _screenshot_error
     from fastapi.responses import Response
+
+    # 如果已有截图在进行中，等待而不是堆叠请求
+    if _screenshot_lock.locked() and not fresh:
+        return JSONResponse({"error": "busy, retry"}, status_code=503)
+
     try:
         page = await _get_login_page(fresh=fresh)
+        # 页面关闭时自动重建
+        if page.is_closed():
+            page = await _get_login_page(fresh=True)
         async with _screenshot_lock:
-            shot = await page.screenshot(type="jpeg", quality=65, timeout=15000)
+            shot = await page.screenshot(type="jpeg", quality=60, timeout=20000)
+        print(f"[login/screenshot] 成功, size={len(shot)} bytes, url={page.url}")
         _screenshot_error = ""
         return Response(content=shot, media_type="image/jpeg",
                         headers={"Cache-Control": "no-store"})
     except Exception as e:
         _screenshot_error = str(e)
-        print(f"[login/screenshot] 截图失败: {e}")
-        return JSONResponse({"error": str(e), "login_error": _login_error}, status_code=500)
+        print(f"[login/screenshot] 失败: {type(e).__name__}: {e}")
+        return JSONResponse({"error": f"{type(e).__name__}: {e}", "login_error": _login_error}, status_code=500)
 
 
 @app.get("/api/login/pageinfo")
 async def login_pageinfo():
     url = _login_pg.url if (_login_pg and not _login_pg.is_closed()) else "未初始化"
-    return JSONResponse({"current_url": url, "last_error": _login_error, "screenshot_error": _screenshot_error})
+    closed = (_login_pg is None) or _login_pg.is_closed()
+    return JSONResponse({
+        "current_url": url,
+        "page_closed": closed,
+        "last_error": _login_error,
+        "screenshot_error": _screenshot_error,
+    })
+
+
+@app.get("/api/login/diag")
+async def login_diag():
+    """诊断端点：直接截图 about:blank 验证 Playwright 是否正常"""
+    from fastapi.responses import Response
+    try:
+        ctx = await get_context()
+        pg = await ctx.new_page()
+        await pg.goto("about:blank")
+        shot = await pg.screenshot(type="jpeg", quality=50)
+        await pg.close()
+        pg2_url = _login_pg.url if (_login_pg and not _login_pg.is_closed()) else "none"
+        return JSONResponse({
+            "blank_screenshot_ok": True,
+            "blank_screenshot_size": len(shot),
+            "login_page_url": pg2_url,
+            "login_page_closed": (_login_pg is None or _login_pg.is_closed()),
+            "screenshot_error": _screenshot_error,
+            "login_error": _login_error,
+        })
+    except Exception as e:
+        return JSONResponse({"blank_screenshot_ok": False, "error": str(e)}, status_code=500)
 
 
 @app.get("/api/login/click")
@@ -722,7 +763,9 @@ button { flex: 1; min-width: 120px; padding: 12px; font-size: 15px; font-weight:
 <div class="actions">
   <button class="btn-primary" onclick="checkStatus()">✅ 检查是否已登录</button>
   <button class="btn-secondary" onclick="loadShot(true)">🔄 重新加载页面</button>
+  <button class="btn-secondary" onclick="runDiag()" style="flex:0;min-width:60px;font-size:13px;padding:12px 10px">🔍 诊断</button>
 </div>
+<div id="diagResult" style="display:none;padding:10px 16px;font-size:12px;color:#aeaeb2;word-break:break-all;line-height:1.6"></div>
 <div class="status-bar" id="statusBar">
   <span class="wait">等待扫码…截图每 3 秒自动刷新</span><br>
   <span class="tip">
@@ -745,6 +788,7 @@ async function loadShot(fresh) {
   const url = "/api/login/screenshot" + (fresh ? "?fresh=true" : "") + "&_=" + Date.now();
   try {
     const resp = await fetch(url, { signal: ctrl.signal });
+    if (resp.status === 503) return; // 服务器忙，等下次定时刷新
     if (!resp.ok) {
       // 服务器真实错误
       let errMsg = "HTTP " + resp.status;
@@ -810,6 +854,19 @@ async function checkStatus() {
   } catch(e) {
     bar.innerHTML = '<span style="color:#ff453a">检查失败：' + e.message + '</span>';
     _autoTimer = setInterval(() => loadShot(false), 3000);
+  }
+}
+
+async function runDiag() {
+  const box = document.getElementById("diagResult");
+  box.style.display = "block";
+  box.textContent = "诊断中…";
+  try {
+    const r = await fetch("/api/login/diag");
+    const d = await r.json();
+    box.textContent = JSON.stringify(d, null, 2);
+  } catch(e) {
+    box.textContent = "诊断失败: " + e.message;
   }
 }
 
