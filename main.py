@@ -133,21 +133,23 @@ async def search_bilibili(keyword: str) -> list:
 async def search_kuaishou(keyword: str) -> list:
     if not KUAISHOU_COOKIE:
         raise ValueError("KUAISHOU_COOKIE 未配置，请在 Railway 环境变量中设置")
-    async with AsyncSession(impersonate="chrome124") as s:
-        resp = await s.post(
-            _KS_GQL,
-            json={
-                "operationName": "visionSearchPhoto",
-                "variables": {"keyword": keyword, "pcursor": "", "page": "search"},
-                "query": _KS_QUERY,
-            },
-            headers={
-                "Cookie": KUAISHOU_COOKIE,
-                "Referer": "https://www.kuaishou.com/",
-                "Origin": "https://www.kuaishou.com",
-            },
-            timeout=20,
-        )
+    # Reuse the persistent bilibili session (Chrome124 TLS fingerprint, different domain so cookies don't mix)
+    s = await get_session()
+    resp = await s.post(
+        _KS_GQL,
+        json={
+            "operationName": "visionSearchPhoto",
+            "variables": {"keyword": keyword, "pcursor": "", "page": "search"},
+            "query": _KS_QUERY,
+        },
+        headers={
+            "Cookie": KUAISHOU_COOKIE,
+            "Referer": "https://www.kuaishou.com/",
+            "Origin": "https://www.kuaishou.com",
+            "Content-Type": "application/json",
+        },
+        timeout=20,
+    )
     data = resp.json()
     feeds = (data.get("data") or {}).get("visionSearchPhoto", {}).get("feeds") or []
     results = []
