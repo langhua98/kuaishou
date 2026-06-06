@@ -197,6 +197,23 @@ async def api_search(keyword: str = Query(..., min_length=1)):
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 
+@app.get("/api/ks/debug")
+async def api_ks_debug(keyword: str = Query(..., min_length=1)):
+    if not KUAISHOU_COOKIE:
+        return JSONResponse({"error": "no cookie"})
+    s = await get_session()
+    resp = await s.post(
+        _KS_GQL,
+        json={"operationName": "visionSearchPhoto",
+              "variables": {"keyword": keyword, "pcursor": "", "page": "search"},
+              "query": _KS_QUERY},
+        headers={"Cookie": KUAISHOU_COOKIE, "Referer": "https://www.kuaishou.com/",
+                 "Origin": "https://www.kuaishou.com", "Content-Type": "application/json"},
+        timeout=20,
+    )
+    return JSONResponse(resp.json())
+
+
 @app.get("/api/ks/search")
 async def api_ks_search(keyword: str = Query(..., min_length=1)):
     try:
