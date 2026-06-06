@@ -27,8 +27,10 @@ _KS_GQL = "https://www.kuaishou.com/graphql"
 _KS_QUERY = (
     "query visionSearchPhoto($keyword:String,$pcursor:String,$page:String){"
     "visionSearchPhoto(keyword:$keyword,pcursor:$pcursor,page:$page){"
-    "result feeds{photo{...on PhotoEntity{id caption coverUrl photoUrl likeCount viewCount}}"
-    "author{name}}}}"
+    "result feeds{photo{"
+    "...on PhotoEntity{id caption coverUrl photoUrl likeCount viewCount}"
+    "...on recoPhotoEntity{id caption coverUrl photoUrl likeCount viewCount}"
+    "}author{name}}}}"
 )
 
 _WBI_TAB = [
