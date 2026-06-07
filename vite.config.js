@@ -4,6 +4,6 @@ export default defineConfig({
   base: '/kuaishou/',
   build: {
     outDir: 'dist',
-    target: 'esnext',
+    target: ['es2019', 'safari12'],
   },
 })
