@@ -1,6 +1,9 @@
 import * as THREE from 'three'
 import { createNoise2D } from 'simplex-noise'
 
+// Tell inline diagnostic script that module started executing
+window._jsStarted = true
+
 // ─── Config ───────────────────────────────────────────────────────────────────
 const CHUNK   = 16
 const RDIST   = 3
@@ -469,14 +472,16 @@ async function doLoad() {
   }, 10000)
 
   try {
-    setProgress(10, '正在初始化渲染器…')
+    setProgress(5, '5% ▶ JS模块已加载，初始化引擎…')
     await nextFrame()
     await nextFrame()
 
+    setProgress(15, '15% ▶ WebGL渲染器测试…')
+    await nextFrame()
     // Render a test frame to verify WebGL works
     renderer.render(scene, camera)
 
-    setProgress(20, '正在计算地形高度…')
+    setProgress(25, '25% ▶ 计算地形高度…')
     await nextFrame()
 
     const sx=Math.floor(player.pos.x/CHUNK)
@@ -489,6 +494,9 @@ async function doLoad() {
       for (let cz=sz-1; cz<=sz+1; cz++)
         chunks.push([cx, sy, cz])
 
+    setProgress(30, `30% ▶ 开始生成 ${chunks.length} 个地形区块…`)
+    await nextFrame()
+
     for (let i=0; i<chunks.length; i++) {
       const [cx,cy,cz]=chunks[i]
       const key=ck(cx,cy,cz)
@@ -498,12 +506,13 @@ async function doLoad() {
         const m=buildMesh(cx,cy,cz)
         if (m) { scene.add(m); meshes.set(key,m) }
       }
-      setProgress(20+75*(i+1)/chunks.length, `正在生成地形… (${i+1}/${chunks.length})`)
+      const pct = Math.round(30 + 65*(i+1)/chunks.length)
+      setProgress(pct, `${pct}% ▶ 区块 ${i+1}/${chunks.length} 已生成`)
       // Yield every chunk so the browser can update the progress bar
       await nextFrame()
     }
 
-    setProgress(100, '世界生成完毕！')
+    setProgress(100, '100% ▶ 世界生成完毕！')
     await wait(500)
 
     clearTimeout(timeout)

@@ -205,6 +205,31 @@ canvas { position: fixed !important; top: 0 !important; left: 0 !important;
   <div id="hotbar"></div>
 </div>
 
+<!-- Inline diagnostic: catches JS module load failures before module executes -->
+<script>
+window._jsStarted = false;
+
+// Capture-phase catches script load errors that window.onerror misses
+window.addEventListener('error', function(e) {
+  var msg = e.message || 'unknown';
+  if (e.filename) msg = msg + '\n' + e.filename.split('/').pop() + ':' + e.lineno;
+  var t = document.getElementById('loading-text');
+  var f = document.getElementById('loading-fill');
+  if (t) t.textContent = 'JS错误: ' + msg;
+  if (f) { f.style.background='#f44'; f.style.width='100%'; }
+}, true);
+
+// If JS module never starts after 8s, show network/parse error
+setTimeout(function() {
+  if (!window._jsStarted) {
+    var t = document.getElementById('loading-text');
+    var f = document.getElementById('loading-fill');
+    if (t) t.textContent = 'JS模块未响应 — 可能是网络问题或浏览器不支持，请截图发给我';
+    if (f) { f.style.background='#f44'; f.style.width='100%'; }
+  }
+}, 8000);
+</script>
+
 <script type="module" src="/src/main.js"></script>
 </body>
 </html>
