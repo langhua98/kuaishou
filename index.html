@@ -163,7 +163,7 @@ canvas { position: fixed !important; top: 0 !important; left: 0 !important;
   <h1>⛏ 我的世界</h1>
   <div id="loading-bar"><div id="loading-fill"></div></div>
   <p id="loading-text">正在生成世界…</p>
-  <p id="version-tag" style="position:absolute;bottom:12px;right:12px;color:#555;font-size:10px;font-family:monospace">v5</p>
+  <p id="version-tag" style="position:absolute;bottom:12px;right:12px;color:#555;font-size:10px;font-family:monospace">v7</p>
 </div>
 
 <div id="menu" style="display:none">
@@ -219,16 +219,15 @@ window.addEventListener('error', function(e) {
   _setBar(100, '#f44');
 }, true);
 
-// Staged download messages — JS takes time to download on slow connections
-setTimeout(function(){ if(!window._jsStarted){ _setText('正在下载游戏文件 (~121KB)…'); _setBar(10); }}, 2000);
-setTimeout(function(){ if(!window._jsStarted){ _setText('下载中，速度较慢，请耐心等待…'); _setBar(20); }}, 10000);
-setTimeout(function(){ if(!window._jsStarted){ _setText('仍在下载，可能需要1-2分钟…'); _setBar(30); }}, 25000);
+// JS loads from jsDelivr CDN — should be fast even in China
+setTimeout(function(){ if(!window._jsStarted){ _setText('正在从CDN加载游戏文件…'); _setBar(15); }}, 2000);
+setTimeout(function(){ if(!window._jsStarted){ _setText('首次访问CDN可能稍慢，请等待…'); _setBar(25); }}, 8000);
 setTimeout(function(){
   if(!window._jsStarted){
-    _setText('下载超时。请刷新页面重试，或切换网络环境');
+    _setText('CDN加载失败，请刷新重试');
     _setBar(100, '#f44');
   }
-}, 90000);
+}, 30000);
 </script>
 
 <script type="module" src="/src/main.js"></script>
