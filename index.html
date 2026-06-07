@@ -9,6 +9,10 @@
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { width: 100%; height: 100%; overflow: hidden; background: #000; touch-action: none; }
+/* Keep noa-engine canvas behind UI, full screen */
+canvas { position: fixed !important; top: 0 !important; left: 0 !important;
+         width: 100% !important; height: 100% !important;
+         z-index: 1 !important; display: block !important; touch-action: none; }
 
 /* Loading */
 #loading {
@@ -146,7 +150,7 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; touc
 .slot-icon { width: 26px; height: 26px; border-radius: 3px; }
 .slot-label { color: #ccc; font-size: 8px; font-family: monospace; }
 </style>
-  <script type="module" crossorigin src="/kuaishou/assets/index-Cy0hC-f8.js"></script>
+  <script type="module" crossorigin src="/kuaishou/assets/index-BhmxD4xw.js"></script>
 </head>
 <body>
 
