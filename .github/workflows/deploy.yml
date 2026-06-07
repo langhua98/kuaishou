@@ -20,6 +20,7 @@ jobs:
 
       - run: npm ci
       - run: npm run build
+      - run: node inline.cjs
 
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v4
