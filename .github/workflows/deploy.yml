@@ -21,15 +21,6 @@ jobs:
       - run: npm ci
       - run: npm run build
 
-      - name: Rewrite JS src to jsDelivr CDN (accessible in China)
-        run: |
-          JS_FILE=$(ls dist/assets/index-*.js | head -1 | xargs basename)
-          echo "JS file: $JS_FILE"
-          CDN="https://cdn.jsdelivr.net/gh/langhua98/kuaishou@gh-pages/assets/$JS_FILE"
-          sed -i "s|src=\"/kuaishou/assets/$JS_FILE\"|src=\"$CDN\"|" dist/index.html
-          echo "Script src rewritten to: $CDN"
-          grep -o 'src="[^"]*"' dist/index.html | grep cdn
-
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v4
         with:
