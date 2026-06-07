@@ -1,4 +1,8 @@
-import * as THREE from 'three'
+import {
+  WebGLRenderer, Scene, Fog, PerspectiveCamera,
+  MeshLambertMaterial, BufferGeometry, Float32BufferAttribute, Mesh,
+  AmbientLight, DirectionalLight, Vector3, Color, Euler
+} from 'three'
 import { createNoise2D } from 'simplex-noise'
 
 // Tell inline diagnostic script that module started executing
@@ -109,7 +113,7 @@ function genChunk(cx,cy,cz) {
 }
 
 // ─── Mesh Builder ─────────────────────────────────────────────────────────────
-const sharedMat = new THREE.MeshLambertMaterial({ vertexColors:true })
+const sharedMat = new MeshLambertMaterial({ vertexColors:true })
 
 function buildMesh(cx,cy,cz) {
   const ox=cx*CHUNK, oy=cy*CHUNK, oz=cz*CHUNK
@@ -134,19 +138,19 @@ function buildMesh(cx,cy,cz) {
     }
   }
   if (!pos.length) return null
-  const geo=new THREE.BufferGeometry()
-  geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3))
-  geo.setAttribute('normal',  new THREE.Float32BufferAttribute(norm,3))
-  geo.setAttribute('color',   new THREE.Float32BufferAttribute(col,3))
+  const geo=new BufferGeometry()
+  geo.setAttribute('position',new Float32BufferAttribute(pos,3))
+  geo.setAttribute('normal',  new Float32BufferAttribute(norm,3))
+  geo.setAttribute('color',   new Float32BufferAttribute(col,3))
   geo.setIndex(idx)
   geo.computeBoundingSphere()
-  return new THREE.Mesh(geo,sharedMat)
+  return new Mesh(geo,sharedMat)
 }
 
 // ─── Renderer & Scene ─────────────────────────────────────────────────────────
 let renderer
 try {
-  renderer = new THREE.WebGLRenderer({
+  renderer = new WebGLRenderer({
     antialias: false,
     powerPreference: 'high-performance',
     failIfMajorPerformanceCaveat: false,
@@ -170,15 +174,15 @@ renderer.domElement.addEventListener('webglcontextlost', e => {
   loadingEl.style.display = 'flex'
 })
 
-const scene  = new THREE.Scene()
-const fogClr = new THREE.Color(0x87ceeb)
-const fog    = new THREE.Fog(0x87ceeb, 40, RDIST*CHUNK*1.6)
+const scene  = new Scene()
+const fogClr = new Color(0x87ceeb)
+const fog    = new Fog(0x87ceeb, 40, RDIST*CHUNK*1.6)
 scene.fog    = fog
 
-const camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.1, 300)
+const camera = new PerspectiveCamera(70, innerWidth/innerHeight, 0.1, 300)
 
-scene.add(new THREE.AmbientLight(0xffffff, 0.5))
-const sun = new THREE.DirectionalLight(0xfff5d0, 1.0)
+scene.add(new AmbientLight(0xffffff, 0.5))
+const sun = new DirectionalLight(0xfff5d0, 1.0)
 sun.position.set(100,200,50)
 scene.add(sun)
 
@@ -191,8 +195,8 @@ window.addEventListener('resize',()=>{
 // ─── Player ───────────────────────────────────────────────────────────────────
 const spawnH = height(0,0)
 const player = {
-  pos: new THREE.Vector3(0, spawnH+3, 0),
-  vel: new THREE.Vector3(),
+  pos: new Vector3(0, spawnH+3, 0),
+  vel: new Vector3(),
   yaw: 0, pitch: 0,
   onGround: false, flying: false,
 }
@@ -313,7 +317,7 @@ document.addEventListener('mousemove',e=>{
 })
 document.addEventListener('mousedown',e=>{
   if(!locked) return
-  const d=new THREE.Vector3(); camera.getWorldDirection(d)
+  const d=new Vector3(); camera.getWorldDirection(d)
   const r=raycast(camera.position,d,8); if(!r) return
   if(e.button===0) setBlock(r.hit[0],r.hit[1],r.hit[2],0)
   if(e.button===2) setBlock(r.prev[0],r.prev[1],r.prev[2],SLOTS[sel].id)
@@ -382,11 +386,11 @@ onBtn('btn-jump', ()=>{
 })
 onBtn('btn-fly',   toggleFly)
 onBtn('btn-break', ()=>{
-  const d=new THREE.Vector3(); camera.getWorldDirection(d)
+  const d=new Vector3(); camera.getWorldDirection(d)
   const r=raycast(camera.position,d,8); if(r) setBlock(r.hit[0],r.hit[1],r.hit[2],0)
 })
 onBtn('btn-place', ()=>{
-  const d=new THREE.Vector3(); camera.getWorldDirection(d)
+  const d=new Vector3(); camera.getWorldDirection(d)
   const r=raycast(camera.position,d,8); if(r) setBlock(r.prev[0],r.prev[1],r.prev[2],SLOTS[sel].id)
 })
 
@@ -398,7 +402,7 @@ hbar.addEventListener('touchend',e=>{
 },{passive:true})
 
 // ─── Game Loop ────────────────────────────────────────────────────────────────
-const euler=new THREE.Euler(0,0,0,'YXZ')
+const euler=new Euler(0,0,0,'YXZ')
 let gameStarted=false, last=performance.now()
 let dayTime=0.25
 
@@ -415,8 +419,8 @@ function loop() {
 
   const now=performance.now(), dt=Math.min((now-last)/1000,.1); last=now
 
-  const fwd=new THREE.Vector3(-Math.sin(player.yaw),0,-Math.cos(player.yaw))
-  const rgt=new THREE.Vector3(-Math.cos(player.yaw),0, Math.sin(player.yaw))
+  const fwd=new Vector3(-Math.sin(player.yaw),0,-Math.cos(player.yaw))
+  const rgt=new Vector3(-Math.cos(player.yaw),0, Math.sin(player.yaw))
   const sp=player.flying?FLY_SP:MOVE_SP
   let mx=0,mz=0
 
@@ -446,7 +450,7 @@ function loop() {
 
   dayTime=(dayTime+dt/1200)%1
   const s=Math.sin(dayTime*Math.PI*2), br=Math.max(.05,s), night=dayTime>.5
-  const sky=new THREE.Color(
+  const sky=new Color(
     night?.02:br*.35+.13,
     night?.05:br*.55+.26,
     night?.12:br*.9+.43
