@@ -462,6 +462,12 @@ loop()
 
 // ─── Async Loading ────────────────────────────────────────────────────────────
 async function doLoad() {
+  // Hard timeout: if stuck >10s, proceed to menu regardless
+  const timeout = setTimeout(()=>{
+    loadingEl.style.display='none'
+    menuEl.style.display='flex'
+  }, 10000)
+
   try {
     setProgress(10, '正在初始化渲染器…')
     await nextFrame()
@@ -477,12 +483,11 @@ async function doLoad() {
     const sy=Math.max(0, Math.floor((player.pos.y-2)/CHUNK))
     const sz=Math.floor(player.pos.z/CHUNK)
 
-    // Build list of chunks to pre-generate (3x3 XZ, 2 Y levels)
+    // Pre-generate 3x3 XZ at player Y — 9 chunks total, fast on mobile
     const chunks=[]
     for (let cx=sx-1; cx<=sx+1; cx++)
       for (let cz=sz-1; cz<=sz+1; cz++)
-        for (let cy=Math.max(0,sy-1); cy<=sy+2; cy++)
-          chunks.push([cx,cy,cz])
+        chunks.push([cx, sy, cz])
 
     for (let i=0; i<chunks.length; i++) {
       const [cx,cy,cz]=chunks[i]
@@ -501,9 +506,11 @@ async function doLoad() {
     setProgress(100, '世界生成完毕！')
     await wait(500)
 
+    clearTimeout(timeout)
     loadingEl.style.display='none'
     menuEl.style.display='flex'
   } catch(e) {
+    clearTimeout(timeout)
     const msg=e?.message||String(e)
     setProgress(0, '加载失败: '+msg)
     loadFill.style.background='#f44'
