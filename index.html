@@ -2,118 +2,203 @@
 <html lang="zh">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>我的世界</title>
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { background: #000; overflow: hidden; font-family: monospace; }
-#game-canvas { display: block; width: 100vw; height: 100vh; }
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #000; touch-action: none; }
 
+/* Loading */
 #loading {
   position: fixed; inset: 0; background: #1a1a2e;
   display: flex; flex-direction: column;
   align-items: center; justify-content: center;
   color: #fff; z-index: 999; gap: 16px;
 }
-#loading h1 { font-size: 32px; color: #4ade80; letter-spacing: 2px; }
-#loading p { color: #aaa; font-size: 14px; }
-#loading-bar { width: 200px; height: 8px; background: #333; border-radius: 4px; overflow: hidden; }
+#loading h1 { font-size: 28px; color: #4ade80; font-family: monospace; letter-spacing: 2px; }
+#loading-bar { width: 180px; height: 8px; background: #333; border-radius: 4px; overflow: hidden; }
 #loading-fill { height: 100%; background: #4ade80; width: 0%; transition: width 0.3s; border-radius: 4px; }
+#loading-text { color: #aaa; font-size: 13px; font-family: monospace; }
 
+/* Portrait warning */
+#portrait-warn {
+  display: none;
+  position: fixed; inset: 0; background: #111;
+  align-items: center; justify-content: center;
+  flex-direction: column; gap: 16px; z-index: 9999;
+  color: #fff; font-family: monospace; text-align: center;
+}
+@media (orientation: portrait) {
+  #portrait-warn { display: flex; }
+  #loading, #menu, #game-ui { display: none !important; }
+}
+#portrait-warn p { font-size: 18px; color: #4ade80; }
+#portrait-warn span { font-size: 50px; }
+
+/* Menu */
 #menu {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+  position: fixed; inset: 0; background: rgba(0,0,0,0.75);
   display: flex; flex-direction: column;
   align-items: center; justify-content: center;
-  color: #fff; z-index: 500; gap: 20px;
+  z-index: 500; gap: 16px;
 }
-#menu h1 { font-size: 28px; color: #4ade80; margin-bottom: 10px; }
-#menu p { color: #ccc; font-size: 13px; text-align: center; max-width: 320px; line-height: 1.8; }
+#menu h1 { font-size: 26px; color: #4ade80; font-family: monospace; }
+#menu .controls { color: #ccc; font-size: 12px; line-height: 2; text-align: center; font-family: monospace; }
 #play-btn {
   padding: 14px 40px; background: #4ade80; color: #000;
   border: none; border-radius: 8px; font-size: 18px;
-  font-weight: bold; cursor: pointer; letter-spacing: 1px;
+  font-weight: bold; cursor: pointer; font-family: monospace;
+  -webkit-touch-callout: none;
 }
-#play-btn:hover { background: #22c55e; }
 
-#hud { position: fixed; inset: 0; pointer-events: none; z-index: 100; }
+/* ── GAME UI ── */
+#game-ui { position: fixed; inset: 0; display: none; z-index: 100; }
 
 /* Crosshair */
 #crosshair {
   position: absolute; top: 50%; left: 50%;
   transform: translate(-50%, -50%);
-  width: 24px; height: 24px;
+  pointer-events: none; width: 28px; height: 28px;
 }
 #crosshair::before, #crosshair::after {
-  content: ''; position: absolute; background: rgba(255,255,255,0.85);
+  content: ''; position: absolute; background: rgba(255,255,255,0.9);
 }
 #crosshair::before { width: 2px; height: 100%; left: 50%; transform: translateX(-50%); }
 #crosshair::after  { width: 100%; height: 2px; top: 50%; transform: translateY(-50%); }
 
-/* Hotbar */
+/* XYZ coords */
+#coords {
+  position: absolute; top: 8px; left: 8px;
+  color: #fff; font-size: 11px; font-family: monospace;
+  background: rgba(0,0,0,0.55); padding: 5px 8px;
+  border-radius: 6px; line-height: 1.8; pointer-events: none;
+}
+
+/* ── LEFT JOYSTICK ── */
+#joy-zone {
+  position: absolute; left: 0; top: 0; bottom: 60px;
+  width: 38%; touch-action: none;
+}
+#joy-base {
+  position: absolute; bottom: 20px; left: 24px;
+  width: 110px; height: 110px; border-radius: 50%;
+  background: rgba(255,255,255,0.12);
+  border: 2px solid rgba(255,255,255,0.3);
+  pointer-events: none;
+}
+#joy-thumb {
+  position: absolute; top: 50%; left: 50%;
+  width: 46px; height: 46px; border-radius: 50%;
+  background: rgba(255,255,255,0.55);
+  transform: translate(-50%, -50%);
+  pointer-events: none; transition: transform 0s;
+}
+
+/* ── RIGHT LOOK ZONE ── */
+#look-zone {
+  position: absolute; right: 0; top: 0; bottom: 60px;
+  left: 38%; touch-action: none;
+  /* debug: background: rgba(255,0,0,0.05); */
+}
+
+/* ── ACTION BUTTONS (bottom-right) ── */
+#action-btns {
+  position: absolute; right: 10px; bottom: 68px;
+  display: flex; flex-direction: column; gap: 6px; align-items: flex-end;
+}
+.row-btns { display: flex; gap: 6px; }
+.act-btn {
+  width: 54px; height: 54px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.4);
+  background: rgba(0,0,0,0.55); color: #fff;
+  font-size: 12px; font-family: monospace;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 1px; line-height: 1; cursor: pointer; user-select: none;
+  -webkit-user-select: none; touch-action: manipulation;
+}
+.act-btn:active { background: rgba(255,255,255,0.2); }
+.act-btn .icon { font-size: 20px; }
+#btn-jump  { background: rgba(80,180,255,0.35); }
+#btn-fly   { background: rgba(255,210,80,0.3); }
+#btn-fly.active { background: rgba(255,210,80,0.7); border-color: #ffd940; }
+#btn-break { background: rgba(255,80,80,0.35); }
+#btn-place { background: rgba(80,255,120,0.35); }
+
+/* ── HOTBAR ── */
 #hotbar {
-  position: absolute; bottom: 24px; left: 50%;
+  position: absolute; bottom: 6px; left: 50%;
   transform: translateX(-50%);
-  display: flex; gap: 4px;
+  display: flex; gap: 4px; align-items: center;
 }
 .slot {
-  width: 52px; height: 52px;
-  background: rgba(0,0,0,0.6);
-  border: 2px solid rgba(255,255,255,0.3);
+  width: 50px; height: 50px;
+  background: rgba(0,0,0,0.65);
+  border: 2px solid rgba(255,255,255,0.25);
   border-radius: 6px;
   display: flex; flex-direction: column;
   align-items: center; justify-content: center;
-  color: #fff; font-size: 9px; gap: 2px;
-  transition: border-color 0.1s;
+  gap: 2px; flex-shrink: 0; touch-action: manipulation;
 }
-.slot.active { border-color: #fff; background: rgba(0,0,0,0.8); }
-.slot-icon { width: 28px; height: 28px; border-radius: 3px; }
-.slot-num { color: #aaa; font-size: 8px; }
-
-/* Coordinates */
-#coords {
-  position: absolute; top: 10px; left: 10px;
-  color: #fff; font-size: 12px; background: rgba(0,0,0,0.5);
-  padding: 6px 10px; border-radius: 6px; line-height: 1.8;
-}
-
-/* Controls help */
-#help {
-  position: absolute; top: 10px; right: 10px;
-  color: #ccc; font-size: 11px; background: rgba(0,0,0,0.5);
-  padding: 8px 12px; border-radius: 6px; line-height: 1.9;
-}
+.slot.active { border-color: #fff; }
+.slot-icon { width: 26px; height: 26px; border-radius: 3px; }
+.slot-label { color: #ccc; font-size: 8px; font-family: monospace; }
 </style>
-  <script type="module" crossorigin src="/kuaishou/assets/index-sXT04d8g.js"></script>
+  <script type="module" crossorigin src="/kuaishou/assets/index-Cy0hC-f8.js"></script>
 </head>
 <body>
 
+<div id="portrait-warn">
+  <span>📱</span>
+  <p>请横屏游玩</p>
+  <div style="color:#aaa;font-size:13px">请旋转手机至横屏模式</div>
+</div>
+
 <div id="loading">
-  <h1>我的世界</h1>
+  <h1>⛏ 我的世界</h1>
   <div id="loading-bar"><div id="loading-fill"></div></div>
   <p id="loading-text">正在生成世界…</p>
 </div>
 
 <div id="menu" style="display:none">
   <h1>⛏ 我的世界</h1>
-  <p>
-    <b>WASD</b> 移动 &nbsp;|&nbsp; <b>空格</b> 跳跃<br>
-    <b>鼠标左键</b> 破坏方块<br>
-    <b>鼠标右键</b> 放置方块<br>
-    <b>1-8</b> 或 <b>滚轮</b> 切换方块<br>
-    <b>F</b> 飞行模式
-  </p>
-  <button id="play-btn">开始游戏</button>
+  <div class="controls">
+    左摇杆 移动 &nbsp;|&nbsp; 右侧滑动 视角<br>
+    🔨 破坏方块 &nbsp;|&nbsp; 📦 放置方块<br>
+    ⬆ 跳跃 &nbsp;|&nbsp; ✈ 飞行切换<br>
+    底部热键栏 切换方块
+  </div>
+  <button id="play-btn" onclick="startGame()">开始游戏</button>
 </div>
 
-<div id="hud" style="display:none">
+<div id="game-ui">
   <div id="crosshair"></div>
-  <div id="hotbar"></div>
-  <div id="coords">X: 0 &nbsp;Y: 0 &nbsp;Z: 0</div>
-  <div id="help">
-    左键 破坏 | 右键 放置<br>
-    1-8 切换方块<br>
-    F 飞行 | ESC 暂停
+  <div id="coords">X:0 Y:0 Z:0</div>
+
+  <!-- Left joystick -->
+  <div id="joy-zone">
+    <div id="joy-base"><div id="joy-thumb"></div></div>
   </div>
+
+  <!-- Right look area -->
+  <div id="look-zone"></div>
+
+  <!-- Action buttons -->
+  <div id="action-btns">
+    <div class="row-btns">
+      <button class="act-btn" id="btn-break"><span class="icon">🔨</span><span>破坏</span></button>
+      <button class="act-btn" id="btn-place"><span class="icon">📦</span><span>放置</span></button>
+    </div>
+    <div class="row-btns">
+      <button class="act-btn" id="btn-fly"><span class="icon">✈</span><span>飞行</span></button>
+      <button class="act-btn" id="btn-jump"><span class="icon">⬆</span><span>跳跃</span></button>
+    </div>
+  </div>
+
+  <!-- Hotbar -->
+  <div id="hotbar"></div>
 </div>
 
 </body>
