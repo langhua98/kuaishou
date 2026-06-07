@@ -150,7 +150,7 @@ canvas { position: fixed !important; top: 0 !important; left: 0 !important;
 .slot-icon { width: 26px; height: 26px; border-radius: 3px; }
 .slot-label { color: #ccc; font-size: 8px; font-family: monospace; }
 </style>
-  <script type="module" crossorigin src="/kuaishou/assets/index-DD6AsS1b.js"></script>
+  <script type="module" src="/kuaishou/assets/index-DD6AsS1b.js"></script>
 </head>
 <body>
 
@@ -209,26 +209,27 @@ canvas { position: fixed !important; top: 0 !important; left: 0 !important;
 <!-- Inline diagnostic: catches JS module load failures before module executes -->
 <script>
 window._jsStarted = false;
+var _t = document.getElementById('loading-text');
+var _f = document.getElementById('loading-fill');
+function _setText(s) { if (_t) _t.textContent = s; }
+function _setBar(p, c) { if (_f) { _f.style.width=p+'%'; if(c) _f.style.background=c; } }
 
-// Capture-phase catches script load errors that window.onerror misses
+// Capture-phase catches script load errors
 window.addEventListener('error', function(e) {
-  var msg = e.message || 'unknown';
-  if (e.filename) msg = msg + '\n' + e.filename.split('/').pop() + ':' + e.lineno;
-  var t = document.getElementById('loading-text');
-  var f = document.getElementById('loading-fill');
-  if (t) t.textContent = 'JS错误: ' + msg;
-  if (f) { f.style.background='#f44'; f.style.width='100%'; }
+  _setText('JS错误: ' + (e.message||'unknown') + (e.filename?' | '+e.filename.split('/').pop():''));
+  _setBar(100, '#f44');
 }, true);
 
-// If JS module never starts after 8s, show network/parse error
-setTimeout(function() {
-  if (!window._jsStarted) {
-    var t = document.getElementById('loading-text');
-    var f = document.getElementById('loading-fill');
-    if (t) t.textContent = 'JS模块未响应 — 可能是网络问题或浏览器不支持，请截图发给我';
-    if (f) { f.style.background='#f44'; f.style.width='100%'; }
+// Staged download messages — JS takes time to download on slow connections
+setTimeout(function(){ if(!window._jsStarted){ _setText('正在下载游戏文件 (~121KB)…'); _setBar(10); }}, 2000);
+setTimeout(function(){ if(!window._jsStarted){ _setText('下载中，速度较慢，请耐心等待…'); _setBar(20); }}, 10000);
+setTimeout(function(){ if(!window._jsStarted){ _setText('仍在下载，可能需要1-2分钟…'); _setBar(30); }}, 25000);
+setTimeout(function(){
+  if(!window._jsStarted){
+    _setText('下载超时。请刷新页面重试，或切换网络环境');
+    _setBar(100, '#f44');
   }
-}, 8000);
+}, 90000);
 </script>
 
 </body>
