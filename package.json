@@ -1,0 +1,17 @@
+{
+  "name": "minecraft-browser",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "noa-engine": "^0.33.0",
+    "simplex-noise": "^4.0.1"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  }
+}

@@ -2,235 +2,119 @@
 <html lang="zh">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>视频搜索</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>我的世界</title>
 <style>
-* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-body { font-family: -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
-       background: #f2f2f7; min-height: 100vh; color: #1c1c1e; }
-.overlay { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,.45);
-           display: flex; align-items: flex-end; }
-.sheet { background: #fff; border-radius: 20px 20px 0 0; padding: 24px 20px 40px; width: 100%; }
-.sheet h2 { font-size: 17px; font-weight: 600; margin-bottom: 6px; }
-.sheet p { font-size: 13px; color: #6c6c70; line-height: 1.6; margin-bottom: 14px; }
-.sheet input { width: 100%; padding: 12px 14px; border: 1.5px solid #d1d1d6;
-               border-radius: 12px; font-size: 14px; outline: none; margin-bottom: 10px; }
-.sheet input:focus { border-color: #fb7299; }
-.sheet button { width: 100%; padding: 14px; background: #fb7299; color: #fff;
-                border: none; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; }
-header { position: sticky; top: 0; z-index: 100;
-         background: rgba(255,255,255,.92); backdrop-filter: blur(12px);
-         -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid #e5e5ea;
-         padding: 10px 14px 8px; }
-.header-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-.tabs { display: flex; gap: 6px; flex: 1; }
-.tab { flex: 1; padding: 7px; border: 1.5px solid #d1d1d6; border-radius: 20px;
-       font-size: 14px; font-weight: 600; background: #f2f2f7; color: #8e8e93; cursor: pointer; }
-.tab.active { background: #fb7299; border-color: #fb7299; color: #fff; }
-.cfg { background: none; border: none; font-size: 20px; cursor: pointer; padding: 2px; }
-.search-row { display: flex; gap: 8px; }
-.search-row input { flex: 1; padding: 10px 16px; border: 1.5px solid #d1d1d6;
-                    border-radius: 24px; font-size: 15px; outline: none; background: #f2f2f7; }
-.search-row input:focus { border-color: #fb7299; background: #fff; }
-.search-row button { padding: 10px 18px; background: #fb7299; color: #fff;
-                     border: none; border-radius: 24px; font-size: 15px;
-                     font-weight: 600; cursor: pointer; white-space: nowrap; }
-.search-row button:disabled { opacity: .45; }
-.status { padding: 10px 14px; font-size: 13px; color: #8e8e93; min-height: 36px; }
-.grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 0 10px 30px; }
-.card { background: #fff; border-radius: 14px; overflow: hidden;
-        box-shadow: 0 1px 4px rgba(0,0,0,.08); cursor: pointer; }
-.card img { width: 100%; aspect-ratio: 16/10; object-fit: cover; display: block; background: #eee; }
-.card .info { padding: 8px 10px 10px; }
-.card .cap { font-size: 13px; line-height: 1.4; overflow: hidden;
-             display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-.card .meta { font-size: 11px; color: #aeaeb2; margin-top: 4px; }
-.card .open { display: inline-block; margin-top: 6px; font-size: 12px;
-              color: #fb7299; text-decoration: none; }
-.spinner { display: inline-block; width: 16px; height: 16px;
-           border: 2px solid #e5e5ea; border-top-color: #fb7299;
-           border-radius: 50%; animation: spin .7s linear infinite;
-           vertical-align: middle; margin-right: 6px; }
-@keyframes spin { to { transform: rotate(360deg); } }
-#player-modal { display: none; position: fixed; inset: 0; z-index: 300;
-                background: #000; flex-direction: column; }
-#player-modal.open { display: flex; }
-#player-bar { display: flex; align-items: center; padding: 10px 14px;
-              background: #111; flex-shrink: 0; }
-#player-bar span { color: #fff; font-size: 14px; flex: 1;
-                   overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-#player-bar button { background: none; border: none; color: #fb7299;
-                     font-size: 15px; font-weight: 600; cursor: pointer;
-                     padding: 4px 10px; flex-shrink: 0; }
-#player-frame { flex: 1; width: 100%; border: none; }
-#ks-modal { display: none; position: fixed; inset: 0; z-index: 300;
-            background: #000; flex-direction: column; }
-#ks-modal.open { display: flex; }
-#ks-bar { display: flex; align-items: center; padding: 10px 14px;
-          background: #111; flex-shrink: 0; }
-#ks-bar span { color: #fff; font-size: 14px; flex: 1;
-               overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-#ks-bar button { background: none; border: none; color: #fb7299;
-                 font-size: 15px; font-weight: 600; cursor: pointer;
-                 padding: 4px 10px; flex-shrink: 0; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #000; overflow: hidden; font-family: monospace; }
+#game-canvas { display: block; width: 100vw; height: 100vh; }
+
+#loading {
+  position: fixed; inset: 0; background: #1a1a2e;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  color: #fff; z-index: 999; gap: 16px;
+}
+#loading h1 { font-size: 32px; color: #4ade80; letter-spacing: 2px; }
+#loading p { color: #aaa; font-size: 14px; }
+#loading-bar { width: 200px; height: 8px; background: #333; border-radius: 4px; overflow: hidden; }
+#loading-fill { height: 100%; background: #4ade80; width: 0%; transition: width 0.3s; border-radius: 4px; }
+
+#menu {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  color: #fff; z-index: 500; gap: 20px;
+}
+#menu h1 { font-size: 28px; color: #4ade80; margin-bottom: 10px; }
+#menu p { color: #ccc; font-size: 13px; text-align: center; max-width: 320px; line-height: 1.8; }
+#play-btn {
+  padding: 14px 40px; background: #4ade80; color: #000;
+  border: none; border-radius: 8px; font-size: 18px;
+  font-weight: bold; cursor: pointer; letter-spacing: 1px;
+}
+#play-btn:hover { background: #22c55e; }
+
+#hud { position: fixed; inset: 0; pointer-events: none; z-index: 100; }
+
+/* Crosshair */
+#crosshair {
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 24px; height: 24px;
+}
+#crosshair::before, #crosshair::after {
+  content: ''; position: absolute; background: rgba(255,255,255,0.85);
+}
+#crosshair::before { width: 2px; height: 100%; left: 50%; transform: translateX(-50%); }
+#crosshair::after  { width: 100%; height: 2px; top: 50%; transform: translateY(-50%); }
+
+/* Hotbar */
+#hotbar {
+  position: absolute; bottom: 24px; left: 50%;
+  transform: translateX(-50%);
+  display: flex; gap: 4px;
+}
+.slot {
+  width: 52px; height: 52px;
+  background: rgba(0,0,0,0.6);
+  border: 2px solid rgba(255,255,255,0.3);
+  border-radius: 6px;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  color: #fff; font-size: 9px; gap: 2px;
+  transition: border-color 0.1s;
+}
+.slot.active { border-color: #fff; background: rgba(0,0,0,0.8); }
+.slot-icon { width: 28px; height: 28px; border-radius: 3px; }
+.slot-num { color: #aaa; font-size: 8px; }
+
+/* Coordinates */
+#coords {
+  position: absolute; top: 10px; left: 10px;
+  color: #fff; font-size: 12px; background: rgba(0,0,0,0.5);
+  padding: 6px 10px; border-radius: 6px; line-height: 1.8;
+}
+
+/* Controls help */
+#help {
+  position: absolute; top: 10px; right: 10px;
+  color: #ccc; font-size: 11px; background: rgba(0,0,0,0.5);
+  padding: 8px 12px; border-radius: 6px; line-height: 1.9;
+}
 </style>
 </head>
 <body>
 
-<div class="overlay" id="overlay" style="display:none">
-  <div class="sheet">
-    <h2>设置后端地址</h2>
-    <p>填入 Railway / Render 部署好的服务地址，结尾不加斜杠。</p>
-    <input id="urlInput" type="url" placeholder="https://your-app.railway.app"
-           autocapitalize="none" spellcheck="false">
-    <button onclick="saveUrl()">保存</button>
+<div id="loading">
+  <h1>我的世界</h1>
+  <div id="loading-bar"><div id="loading-fill"></div></div>
+  <p id="loading-text">正在生成世界…</p>
+</div>
+
+<div id="menu" style="display:none">
+  <h1>⛏ 我的世界</h1>
+  <p>
+    <b>WASD</b> 移动 &nbsp;|&nbsp; <b>空格</b> 跳跃<br>
+    <b>鼠标左键</b> 破坏方块<br>
+    <b>鼠标右键</b> 放置方块<br>
+    <b>1-8</b> 或 <b>滚轮</b> 切换方块<br>
+    <b>F</b> 飞行模式
+  </p>
+  <button id="play-btn">开始游戏</button>
+</div>
+
+<div id="hud" style="display:none">
+  <div id="crosshair"></div>
+  <div id="hotbar"></div>
+  <div id="coords">X: 0 &nbsp;Y: 0 &nbsp;Z: 0</div>
+  <div id="help">
+    左键 破坏 | 右键 放置<br>
+    1-8 切换方块<br>
+    F 飞行 | ESC 暂停
   </div>
 </div>
 
-<header>
-  <div class="header-row">
-    <div class="tabs">
-      <button class="tab active" id="tab-bili" onclick="setSource('bili')">📺 B站</button>
-      <button class="tab" id="tab-ks" onclick="setSource('ks')">🎬 快手</button>
-    </div>
-    <button class="cfg" onclick="openCfg()" title="设置后端地址">⚙️</button>
-  </div>
-  <div class="search-row">
-    <input id="kw" type="search" placeholder="搜索视频…" enterkeyhint="search">
-    <button id="btn" onclick="doSearch()">搜索</button>
-  </div>
-</header>
-<div class="status" id="status">无需登录，直接搜索。</div>
-<div class="grid" id="grid"></div>
-
-<div id="player-modal">
-  <div id="player-bar">
-    <span id="player-title"></span>
-    <button onclick="closePlayer()">✕ 关闭</button>
-  </div>
-  <iframe id="player-frame" src="" allowfullscreen
-          allow="autoplay; fullscreen"></iframe>
-</div>
-
-<div id="ks-modal">
-  <div id="ks-bar">
-    <span id="ks-title"></span>
-    <button onclick="closeKs()">✕ 关闭</button>
-  </div>
-  <video id="ks-video" controls playsinline autoplay style="flex:1;width:100%;background:#000"></video>
-</div>
-
-<script>
-const KEY = "bili_backend";
-const DEFAULT_URL = "https://kuaishou-production.up.railway.app";
-const esc = s => (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
-let source = 'bili';
-
-function getBase() {
-  return (localStorage.getItem(KEY) || DEFAULT_URL).replace(/\/+$/, "");
-}
-
-function openCfg() {
-  document.getElementById("urlInput").value = localStorage.getItem(KEY) || DEFAULT_URL;
-  document.getElementById("overlay").style.display = "flex";
-}
-
-function saveUrl() {
-  const v = document.getElementById("urlInput").value.trim().replace(/\/+$/, "");
-  if (v) localStorage.setItem(KEY, v);
-  document.getElementById("overlay").style.display = "none";
-}
-
-document.getElementById("overlay").addEventListener("click", function(e) {
-  if (e.target === this) this.style.display = "none";
-});
-
-function setSource(s) {
-  source = s;
-  document.getElementById('tab-bili').classList.toggle('active', s === 'bili');
-  document.getElementById('tab-ks').classList.toggle('active', s === 'ks');
-  document.getElementById('grid').innerHTML = '';
-  document.getElementById('status').textContent = s === 'bili' ? '无需登录，直接搜索。' : '输入关键词搜索快手视频。';
-}
-
-function openPlayer(bvid, title) {
-  document.getElementById("player-title").textContent = title || "";
-  document.getElementById("player-frame").src =
-    "https://player.bilibili.com/player.html?bvid=" + bvid + "&autoplay=1&danmaku=0&high_quality=1";
-  document.getElementById("player-modal").classList.add("open");
-}
-
-function closePlayer() {
-  document.getElementById("player-frame").src = "";
-  document.getElementById("player-modal").classList.remove("open");
-}
-
-function openKs(videoUrl, title) {
-  document.getElementById("ks-title").textContent = title || "";
-  document.getElementById("ks-video").src = videoUrl;
-  document.getElementById("ks-modal").classList.add("open");
-}
-
-function closeKs() {
-  const v = document.getElementById("ks-video");
-  v.pause(); v.src = "";
-  document.getElementById("ks-modal").classList.remove("open");
-}
-
-document.getElementById("kw").addEventListener("keydown", e => {
-  if (e.key === "Enter") { e.preventDefault(); doSearch(); }
-});
-
-async function doSearch() {
-  const kw = document.getElementById("kw").value.trim();
-  if (!kw) return;
-  const btn = document.getElementById("btn");
-  const status = document.getElementById("status");
-  const grid = document.getElementById("grid");
-  btn.disabled = true; grid.innerHTML = "";
-  status.innerHTML = '<span class="spinner"></span>搜索中…';
-  try {
-    const base = getBase();
-    const url = source === 'bili'
-      ? base + "/api/search?keyword=" + encodeURIComponent(kw)
-      : base + "/api/ks/search?keyword=" + encodeURIComponent(kw);
-    const res = await fetch(url);
-    const data = await res.json();
-    if (!data.ok) { status.textContent = "出错：" + (data.error || JSON.stringify(data)); return; }
-    status.textContent = data.count > 0 ? "找到 " + data.count + " 条结果" : "未找到结果";
-    for (const v of data.results) {
-      const card = document.createElement("div");
-      card.className = "card";
-      const cover = v.cover
-        ? '<img src="' + esc(v.cover) + '" referrerpolicy="no-referrer" loading="lazy">'
-        : '<div style="aspect-ratio:16/10;background:#eee"></div>';
-      if (source === 'bili') {
-        card.onclick = () => openPlayer(v.id, v.caption);
-        const playNum = typeof v.play === "number" ? v.play.toLocaleString() + " 播放" : "";
-        card.innerHTML = cover +
-          '<div class="info">' +
-            '<div class="cap">' + esc(v.caption || "(无标题)") + '</div>' +
-            '<div class="meta">' + esc(v.author || "") +
-              (playNum ? " · " + playNum : "") +
-              (v.duration ? " · " + esc(v.duration) : "") + '</div>' +
-            (v.pageUrl ? '<a class="open" href="' + esc(v.pageUrl) + '" target="_blank" onclick="event.stopPropagation()">去B站看 ↗</a>' : '') +
-          '</div>';
-      } else {
-        card.onclick = () => openKs(v.videoUrl, v.caption);
-        card.innerHTML = cover +
-          '<div class="info">' +
-            '<div class="cap">' + esc(v.caption || "(无标题)") + '</div>' +
-            '<div class="meta">' + esc(v.author || "") + (v.views ? " · " + esc(v.views) + "次看" : "") + '</div>' +
-          '</div>';
-      }
-      grid.appendChild(card);
-    }
-  } catch(e) {
-    status.textContent = "出错：" + e.message;
-  } finally {
-    btn.disabled = false;
-  }
-}
-</script>
+<script type="module" src="/src/main.js"></script>
 </body>
 </html>
