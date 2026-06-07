@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>我的世界</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #000; overflow: hidden; font-family: monospace; }
+#game-canvas { display: block; width: 100vw; height: 100vh; }
+
+#loading {
+  position: fixed; inset: 0; background: #1a1a2e;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  color: #fff; z-index: 999; gap: 16px;
+}
+#loading h1 { font-size: 32px; color: #4ade80; letter-spacing: 2px; }
+#loading p { color: #aaa; font-size: 14px; }
+#loading-bar { width: 200px; height: 8px; background: #333; border-radius: 4px; overflow: hidden; }
+#loading-fill { height: 100%; background: #4ade80; width: 0%; transition: width 0.3s; border-radius: 4px; }
+
+#menu {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  color: #fff; z-index: 500; gap: 20px;
+}
+#menu h1 { font-size: 28px; color: #4ade80; margin-bottom: 10px; }
+#menu p { color: #ccc; font-size: 13px; text-align: center; max-width: 320px; line-height: 1.8; }
+#play-btn {
+  padding: 14px 40px; background: #4ade80; color: #000;
+  border: none; border-radius: 8px; font-size: 18px;
+  font-weight: bold; cursor: pointer; letter-spacing: 1px;
+}
+#play-btn:hover { background: #22c55e; }
+
+#hud { position: fixed; inset: 0; pointer-events: none; z-index: 100; }
+
+/* Crosshair */
+#crosshair {
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 24px; height: 24px;
+}
+#crosshair::before, #crosshair::after {
+  content: ''; position: absolute; background: rgba(255,255,255,0.85);
+}
+#crosshair::before { width: 2px; height: 100%; left: 50%; transform: translateX(-50%); }
+#crosshair::after  { width: 100%; height: 2px; top: 50%; transform: translateY(-50%); }
+
+/* Hotbar */
+#hotbar {
+  position: absolute; bottom: 24px; left: 50%;
+  transform: translateX(-50%);
+  display: flex; gap: 4px;
+}
+.slot {
+  width: 52px; height: 52px;
+  background: rgba(0,0,0,0.6);
+  border: 2px solid rgba(255,255,255,0.3);
+  border-radius: 6px;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  color: #fff; font-size: 9px; gap: 2px;
+  transition: border-color 0.1s;
+}
+.slot.active { border-color: #fff; background: rgba(0,0,0,0.8); }
+.slot-icon { width: 28px; height: 28px; border-radius: 3px; }
+.slot-num { color: #aaa; font-size: 8px; }
+
+/* Coordinates */
+#coords {
+  position: absolute; top: 10px; left: 10px;
+  color: #fff; font-size: 12px; background: rgba(0,0,0,0.5);
+  padding: 6px 10px; border-radius: 6px; line-height: 1.8;
+}
+
+/* Controls help */
+#help {
+  position: absolute; top: 10px; right: 10px;
+  color: #ccc; font-size: 11px; background: rgba(0,0,0,0.5);
+  padding: 8px 12px; border-radius: 6px; line-height: 1.9;
+}
+</style>
+  <script type="module" crossorigin src="/kuaishou/assets/index-sXT04d8g.js"></script>
+</head>
+<body>
+
+<div id="loading">
+  <h1>我的世界</h1>
+  <div id="loading-bar"><div id="loading-fill"></div></div>
+  <p id="loading-text">正在生成世界…</p>
+</div>
+
+<div id="menu" style="display:none">
+  <h1>⛏ 我的世界</h1>
+  <p>
+    <b>WASD</b> 移动 &nbsp;|&nbsp; <b>空格</b> 跳跃<br>
+    <b>鼠标左键</b> 破坏方块<br>
+    <b>鼠标右键</b> 放置方块<br>
+    <b>1-8</b> 或 <b>滚轮</b> 切换方块<br>
+    <b>F</b> 飞行模式
+  </p>
+  <button id="play-btn">开始游戏</button>
+</div>
+
+<div id="hud" style="display:none">
+  <div id="crosshair"></div>
+  <div id="hotbar"></div>
+  <div id="coords">X: 0 &nbsp;Y: 0 &nbsp;Z: 0</div>
+  <div id="help">
+    左键 破坏 | 右键 放置<br>
+    1-8 切换方块<br>
+    F 飞行 | ESC 暂停
+  </div>
+</div>
+
+</body>
+</html>
