@@ -15,7 +15,7 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
 #loading h1{font-size:28px;color:#4ade80;font-family:monospace;letter-spacing:2px}
 #loading-bar{width:200px;height:10px;background:#333;border-radius:5px;overflow:hidden}
 #loading-fill{height:100%;background:#4ade80;width:0%;transition:width .3s;border-radius:5px}
-#loading-text{color:#aaa;font-size:13px;font-family:monospace}
+#loading-text{color:#aaa;font-size:13px;font-family:monospace;text-align:center;padding:0 20px}
 #ver{position:absolute;bottom:10px;right:12px;color:#444;font-size:10px;font-family:monospace}
 
 #portrait{display:none;position:fixed;inset:0;background:#111;align-items:center;justify-content:center;flex-direction:column;gap:16px;z-index:9999;color:#fff;font-family:monospace;text-align:center}
@@ -68,7 +68,7 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
   <h1>⛏ 我的世界</h1>
   <div id="loading-bar"><div id="loading-fill"></div></div>
   <p id="loading-text">初始化…</p>
-  <p id="ver">v1</p>
+  <p id="ver">v2</p>
 </div>
 
 <div id="menu">
@@ -99,18 +99,44 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
   <div id="hotbar"></div>
 </div>
 
+<!-- Diagnostic: runs before the game bundle -->
 <script>
-window._ok = false;
 var _lt = document.getElementById('loading-text');
 var _lf = document.getElementById('loading-fill');
-function _st(s){if(_lt)_lt.textContent=s}
-function _sb(p,c){if(_lf){_lf.style.width=p+'%';if(c)_lf.style.background=c}}
-window.addEventListener('error',function(e){
-  _st('错误: '+(e.message||'unknown'));_sb(100,'#f44');
-},true);
-setTimeout(function(){if(!window._ok){_st('游戏脚本未响应，请刷新');_sb(100,'#f44')}},8000);
+var _errMsg = '';
+
+function _st(s) { if (_lt) _lt.textContent = s; }
+function _sb(p, c) { if (_lf) { _lf.style.width = p + '%'; if (c) _lf.style.background = c; } }
+
+// Capture JS errors (sync)
+window.addEventListener('error', function(e) {
+  var file = e.filename ? e.filename.split('/').pop() : '';
+  var line = e.lineno ? ':' + e.lineno : '';
+  _errMsg = (e.message || 'unknown') + (file ? ' [' + file + line + ']' : '');
+  _st('错误: ' + _errMsg);
+  _sb(100, '#f44');
+}, true);
+
+// Capture async errors (Promise rejections)
+window.addEventListener('unhandledrejection', function(e) {
+  var msg = e.reason ? (e.reason.message || String(e.reason)) : 'promise rejected';
+  _errMsg = msg;
+  _st('异步错误: ' + msg);
+  _sb(100, '#f44');
+});
+
+// If nothing happened after 10s, show diagnostic state
+setTimeout(function() {
+  if (!window._ok) {
+    if (!_errMsg) {
+      _st('脚本未响应 (v2) — 请截图发给开发者');
+    }
+    _sb(100, '#f44');
+  }
+}, 10000);
 </script>
 
+<!-- Game bundle inlined here by inline.cjs -->
 <script type="module" src="/src/main.js"></script>
 </body>
 </html>
