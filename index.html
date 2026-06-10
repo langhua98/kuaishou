@@ -70,8 +70,8 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
 <div id="loading">
   <h1>⛏ 我的世界</h1>
   <div id="loading-bar"><div id="loading-fill"></div></div>
-  <p id="loading-text">初始化… v12</p>
-  <p id="ver">v12</p>
+  <p id="loading-text">初始化… v13</p>
+  <p id="ver">v13</p>
 </div>
 
 <div id="menu">
@@ -140,17 +140,15 @@ window.addEventListener('unhandledrejection', function(e) {
 setTimeout(function() {
   if (!window._ok) {
     if (!_errMsg) {
-      _st('脚本未响应 (v12) — 请截图发给开发者');
+      _st('脚本未响应 (v13) — 请截图发给开发者');
     }
     _sb(100, '#f44');
   }
 }, 10000);
-</script>
 
-<script>
 // Minimal test: does ANY inline JS run on this device?
 window._ok = true;
-document.getElementById('loading-text').textContent = 'JS运行正常 v12 — 等待游戏载入';
+document.getElementById('loading-text').textContent = 'JS运行正常 v13 — 等待游戏载入';
 document.getElementById('loading-fill').style.width = '50%';
 document.getElementById('loading-fill').style.background = '#4ade80';
 
