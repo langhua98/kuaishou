@@ -17,7 +17,7 @@ export default defineConfig({
   base: '/kuaishou/',
   build: {
     outDir: 'dist',
-    target: ['es2019', 'safari12'],
+    target: 'safari16',
     rollupOptions: {
       output: {
         format: 'iife',
