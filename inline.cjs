@@ -2,7 +2,7 @@ const fs = require('fs')
 
 let html = fs.readFileSync('index.html', 'utf8')
 
-if (!html.includes('<!-- GAME_SCRIPT_PLACEHOLDER -->')) {
+if (!html.includes('// GAME_JS_PLACEHOLDER')) {
   console.error('ERROR: placeholder not found in index.html')
   process.exit(1)
 }
@@ -10,7 +10,7 @@ if (!html.includes('<!-- GAME_SCRIPT_PLACEHOLDER -->')) {
 let js = fs.readFileSync('src/main.js', 'utf8')
 js = js.replace(/<\/script/gi, '<\\/script')
 
-html = html.replace('<!-- GAME_SCRIPT_PLACEHOLDER -->', '<script>\n' + js + '\n</script>')
+html = html.replace('// GAME_JS_PLACEHOLDER', js)
 
 fs.mkdirSync('dist', { recursive: true })
 fs.writeFileSync('dist/index.html', html)
