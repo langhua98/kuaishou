@@ -8,6 +8,7 @@ import { createNoise2D } from 'simplex-noise'
 
 // ─── Signal that the bundle started executing ─────────────────────────────────
 window._ok = true
+window._step = 1
 
 // ─── Helper to show loading progress ─────────────────────────────────────────
 var _lf = document.getElementById('loading-fill')
@@ -68,7 +69,9 @@ function initRenderer() {
 }
 
 // ─── World ────────────────────────────────────────────────────────────────────
+window._step = 2
 var noise2D = createNoise2D()
+window._step = 3
 var chunks = {}
 
 function chunkKey(cx, cz) { return cx + ',' + cz }
@@ -198,6 +201,7 @@ function createChunk(cx, cz) {
 }
 
 // ─── Player ───────────────────────────────────────────────────────────────────
+window._step = 4
 var player = {
   pos: new Vector3(8, SEA_LEVEL + TERRAIN_AMP + 4, 8),
   vel: new Vector3(),
@@ -239,6 +243,7 @@ function resolveCollision(pos, vel) {
 }
 
 // ─── Controls ─────────────────────────────────────────────────────────────────
+window._step = 5
 var joy = { active:false, id:-1, cx:0, cy:0, dx:0, dy:0 }
 var look = { active:false, id:-1, lx:0, ly:0 }
 
@@ -248,6 +253,7 @@ var joyBase  = document.getElementById('joy-base')
 var lookZone = document.getElementById('look-zone')
 var coordEl  = document.getElementById('coords')
 
+window._step = 6
 joyZone.addEventListener('touchstart', function(e) {
   e.preventDefault()
   for (var i = 0; i < e.changedTouches.length; i++) {
@@ -330,6 +336,7 @@ tapBtn('b-fly',  function() {
 })
 
 // ─── Hotbar ───────────────────────────────────────────────────────────────────
+window._step = 7
 function buildHotbar() {
   var hbar = document.getElementById('hotbar')
   if (!hbar) return
@@ -466,6 +473,7 @@ window.startGame = function() {
 }
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
+window._step = 8
 async function boot() {
   var loadEl = document.getElementById('loading')
   var menuEl = document.getElementById('menu')
