@@ -6,9 +6,7 @@
     "dev": "vite",
     "build": "vite build"
   },
-  "dependencies": {
-    "simplex-noise": "^4.0.3"
-  },
+  "dependencies": {},
   "devDependencies": {
     "vite": "^5.4.0"
   }

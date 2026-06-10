@@ -68,7 +68,7 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
   <h1>⛏ 我的世界</h1>
   <div id="loading-bar"><div id="loading-fill"></div></div>
   <p id="loading-text">初始化…</p>
-  <p id="ver">v7</p>
+  <p id="ver">v8</p>
 </div>
 
 <div id="menu">
@@ -111,9 +111,14 @@ function _sb(p, c) { if (_lf) { _lf.style.width = p + '%'; if (c) _lf.style.back
 // Capture JS errors (sync)
 window.addEventListener('error', function(e) {
   var parts = [];
-  parts.push(e.message || '(no msg)');
-  if (e.error && e.error.constructor) parts.push('type:' + e.error.constructor.name);
-  if (e.lineno) parts.push('line:' + e.lineno + (e.colno ? ':' + e.colno : ''));
+  // Distinguish resource-load errors from JS errors
+  if (e.target && e.target !== window && e.target.tagName) {
+    parts.push('res:' + e.target.tagName + (e.target.src ? ':' + e.target.src.slice(-40) : ''));
+  } else {
+    parts.push(e.message || '(no msg)');
+    if (e.error && e.error.constructor) parts.push('type:' + e.error.constructor.name);
+    if (e.lineno) parts.push('ln:' + e.lineno + (e.colno ? ':' + e.colno : ''));
+  }
   parts.push('step:' + (window._step || '0'));
   _errMsg = parts.join(' | ');
   _st('错误: ' + _errMsg);
