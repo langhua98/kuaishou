@@ -7,7 +7,6 @@
     "build": "vite build"
   },
   "dependencies": {
-    "three": "^0.165.0",
     "simplex-noise": "^4.0.3"
   },
   "devDependencies": {
