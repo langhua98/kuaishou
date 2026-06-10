@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>我的世界</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;touch-action:none}
+canvas{position:fixed!important;top:0!important;left:0!important;width:100%!important;height:100%!important;z-index:1!important;display:block!important;touch-action:none}
+
+#loading{position:fixed;inset:0;background:#1a1a2e;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;z-index:999;gap:16px}
+#loading h1{font-size:28px;color:#4ade80;font-family:monospace;letter-spacing:2px}
+#loading-bar{width:200px;height:10px;background:#333;border-radius:5px;overflow:hidden}
+#loading-fill{height:100%;background:#4ade80;width:0%;transition:width .3s;border-radius:5px}
+#loading-text{color:#aaa;font-size:13px;font-family:monospace}
+#ver{position:absolute;bottom:10px;right:12px;color:#444;font-size:10px;font-family:monospace}
+
+#portrait{display:none;position:fixed;inset:0;background:#111;align-items:center;justify-content:center;flex-direction:column;gap:16px;z-index:9999;color:#fff;font-family:monospace;text-align:center}
+@media(orientation:portrait){#portrait{display:flex}#loading,#menu,#ui{display:none!important}}
+#portrait p{font-size:18px;color:#4ade80}
+
+#menu{position:fixed;inset:0;background:rgba(0,0,0,.8);display:none;flex-direction:column;align-items:center;justify-content:center;z-index:500;gap:18px}
+#menu h1{font-size:28px;color:#4ade80;font-family:monospace}
+#menu .tip{color:#ccc;font-size:12px;line-height:2.2;text-align:center;font-family:monospace}
+#play-btn{padding:14px 48px;background:#4ade80;color:#000;border:none;border-radius:8px;font-size:20px;font-weight:bold;cursor:pointer;font-family:monospace}
+
+#ui{position:fixed;inset:0;display:none;z-index:100}
+
+#xhair{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;width:30px;height:30px}
+#xhair::before,#xhair::after{content:'';position:absolute;background:rgba(255,255,255,.85)}
+#xhair::before{width:2px;height:100%;left:50%;transform:translateX(-50%)}
+#xhair::after{width:100%;height:2px;top:50%;transform:translateY(-50%)}
+
+#coords{position:absolute;top:8px;left:8px;color:#fff;font-size:11px;font-family:monospace;background:rgba(0,0,0,.5);padding:4px 8px;border-radius:5px;line-height:1.8;pointer-events:none}
+
+#joy-zone{position:absolute;left:0;top:0;bottom:62px;width:40%;touch-action:none}
+#joy-base{position:absolute;bottom:18px;left:20px;width:112px;height:112px;border-radius:50%;background:rgba(255,255,255,.1);border:2px solid rgba(255,255,255,.25);pointer-events:none}
+#joy-thumb{position:absolute;top:50%;left:50%;width:48px;height:48px;border-radius:50%;background:rgba(255,255,255,.5);transform:translate(-50%,-50%);pointer-events:none}
+
+#look-zone{position:absolute;right:0;top:0;bottom:62px;left:40%;touch-action:none}
+
+#btns{position:absolute;right:10px;bottom:70px;display:flex;flex-direction:column;gap:6px;align-items:flex-end}
+.row{display:flex;gap:6px}
+.btn{width:56px;height:56px;border-radius:50%;border:2px solid rgba(255,255,255,.35);background:rgba(0,0,0,.55);color:#fff;font-size:11px;font-family:monospace;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;user-select:none;-webkit-user-select:none;touch-action:manipulation}
+.btn:active{background:rgba(255,255,255,.2)}
+.btn .ic{font-size:20px}
+#b-jump{background:rgba(80,180,255,.35)}
+#b-fly{background:rgba(255,210,80,.3)}
+#b-fly.on{background:rgba(255,210,80,.75);border-color:#ffd940}
+#b-brk{background:rgba(255,80,80,.35)}
+#b-plc{background:rgba(80,255,120,.35)}
+
+#hotbar{position:absolute;bottom:6px;left:50%;transform:translateX(-50%);display:flex;gap:4px}
+.slot{width:52px;height:52px;background:rgba(0,0,0,.6);border:2px solid rgba(255,255,255,.2);border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;touch-action:manipulation;cursor:pointer}
+.slot.on{border-color:#fff}
+.slot-ic{width:28px;height:28px;border-radius:3px}
+.slot-lbl{color:#ccc;font-size:8px;font-family:monospace}
+</style>
+</head>
+<body>
+
+<div id="portrait"><span style="font-size:50px">📱</span><p>请横屏游玩</p></div>
+
+<div id="loading">
+  <h1>⛏ 我的世界</h1>
+  <div id="loading-bar"><div id="loading-fill"></div></div>
+  <p id="loading-text">初始化…</p>
+  <p id="ver">v1</p>
+</div>
+
+<div id="menu">
+  <h1>⛏ 我的世界</h1>
+  <div class="tip">
+    左摇杆 移动 &nbsp;│&nbsp; 右侧滑动 视角<br>
+    🔨 破坏 &nbsp;│&nbsp; 📦 放置 &nbsp;│&nbsp; ⬆ 跳跃 &nbsp;│&nbsp; ✈ 飞行<br>
+    底部热键栏 切换方块
+  </div>
+  <button id="play-btn" onclick="window.startGame&&window.startGame()">开始游戏</button>
+</div>
+
+<div id="ui">
+  <div id="xhair"></div>
+  <div id="coords">X:0 Y:0 Z:0</div>
+  <div id="joy-zone"><div id="joy-base"><div id="joy-thumb"></div></div></div>
+  <div id="look-zone"></div>
+  <div id="btns">
+    <div class="row">
+      <button class="btn" id="b-brk"><span class="ic">🔨</span><span>破坏</span></button>
+      <button class="btn" id="b-plc"><span class="ic">📦</span><span>放置</span></button>
+    </div>
+    <div class="row">
+      <button class="btn" id="b-fly"><span class="ic">✈</span><span>飞行</span></button>
+      <button class="btn" id="b-jump"><span class="ic">⬆</span><span>跳跃</span></button>
+    </div>
+  </div>
+  <div id="hotbar"></div>
+</div>
+
+<script>
+window._ok = false;
+var _lt = document.getElementById('loading-text');
+var _lf = document.getElementById('loading-fill');
+function _st(s){if(_lt)_lt.textContent=s}
+function _sb(p,c){if(_lf){_lf.style.width=p+'%';if(c)_lf.style.background=c}}
+window.addEventListener('error',function(e){
+  _st('错误: '+(e.message||'unknown'));_sb(100,'#f44');
+},true);
+setTimeout(function(){if(!window._ok){_st('游戏脚本未响应，请刷新');_sb(100,'#f44')}},8000);
+</script>
+
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
