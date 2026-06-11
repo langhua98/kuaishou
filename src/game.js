@@ -189,6 +189,7 @@ function tick(now) {
   camera.position.set(eyeX - fwx * camD, eyeY - fwy * camD, eyeZ - fwz * camD);
   camera.rotation.y = player.yaw;
   camera.rotation.x = player.pitch;
+  camera.rotation.z = 0;
 
   renderer.render(scene, camera);
 }
