@@ -441,9 +441,15 @@ window.addEventListener('resize', function () {
 
 // ═══ src/textures.js ═══
 // ─── textures.js ──────────────────────────────────────────────────────────────
-// 方块贴图集：Minetest 开源贴图（CC BY-SA 3.0，https://minetest.net）
-// 9 张 16×16 PNG 在构建时 base64 嵌入，组装为 64×48 texture atlas。
-// 零运行时网络请求，完全内置。水贴图为 16×256 动画，仅取第一帧（16×16）。
+// 方块贴图集：Minecraft 原版贴图（assets/textures/block/，爬取自
+// InventivetalentDev/minecraft-assets 1.20.1 镜像，个人测试用）。
+//
+// 原版贴图的"生物群系染色"机制：
+//   grass_block_top / water_still 存储为灰度图，游戏运行时按群系乘颜色；
+//   oak_leaves 是近灰度+透明孔隙。
+//   → 组装贴图集时在离屏 canvas 上做 multiply 染色：
+//     草顶 ×#91BD59（平原绿）、树叶 ×#77AB2F（橡树绿）、水 ×#3F76E4（水蓝）
+//   树叶/水有透明像素 → 先铺不透明底色再叠加，避免方块接缝透视。
 //
 // 贴图格布局（ATLAS_COLS=4, ATLAS_ROWS=3）：
 //   [0] grass_top  [1] grass_side  [2] dirt      [3] stone
@@ -468,64 +474,67 @@ var BTEX = [
 
 var atlasTexture = null;
 
-var _TX_GRASS_TOP = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAMAAAAoLQ9TAAAArlBMVEU4YhY5Yxc5ZBY6ZBg6ZRc7Yxc7ZBY7Zhg7Zxc8ZRc8aBg9Zhg9aRk9ahg+aBg+aRc+axk+cBo/ahg/cBhAaxlAbBhAbhhAbhpAcRlAcxtBbRlBbxlBcBhBcRtBdBxBdRtCcBpCcRlCcxtCdBpCdhxDdBxDdRtDeBxEdR1EdhxEdxtEeBpFdx1FeBxGeB5GeR1HeR9IeiBIex9IfB5JeR9Jeh5JfCBKex9KfB5KfSE8mWaKAAAA2klEQVQYGQXBgUKCMBQF0IdNkRcSEYzkVmM6RiOnhbTR//9Y59AtiszVTJtXraomZRrCJcQyh7FaY0NMXe7uE/RiM2inBMidDhl6bKn9hBmNprIgXoMTBTPq0Wu6pvwdfOmWKoEObU/JDxfTm5zjNMiXr5iQk9KaJ4l8r7Jn2W1pBbrB3sCsdsR5JMVxEckBp1o2aVp6yj58TJgb9EBZ/3qySoALEjG0rurnQFLsGhzF2Q/VOEiA4EwFKZXtzPGackfZ7M+cA5wWl/j4sBJKu+c63pP3uWmk+fsHOJAawOkrkdAAAAAASUVORK5CYII=';
-var _TX_GRASS_SIDE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAABlElEQVQ4y8WSaVLCQBCF5xQQdo4ha0IICBxD3FBBLEACUuXR2/46CUSL/6aqazK9vH79etz4UJPZV0PaD0XpqkWfVQleS9J99uTmriCt+4IEHyUJ1Qa7ivgvngRvnnQePctxw21VpqemjPY1OwHrK0BvoQXvWqiAQy0MMxD1AQq4AQyWSTKdJ6e6RPtKUqjJ00PDimGW+ciDSTv1ORzhpiI9pXZOXJft7MyL1ilYlSXa1S6M4qqdADro9tN5oTRTFowCMF2IdVMDAH0AGMUpwDiunwW5VcqmhwYBBoQxEK41v4xBDqxg6ghMjk0DoJtpsFalV55MVFBExYfY+HyNRXHZ/NSaBgQwU1vv/UXR7nRE4M5T0YRDo752tdgy0cgxM4lm6qQTQLwPfOf51dfJrQ9gWDhDRjy9MC/CQY2t2My6IYQzlukDwtAIrZytbpuo6pz7pjjrSkF+rcQpBHB6rCc10CVAZ85MTKhmvkx1/tmIqZ/6HdT04mdmu94koOG2/CuGoVE+16WX/Of/MXclfu3/n74fXkNcmB6lnnIAAAAASUVORK5CYII=';
-var _TX_DIRT = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQBAMAAADt3eJSAAAAMFBMVEVGKApUNBZWNxtYNxpZOiBaPiZdPyZfQipkRSpmSTBqSzFsTjVwUjhoVEZ8XEGDalgE/1C/AAAAm0lEQVQI1wGQAG//AMpWvFyBa9arAFOItVV7w3dsAE6XO3O+Y3AnAEQVRnZ6p5xiAGFpB7l2w5t3AIX3jKk3V2cMAH2YN3bHOxVqAFEmNwJ1lDx3AJUyecb1Io63AGoeObd9JZJnAIVXeHV3e0UXAGUi+oZ3V4Z+AGB112cwZntrAHd2N8kxl8ehAJGTjsHJR7uRAOi4M3i1GP1medU7vGNW+SwAAAAASUVORK5CYII=';
-var _TX_STONE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQBAMAAADt3eJSAAAAIVBMVEVhXl1WVFNvbGtiX15gXFtua2pVUlFOS0p8eHdQTUxoZGOCDXQRAAAAgklEQVQIHQXBMRKCMBBA0Z/AAbIjhXaaNJaB9QAOs1BTSO9YQE1Fn8qWQ3hP36PSh41mELufzXMf2aWxYXLCluvl7eSCSPMCQHPd30s90UrzlH15E7OP3zJX5HHdDwYPhgMRbN2CjynxiancRAW6mLxqJslJ5VyudImkGuAIVK0E9wf3zRbTcwUITAAAAABJRU5ErkJggg==';
-var _TX_SAND = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQBAMAAADt3eJSAAAAJFBMVEXY0aHd1qXa06PWz5/TzZzg2ajNx5bHwZDAuonPyZi9t4XJw5J1PvJNAAAAlElEQVQI1wXBMQuCQBgG4LfzQNzuE25X02a1Kxo14aS2Q675oKhokoYGxxpqrh/RXL/Q5wE7QN3KKkDaNDHf7Ct8wmz3JiawllltU+vAKJReoZaIMtHyeVSjkv4fJARgTjHZjgPTO0k765FsC2O6ZwnvGiI5FwJfao/6Rz5y7SYUBwPAIklqeIApvUhffQ6sHL84Vo4pFRpLCRofAQAAAABJRU5ErkJggg==';
-var _TX_WOOD_TOP = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAMAAAAoLQ9TAAABVlBMVEU5Lh9DNCM/MyMzKh3q0JzpyovjunnWoGLUnmBLOyczKx3w3rfs0Z7pzZbmxpPlwormxoXmwYPjwILfuX/kwH3euHnht3fetXbcsXXdtHPbsHPZqGjYo2XYomHRml9vQi5PNyXy4Lrt0ZXr0pTt0pHrz4/qzIzkvYTju4Dgu3vetnTYqXLfs3HZrnDWp2/crmvYpmfTomfQlFTNjFOtelGreEumcUuWbEiUZUWca0ObZECGWTyEVTl2TzdmQC04Lh736r3v2a/u2az03aDy2ZzozJzw0JLlxY3kxYjhvofnw4Xdt3vbtnvWr3jjvHfdsG/jr2vNnmfVmmXFkmHPk123h1nAilbKjVKielKkdVLGgU6bcE3Hf0Wlb0ONZEOFWz+QWjp8UjiEUDaCTzaJTTVjSjOBRzNNPS1lPClJNyVGOiRSMSI9MCE7Kx8sIBgrHxclHhcbFhPR7MKzAAAA9klEQVQYGQXB04IDQRQFwHO7x8FkYk9s28natm3//8tW4R2MgQNEBM6hgt28PAy6R612bzKJfX8BbLyfdmy7RUdmeXG29Qmw55Q74guEQyVvzrrwBLDHpKwLgm3eEo/nEl0CM9Oys2zLrtj1uWzimkCm2CzXlywWwSUYqSHARu7QasVetOtBq5TpANN7/7En6K/sbYasJfEUmL5KsjPqc625irYdxxlB+5Ci+UY1fHjuFyPrFwTN9DYCBZ83UJA8eaPHof3uVmuXJ1FFadaM5B0Bf6OIotTlcHDD4zyIAfh5G98O2q3OVb8/VGOACo0IHETEOaD+Axe4I2yoTQ96AAAAAElFTkSuQmCC';
-var _TX_WOOD_SIDE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAMAAAAoLQ9TAAAAQlBMVEUlGhA2Kh40KBwnHBMwJBlKPC1BMyVRQzM7LyI6LSEuIRgrHxVJOis+MiQ4LSBOPS9GOCpENygyJxxBNiYiFw4rHRRm8zmNAAAAqklEQVQYGQXBhQHAMAwDMIfLvP9fnQR8lPdsQZZWy7kCWsh3C4SbcRKAlKjvgM3VmT5gcKbU4/PmiVkA6qROlo/RGEUA9aOt3nW8LK0C8EJphYKtXikCjPSqZQ5ufPEJ0EuB9bRr+GARoL8M48mIdm4R4FZT00CNRIsFOETeObSuxMmBh12Gl5lS3n6G4L1cNem8XWdWEjw5pI3nmGybSYDv5N585jXWHlR/IpEIPoIsCgwAAAAASUVORK5CYII=';
-var _TX_LEAVES = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAABhklEQVR4AT3SBY5kMQwE0NxhppmZSbDMJFxmuP81snlWZyRF8bfLVWXnp+mjcRrfH+T2upmXT6a5xGm8Gebevp2H637cNQe3eDnLzcGtOznp0a9lfvFvG8XutC0JHISDSw846nK+EbTHTX0Ra4jm88cJArGTxNcDjECsWRz1+98KAduSiNzUNA0WoZ6KkxgRrj/vVmxyc1ntAptX7CTN9lMaU7GugaK9BAGyGIGdzbs5QKhoevJ3Ve0azc1JEAyWvayuTz0BlA9zRgJZOYAa1MSJsiU6ahzCBtjcVBCVmGVOgIMAkGWu6s7gLNec2IARKISC+dxXUgQ2zyUCuXDoGbFisyBqjiUChCtEpcaZ10GsHlgA6pi9P+uWVNXS+cO2LjMINavXv1UQb31VRwAczWIz2wUiBJyoGUmPd5YwClt1OazGt+fjjHVNddluwhrZpeoAW5BcPfU14ptL9sUcYbmbEZg6RTGw9xYjgPET1X0RN6eEhQAZQY5dc8vHmAjkSiynOcT+A7LZFiNTpzO9AAAAAElFTkSuQmCC';
-var _TX_WATER = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAEACAMAAACNjAZ8AAAB/lBMVEUadN4add4adtcadtkadtoadt8aduMad9kad9oad9sad9wad98ad+AaeNYaeNkaeNoaeNsaeN4aeOAaeOEaedQaedUaedcaedkaedsaedwaed0aed8aeeAaeeEaetUaetkaetoaetwaet0aet8aeuAaeuEaeuIae9Yae9kae9oae9sae9wae90ae94ae98ae+EafNkafNoafNsafNwafN0afN4afOEafOIafOMafdcafdkafdoafdsafdwafd0afd4afd8aftkaftoaftsaftwaft0aft4aft8afuAafuEafuIaf9gaf9kaf9oaf9saf9waf90af94af98af+Aaf+Eaf+IagNcagNkagNoagNsagNwagN0agN4agN8agOAagOEagOIagOMagdkagdoagdsagdwagd0agd4agd8ageAageEageIagtoagtsagtwagt0agt4agt8aguAaguEaguMag9wag90ag94ag98ag+Aag+Eag+IahNsahNwahN0ahN8ahOAahOEahOIahOQahdkahdoahd0ahd4ahd8aheAaheEaheIahtkahtoahtsahtwaht0aht4aht8ahuAahuEahuIahuMah9kah9sah94ah+Aah+Iah+Mah+Qah+UaiNsaiN0aiN4aiN8aiOEaiOIaidwaieAaiuAaiuEajN6rcwxgAAAAqnRSTlPMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzG/kJ2oAAAM5SURBVFjD7dcJVxJRHAXwZ6u2SGa2mKVmplZa5pIbCBqLGwxIpiySyMyUFsyAOIglZoUNVhpE5W4uLd+yYRl4M8mRczwdyeNX+J3/fe9esKBXicve4MvqUwPl1ZX9BPDit8Q6QflqY1lFtvjSMTMgmohSab2KtmF5NfktinWQU1V0NVO+qP7lsPbrNEs2gDWm36xwBSSj5NyED/mIghHCUyDeUh86fnoStYyPrgPp183RoK5VcOGOUGL3yrWgBDN9cbYMVx3tuZ81Mek4DzIKm6mgTHRXeyRnUEQTuSBTfuIK9hnpuF158b1yzFED8JraZ85poyJbn1asChpLQceja9fLTT+Iwzf6DC7a2g4kl5vPIE88lAufebm45sRBZzNpc7Thbp8bd/Ui9AvgsTto23efr4sqzC9+qEGBJUAqx1Hc//htey0oeFoHtvdAgijG8bDM01tYd9xD5abULsdcxKOR8TCuYBIliUY82kSsh53x0OnBlJmEPMZnQO+7ZdhDCTIMZEp4GCiKhDyEMY/YffhtRCmxpmI8QvdxFgNdVUW9TnnUI0tGMx5Sj9FVCXkQnhlxTy7kwdzHUD7swb0P5bb3oZ0dEuzgYVyhRIk8qhkPWUvEQ6gpQehWxkNBhj2QsMc04/HJC3kMJ/RY5dxH3CNyH1EPNi8Y68HkxRPKi4f1mETnFDomL+a4x4Y1lJd7SeRl1x7n+B5Svof3L48COC/2DdBQDXmoX5uBFPawTWFcD5+sKaU8KE5eSCYvI/OsB5OXAJMXp4b1QIHXwOSlYU897N6TfA8T3+MB30PL96iIvx9CU8ijk/VAFzb9kMcS40HkQR5CvsfAnnpYN6xcD81vMddjguzmesx+k8EelNg0rYY9gh9e/dTAHri0z33gceCRMh7R/hHzSNcH97WHwMj1kFqi/TTuEe2nrAfTx6yjsMfY8/3sUc/ziPX1sEeon7oCUY/BcF/Xs319TsHt69bIf4sl4cH2U56Hnu9h4nv4+R7dSXsk2C9Gbh/beb/EPKL7RZ/0fkklj7p954FwPJr5HnaeR2i//PceaVyPUD+FPCL91M3fcyW72bf/3oPYjcfu9y2SwOMP3y9n5BLqPCMAAAAASUVORK5CYII=';
-
-// 按顺序对应贴图格 0-8
-var _TX_LIST = [
-  _TX_GRASS_TOP, _TX_GRASS_SIDE, _TX_DIRT, _TX_STONE,
-  _TX_SAND, _TX_WOOD_TOP, _TX_WOOD_SIDE, _TX_LEAVES,
-  _TX_WATER
+// 贴图格定义：file = assets/textures/block/ 下的文件名
+//   tint     — multiply 染色（CSS 颜色），用于原版灰度贴图
+//   backdrop — 先铺的不透明底色（处理透明像素）
+var _TILES = [
+  { file: 'grass_block_top',  tint: '#91bd59' },                       // 0
+  { file: 'grass_block_side' },                                        // 1
+  { file: 'dirt' },                                                    // 2
+  { file: 'stone' },                                                   // 3
+  { file: 'sand' },                                                    // 4
+  { file: 'oak_log_top' },                                             // 5
+  { file: 'oak_log' },                                                 // 6
+  { file: 'oak_leaves',       tint: '#77ab2f', backdrop: '#1a3008' },  // 7
+  { file: 'water_still',      tint: '#3f76e4', backdrop: '#1a3f8f' }   // 8
 ];
 
-// 加载所有贴图、组装 atlas canvas，完成后调用 onReady()
-// 由 game.js bootNext 在渲染器就绪后调用
-//
-// 透明像素处理（修复方块接缝穿模）：
-//   Minetest 的 grass_side 是"叠加层"设计（仅顶部绿条不透明，需叠在泥土上），
-//   leaves 也含透明孔隙。直接用 + alphaTest 会让侧面出现透视洞。
-//   → 组装时先铺底图：grass_side 底=dirt，leaves 底=深绿色，全部变为不透明。
+// 单格处理：染色（multiply 保留 alpha）后画入贴图集
+function _drawTile(ctx, img, spec, dx, dy) {
+  if (spec.backdrop) {
+    ctx.fillStyle = spec.backdrop;
+    ctx.fillRect(dx, dy, TILE, TILE);
+  }
+
+  if (!spec.tint) {
+    // 直接绘制（取左上 16×16，动画贴图自动取首帧）
+    ctx.drawImage(img, 0, 0, TILE, TILE, dx, dy, TILE, TILE);
+    return;
+  }
+
+  // 离屏染色：画原图 → multiply 乘色 → destination-in 恢复原 alpha
+  var oc = document.createElement('canvas');
+  oc.width = oc.height = TILE;
+  var octx = oc.getContext('2d');
+  octx.drawImage(img, 0, 0, TILE, TILE, 0, 0, TILE, TILE);
+  octx.globalCompositeOperation = 'multiply';
+  octx.fillStyle = spec.tint;
+  octx.fillRect(0, 0, TILE, TILE);
+  octx.globalCompositeOperation = 'destination-in';
+  octx.drawImage(img, 0, 0, TILE, TILE, 0, 0, TILE, TILE);
+  ctx.drawImage(oc, dx, dy);
+}
+
 function loadTextures(onReady) {
   var W = ATLAS_COLS * TILE, H = ATLAS_ROWS * TILE;
   var cv = document.createElement('canvas');
   cv.width = W; cv.height = H;
   var ctx = cv.getContext('2d');
 
-  var imgs = [], total = _TX_LIST.length, done = 0;
+  var imgs = [], total = _TILES.length, done = 0;
 
   function allLoaded() {
-    // 全部图片就绪后按依赖顺序合成（dirt 必须先于 grass_side 画好）
-    var i, col, row;
+    var i, dx, dy;
     for (i = 0; i < total; i++) {
-      col = (i % ATLAS_COLS) * TILE;
-      row = ((i / ATLAS_COLS) | 0) * TILE;
-
-      if (i === 1 && imgs[2]) {
-        // grass_side：先铺 dirt 底，再叠加绿条层
-        ctx.drawImage(imgs[2], 0, 0, TILE, TILE, col, row, TILE, TILE);
-      } else if (i === 7) {
-        // leaves：先铺深绿底，填掉透明孔隙
-        ctx.fillStyle = '#1e3d14';
-        ctx.fillRect(col, row, TILE, TILE);
-      }
-
+      dx = (i % ATLAS_COLS) * TILE;
+      dy = ((i / ATLAS_COLS) | 0) * TILE;
       if (imgs[i]) {
-        // 取左上角 16×16（水为 16×256 动画图，取首帧）
-        ctx.drawImage(imgs[i], 0, 0, TILE, TILE, col, row, TILE, TILE);
+        _drawTile(ctx, imgs[i], _TILES[i], dx, dy);
       } else {
-        // 加载失败：洋红占位
-        ctx.fillStyle = '#ff00ff';
-        ctx.fillRect(col, row, TILE, TILE);
+        ctx.fillStyle = '#ff00ff';   // 加载失败：洋红占位
+        ctx.fillRect(dx, dy, TILE, TILE);
       }
     }
-
     atlasTexture = new THREE.CanvasTexture(cv);
     atlasTexture.magFilter = THREE.NearestFilter;
     atlasTexture.minFilter = THREE.NearestFilter;
@@ -533,11 +542,11 @@ function loadTextures(onReady) {
     onReady();
   }
 
-  _TX_LIST.forEach(function (url, i) {
+  _TILES.forEach(function (spec, i) {
     var img = new Image();
     img.onload  = function () { imgs[i] = img;  if (++done === total) allLoaded(); };
     img.onerror = function () { imgs[i] = null; if (++done === total) allLoaded(); };
-    img.src = url;
+    img.src = 'assets/textures/block/' + spec.file + '.png';
   });
 }
 
