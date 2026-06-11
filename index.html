@@ -148,456 +148,830 @@ setTimeout(function() {
   }
 }, 10000);
 
-// v16: Full Minecraft clone — Three.js renderer, pure ES5 game logic
-window._ok = true;
+// ═══ src/init.js ═══
+// ─── init.js ──────────────────────────────────────────────────────────────────
+// 最先执行：设置诊断标志、缓存 DOM 引用、声明 setProgress。
+// window._ok 告诉诊断脚本"游戏代码已开始执行"，防止 10 秒超时误报。
+// window._step 在关键节点更新，供错误信息定位用。
+
+window._ok   = true;
 window._step = 1;
 
-var loadEl  = document.getElementById('loading');
-var loadFill= document.getElementById('loading-fill');
-var loadText= document.getElementById('loading-text');
-var menuEl  = document.getElementById('menu');
-var uiEl    = document.getElementById('ui');
-var coordEl = document.getElementById('coords');
+var loadEl   = document.getElementById('loading');
+var loadFill = document.getElementById('loading-fill');
+var loadText = document.getElementById('loading-text');
+var menuEl   = document.getElementById('menu');
+var uiEl     = document.getElementById('ui');
+var coordEl  = document.getElementById('coords');
 
+// 更新加载进度条和文字
 function setProgress(pct, msg) {
   if (loadFill) loadFill.style.width = pct + '%';
   if (loadText) loadText.textContent = msg;
 }
 
 setProgress(5, 'Three.js 初始化...');
-if (typeof THREE === 'undefined') { setProgress(0,'错误: THREE 未定义'); throw new Error('THREE'); }
+
+// three.min.js 必须在此脚本块之前以 <script src> 加载
+if (typeof THREE === 'undefined') {
+  setProgress(0, '错误: THREE 未定义 — lib/three.min.js 未加载');
+  throw new Error('THREE undefined');
+}
 
 window._step = 2;
 
-// ── Renderer / Scene / Camera ─────────────────────────────────────────────
-var renderer = new THREE.WebGLRenderer({ antialias: false });
+
+// ═══ src/constants.js ═══
+// ─── constants.js ─────────────────────────────────────────────────────────────
+// 游戏全局常量：世界尺寸、物理参数、方块 ID、颜色表、面定义。
+// 不依赖任何其他文件，所有模块均可引用这里的变量。
+
+// 区块尺寸（单位：方块）
+var CHUNK_W = 16, CHUNK_H = 64, CHUNK_D = 16;
+
+// 地形生成参数
+var SEA   = 12;    // 海平面高度
+var AMP   = 14;    // 地形起伏幅度
+var SCALE = 0.04;  // Perlin 采样缩放（越小地形越平缓）
+
+// 物理参数
+var GRAVITY  = 28;   // 重力加速度（方块/秒²）
+var JUMP_V   = 10;   // 跳跃初速度（方块/秒）
+var PH       = 1.7;  // 玩家碰撞箱高度（方块）
+var PR       = 0.3;  // 玩家碰撞箱半径（方块）
+var MOVE_SPD = 5;    // 步行速度
+var FLY_SPD  = 8;    // 飞行速度
+
+// 方块类型 ID
+var AIR    = 0;
+var GRASS  = 1;
+var DIRT   = 2;
+var STONE  = 3;
+var SAND   = 4;
+var WOOD   = 5;
+var LEAVES = 6;
+var WATER  = 7;
+
+// 每种方块三组颜色：[顶面 RGB, 底面 RGB, 侧面 RGB]（0.0–1.0）
+var BCOL = [
+  null,                                                              // AIR
+  [0.365,0.702,0.365, 0.545,0.369,0.235, 0.478,0.478,0.290],      // GRASS
+  [0.545,0.369,0.235, 0.545,0.369,0.235, 0.545,0.369,0.235],      // DIRT
+  [0.533,0.533,0.533, 0.533,0.533,0.533, 0.533,0.533,0.533],      // STONE
+  [0.831,0.784,0.478, 0.831,0.784,0.478, 0.831,0.784,0.478],      // SAND
+  [0.361,0.239,0.118, 0.361,0.239,0.118, 0.478,0.322,0.188],      // WOOD
+  [0.176,0.431,0.176, 0.176,0.431,0.176, 0.176,0.431,0.176],      // LEAVES
+  [0.200,0.400,0.800, 0.200,0.400,0.800, 0.200,0.400,0.800]       // WATER
+];
+
+// 方块中文名称（热键栏显示用）
+var BNAMES = ['', '草地', '泥土', '石头', '沙子', '木头', '树叶', '水'];
+
+// ── 面定义 ────────────────────────────────────────────────────────────────────
+// FACES[f] = [dx, dy, dz,  顶点偏移数组(4顶点×3坐标=12个数),  BCOL 颜色偏移]
+//   颜色偏移: 0=顶面, 3=底面, 6=侧面
+var FACES = [
+  [ 1, 0, 0, [1,0,0, 1,1,0, 1,1,1, 1,0,1], 6],  // +X 右侧面
+  [-1, 0, 0, [0,0,1, 0,1,1, 0,1,0, 0,0,0], 6],  // -X 左侧面
+  [ 0, 1, 0, [0,1,1, 1,1,1, 1,1,0, 0,1,0], 0],  // +Y 顶面
+  [ 0,-1, 0, [0,0,0, 1,0,0, 1,0,1, 0,0,1], 3],  // -Y 底面
+  [ 0, 0, 1, [1,0,1, 1,1,1, 0,1,1, 0,0,1], 6],  // +Z 前侧面
+  [ 0, 0,-1, [0,0,0, 0,1,0, 1,1,0, 1,0,0], 6]   // -Z 后侧面
+];
+
+// 各面烘焙亮度（模拟方向光遮挡，顶面最亮，底面最暗）
+var FSHADE = [0.80, 0.80, 1.00, 0.50, 0.85, 0.85];
+
+
+// ═══ src/noise.js ═══
+// ─── noise.js ─────────────────────────────────────────────────────────────────
+// 纯 ES5 实现的 2D Perlin 噪声，无外部依赖。
+// 算法：随机置换表 + 梯度向量插值（Ken Perlin 改进版）。
+// 仅供地形高度采样，输出范围约 [-1, 1]。
+
+// 512 个随机置换值（前 256 随机打乱后镜像复制，避免越界取模）
+var _perm = new Uint8Array(512);
+(function () {
+  var i, j, t;
+  for (i = 0; i < 256; i++) _perm[i] = i;
+  // Fisher–Yates shuffle
+  for (i = 255; i > 0; i--) {
+    j = Math.floor(Math.random() * (i + 1));
+    t = _perm[i]; _perm[i] = _perm[j]; _perm[j] = t;
+  }
+  for (i = 0; i < 256; i++) _perm[i + 256] = _perm[i];
+}());
+
+function _fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); } // 平滑曲线
+function _lerp(a, b, t) { return a + t * (b - a); }
+function _grad(h, x, z) {                                           // 2D 梯度
+  switch (h & 3) {
+    case 0: return  x + z;
+    case 1: return -x + z;
+    case 2: return  x - z;
+    default: return -x - z;
+  }
+}
+
+// 采样 (x, z) 处的噪声值，返回 [-1, 1] 近似范围内的浮点数
+function noise2D(x, z) {
+  var ix = Math.floor(x) & 255, iz = Math.floor(z) & 255;
+  var fx = x - Math.floor(x),   fz = z - Math.floor(z);
+  var ux = _fade(fx), uz = _fade(fz);
+  var aa = _perm[_perm[ix]   + iz],     ab = _perm[_perm[ix]   + iz + 1];
+  var ba = _perm[_perm[ix+1] + iz],     bb = _perm[_perm[ix+1] + iz + 1];
+  return _lerp(
+    _lerp(_grad(aa, fx,   fz),   _grad(ba, fx-1, fz),   ux),
+    _lerp(_grad(ab, fx, fz-1), _grad(bb, fx-1, fz-1), ux),
+    uz
+  );
+}
+
+
+// ═══ src/world.js ═══
+// ─── world.js ─────────────────────────────────────────────────────────────────
+// 世界数据层：区块存储、方块读写、地形生成。
+//
+// 坐标约定：
+//   世界坐标 (wx, wy, wz)：整数，绝对方块位置
+//   区块坐标 (cx, cz)：整数，cx = floor(wx / CHUNK_W)
+//   局部坐标 (lx, lz)：区块内偏移，[0, CHUNK_W)
+//
+// 区块数据布局：Uint8Array，索引 = lx + wy*CHUNK_W + lz*CHUNK_W*CHUNK_H
+// 每个元素是方块 ID（见 constants.js）。
+
+var chunks = {};  // 已加载区块，键 = "cx,cz"
+
+function ckey(cx, cz) { return cx + ',' + cz; }
+function gchunk(cx, cz) { return chunks[ckey(cx, cz)]; }
+
+// 读取世界坐标 (wx, wy, wz) 的方块 ID
+// 超出高度范围：wy<0 返回 STONE，wy>=CHUNK_H 返回 AIR
+// 区块未加载时返回 AIR（不触发加载）
+function getBlock(wx, wy, wz) {
+  if (wy < 0)        return STONE;
+  if (wy >= CHUNK_H) return AIR;
+  var cx = Math.floor(wx / CHUNK_W);
+  var cz = Math.floor(wz / CHUNK_D);
+  var ch = gchunk(cx, cz);
+  if (!ch) return AIR;
+  var lx = ((wx % CHUNK_W) + CHUNK_W) % CHUNK_W;
+  var lz = ((wz % CHUNK_D) + CHUNK_D) % CHUNK_D;
+  return ch.data[lx + wy * CHUNK_W + lz * CHUNK_W * CHUNK_H];
+}
+
+// 写入方块并重建受影响的区块网格（含跨区块边界时相邻区块）
+function setBlock(wx, wy, wz, id) {
+  if (wy < 0 || wy >= CHUNK_H) return;
+  var cx = Math.floor(wx / CHUNK_W);
+  var cz = Math.floor(wz / CHUNK_D);
+  var ch = gchunk(cx, cz);
+  if (!ch) return;
+  var lx = ((wx % CHUNK_W) + CHUNK_W) % CHUNK_W;
+  var lz = ((wz % CHUNK_D) + CHUNK_D) % CHUNK_D;
+  ch.data[lx + wy * CHUNK_W + lz * CHUNK_W * CHUNK_H] = id;
+  // 总是重建本区块
+  rebuildChunk(cx, cz);
+  // 若改动在区块边界，相邻区块的外露面也需更新
+  if (lx === 0)          rebuildChunk(cx - 1, cz);
+  if (lx === CHUNK_W-1)  rebuildChunk(cx + 1, cz);
+  if (lz === 0)          rebuildChunk(cx, cz - 1);
+  if (lz === CHUNK_D-1)  rebuildChunk(cx, cz + 1);
+}
+
+// 程序化地形生成
+// 高度 h = SEA + noise2D(wx*SCALE, wz*SCALE) * AMP
+// 规则：h层=草地/沙（近水）, h-1到h-3层=泥土, 更深=石头, h+1到SEA=水
+function genTerrain(cx, cz) {
+  var data = new Uint8Array(CHUNK_W * CHUNK_H * CHUNK_D);
+  var lx, lz, wx, wz, h, y, id;
+  for (lx = 0; lx < CHUNK_W; lx++) {
+    for (lz = 0; lz < CHUNK_D; lz++) {
+      wx = cx * CHUNK_W + lx;
+      wz = cz * CHUNK_D + lz;
+      h  = Math.floor(SEA + noise2D(wx * SCALE, wz * SCALE) * AMP);
+      // 实心柱从 y=0 到 y=h
+      for (y = 0; y <= h && y < CHUNK_H; y++) {
+        id = (y === h)    ? ((h <= SEA + 1) ? SAND : GRASS)
+           : (y >= h - 3) ? DIRT
+           :                STONE;
+        data[lx + y * CHUNK_W + lz * CHUNK_W * CHUNK_H] = id;
+      }
+      // 水面以下至海平面填水
+      for (y = h + 1; y <= SEA; y++) {
+        data[lx + y * CHUNK_W + lz * CHUNK_W * CHUNK_H] = WATER;
+      }
+    }
+  }
+  return data;
+}
+
+
+// ═══ src/renderer.js ═══
+// ─── renderer.js ──────────────────────────────────────────────────────────────
+// Three.js 渲染器、场景、摄像机、灯光初始化。
+//
+// 摄像机旋转约定（YXZ 欧拉顺序）：
+//   rotation.y = player.yaw   — 左右转向（yaw 减小 = 向右转）
+//   rotation.x = player.pitch — 仰俯（pitch 增大 = 抬头）
+// 这与原始 viewMatrix 中 forward=(-sin(yaw)*cos(pitch), sin(pitch), -cos(yaw)*cos(pitch)) 完全一致。
+//
+// 光照策略：环境光（0.85）提供基础亮度，微弱平行光（0.3）强调方向感。
+// 区块网格使用 MeshBasicMaterial + 烘焙顶点色，不受场景灯光影响。
+
+var renderer = new THREE.WebGLRenderer({ antialias: false }); // 移动端关闭抗锯齿
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.domElement.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;z-index:1;touch-action:none';
 document.body.appendChild(renderer.domElement);
 
 var scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87ceeb);
-scene.fog = new THREE.Fog(0x87ceeb, 50, 90);
+scene.background = new THREE.Color(0x87ceeb);      // 天空蓝
+scene.fog = new THREE.Fog(0x87ceeb, 50, 90);       // 远处淡出，与天空同色
 
 var camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 200);
-camera.rotation.order = 'YXZ';
+camera.rotation.order = 'YXZ';                     // 先偏航再俯仰，标准 FPS 顺序
 
 scene.add(new THREE.AmbientLight(0xffffff, 0.85));
 var sun = new THREE.DirectionalLight(0xfff0c8, 0.3);
 sun.position.set(1, 2, 1);
 scene.add(sun);
 
-window.addEventListener('resize', function() {
+window.addEventListener('resize', function () {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-window._step = 3;
-setProgress(10, '初始化世界...');
 
-// ── Constants ────────────────────────────────────────────────────────────
-var CHUNK_W=16, CHUNK_H=64, CHUNK_D=16;
-var SEA=12, AMP=14, SCALE=0.04;
-var GRAVITY=28, JUMP_V=10, PH=1.7, PR=0.3;
-var MOVE_SPD=5, FLY_SPD=8;
+// ═══ src/mesh.js ═══
+// ─── mesh.js ──────────────────────────────────────────────────────────────────
+// 区块网格构建：将方块数据转换为 Three.js BufferGeometry。
+//
+// 核心策略：面剔除
+//   仅生成邻居为 AIR 或 WATER 的外露面，内部面完全跳过。
+//   水方块特殊处理：只生成顶面（水面效果），其余面不渲染。
+//
+// 着色策略：烘焙顶点色（MeshBasicMaterial）
+//   不依赖场景灯光，每个面的颜色 = BCOL[方块][面方向] × FSHADE[面方向]
+//   顶面 ×1.00，侧面 ×0.80–0.85，底面 ×0.50 → 产生 Minecraft 风格方向明暗。
+//
+// 每个可见面输出 6 个顶点（2 个三角形，非索引几何体），职责简单，便于后期扩展纹理。
 
-var AIR=0,GRASS=1,DIRT=2,STONE=3,SAND=4,WOOD=5,LEAVES=6,WATER=7;
+// 所有区块共用同一个材质实例（节省 GPU 状态切换）
+var _mat = new THREE.MeshBasicMaterial({ vertexColors: true });
 
-// BCOL[id]: [top_r,top_g,top_b, bot_r,bot_g,bot_b, side_r,side_g,side_b]
-var BCOL=[null,
-  [0.365,0.702,0.365, 0.545,0.369,0.235, 0.478,0.478,0.290],
-  [0.545,0.369,0.235, 0.545,0.369,0.235, 0.545,0.369,0.235],
-  [0.533,0.533,0.533, 0.533,0.533,0.533, 0.533,0.533,0.533],
-  [0.831,0.784,0.478, 0.831,0.784,0.478, 0.831,0.784,0.478],
-  [0.361,0.239,0.118, 0.361,0.239,0.118, 0.478,0.322,0.188],
-  [0.176,0.431,0.176, 0.176,0.431,0.176, 0.176,0.431,0.176],
-  [0.200,0.400,0.800, 0.200,0.400,0.800, 0.200,0.400,0.800]
-];
-var BNAMES=['','草地','泥土','石头','沙子','木头','树叶','水'];
+// 将区块数据构建为 Three.js Mesh，若全为空气则返回 null
+function buildMesh(cx, cz, data) {
+  var pos = [], col = [];
+  var lx, y, lz, id, wx, wz, f, fd, nb, ci, sh, cr, cg, cb, cn;
 
-// ── Perlin noise ──────────────────────────────────────────────────────────
-var _perm=new Uint8Array(512);
-(function(){var i,j,t;for(i=0;i<256;i++)_perm[i]=i;for(i=255;i>0;i--){j=Math.floor(Math.random()*(i+1));t=_perm[i];_perm[i]=_perm[j];_perm[j]=t;}for(i=0;i<256;i++)_perm[i+256]=_perm[i];}());
-function _fade(t){return t*t*t*(t*(t*6-15)+10);}
-function _lerp(a,b,t){return a+t*(b-a);}
-function _grad(h,x,z){switch(h&3){case 0:return x+z;case 1:return -x+z;case 2:return x-z;default:return -x-z;}}
-function noise2D(x,z){
-  var ix=Math.floor(x)&255,iz=Math.floor(z)&255,fx=x-Math.floor(x),fz=z-Math.floor(z);
-  var ux=_fade(fx),uz=_fade(fz);
-  var aa=_perm[_perm[ix]+iz],ab=_perm[_perm[ix]+iz+1];
-  var ba=_perm[_perm[ix+1]+iz],bb=_perm[_perm[ix+1]+iz+1];
-  return _lerp(_lerp(_grad(aa,fx,fz),_grad(ba,fx-1,fz),ux),_lerp(_grad(ab,fx,fz-1),_grad(bb,fx-1,fz-1),ux),uz);
-}
+  for (lx = 0; lx < CHUNK_W; lx++) {
+    for (y = 0; y < CHUNK_H; y++) {
+      for (lz = 0; lz < CHUNK_D; lz++) {
+        id = data[lx + y * CHUNK_W + lz * CHUNK_W * CHUNK_H];
+        if (id === AIR) continue;
 
-// ── World ─────────────────────────────────────────────────────────────────
-var chunks={};
-function ckey(cx,cz){return cx+','+cz;}
-function gchunk(cx,cz){return chunks[ckey(cx,cz)];}
+        wx = cx * CHUNK_W + lx;
+        wz = cz * CHUNK_D + lz;
 
-function getBlock(wx,wy,wz){
-  if(wy<0)return STONE; if(wy>=CHUNK_H)return AIR;
-  var cx=Math.floor(wx/CHUNK_W),cz=Math.floor(wz/CHUNK_D);
-  var ch=gchunk(cx,cz); if(!ch)return AIR;
-  var lx=((wx%CHUNK_W)+CHUNK_W)%CHUNK_W,lz=((wz%CHUNK_D)+CHUNK_D)%CHUNK_D;
-  return ch.data[lx+wy*CHUNK_W+lz*CHUNK_W*CHUNK_H];
-}
-function setBlock(wx,wy,wz,id){
-  if(wy<0||wy>=CHUNK_H)return;
-  var cx=Math.floor(wx/CHUNK_W),cz=Math.floor(wz/CHUNK_D);
-  var ch=gchunk(cx,cz); if(!ch)return;
-  var lx=((wx%CHUNK_W)+CHUNK_W)%CHUNK_W,lz=((wz%CHUNK_D)+CHUNK_D)%CHUNK_D;
-  ch.data[lx+wy*CHUNK_W+lz*CHUNK_W*CHUNK_H]=id;
-  rebuildChunk(cx,cz);
-  if(lx===0)rebuildChunk(cx-1,cz); if(lx===CHUNK_W-1)rebuildChunk(cx+1,cz);
-  if(lz===0)rebuildChunk(cx,cz-1); if(lz===CHUNK_D-1)rebuildChunk(cx,cz+1);
-}
-function genTerrain(cx,cz){
-  var data=new Uint8Array(CHUNK_W*CHUNK_H*CHUNK_D);
-  var lx,lz,wx,wz,h,y,id;
-  for(lx=0;lx<CHUNK_W;lx++)for(lz=0;lz<CHUNK_D;lz++){
-    wx=cx*CHUNK_W+lx; wz=cz*CHUNK_D+lz;
-    h=Math.floor(SEA+noise2D(wx*SCALE,wz*SCALE)*AMP);
-    for(y=0;y<=h&&y<CHUNK_H;y++){
-      id=(y===h)?((h<=SEA+1)?SAND:GRASS):(y>=h-3?DIRT:STONE);
-      data[lx+y*CHUNK_W+lz*CHUNK_W*CHUNK_H]=id;
-    }
-    for(y=h+1;y<=SEA;y++)data[lx+y*CHUNK_W+lz*CHUNK_W*CHUNK_H]=WATER;
-  }
-  return data;
-}
+        for (f = 0; f < 6; f++) {
+          fd = FACES[f];
 
-// ── Chunk mesh (Three.js BufferGeometry, vertex colors) ───────────────────
-// [dx,dy,dz, [v0x,v0y,v0z, v1x,v1y,v1z, v2x,v2y,v2z, v3x,v3y,v3z], colorOffset]
-var FACES=[
-  [1,0,0,  [1,0,0,1,1,0,1,1,1,1,0,1], 6],
-  [-1,0,0, [0,0,1,0,1,1,0,1,0,0,0,0], 6],
-  [0,1,0,  [0,1,1,1,1,1,1,1,0,0,1,0], 0],
-  [0,-1,0, [0,0,0,1,0,0,1,0,1,0,0,1], 3],
-  [0,0,1,  [1,0,1,1,1,1,0,1,1,0,0,1], 6],
-  [0,0,-1, [0,0,0,0,1,0,1,1,0,1,0,0], 6]
-];
-// Per-face brightness for free directional shading
-var FSHADE=[0.80,0.80,1.00,0.50,0.85,0.85];
+          // 邻居可见性检查
+          nb = getBlock(wx + fd[0], y + fd[1], wz + fd[2]);
+          if (nb !== AIR && nb !== WATER) continue;  // 邻居实心 → 跳过
+          if (id === WATER && f !== 2) continue;      // 水只显示顶面（f=2 是 +Y）
 
-var _mat=new THREE.MeshBasicMaterial({vertexColors:true});
+          // 颜色 = 方块基色 × 面亮度
+          ci = fd[4]; sh = FSHADE[f];
+          cr = BCOL[id][ci] * sh;
+          cg = BCOL[id][ci + 1] * sh;
+          cb = BCOL[id][ci + 2] * sh;
 
-function buildMesh(cx,cz,data){
-  var pos=[],col=[];
-  var lx,y,lz,id,wx,wz,f,fd,nb,ci,sh,cr,cg,cb,cn;
-  for(lx=0;lx<CHUNK_W;lx++)for(y=0;y<CHUNK_H;y++)for(lz=0;lz<CHUNK_D;lz++){
-    id=data[lx+y*CHUNK_W+lz*CHUNK_W*CHUNK_H];
-    if(id===AIR)continue;
-    wx=cx*CHUNK_W+lx; wz=cz*CHUNK_D+lz;
-    for(f=0;f<6;f++){
-      fd=FACES[f];
-      nb=getBlock(wx+fd[0],y+fd[1],wz+fd[2]);
-      if(nb!==AIR&&nb!==WATER)continue;
-      if(id===WATER&&f!==2)continue; // water: top face only
-      ci=fd[4]; sh=FSHADE[f]; cn=fd[3];
-      cr=BCOL[id][ci]*sh; cg=BCOL[id][ci+1]*sh; cb=BCOL[id][ci+2]*sh;
-      // 4 corners → 2 triangles (0,1,2 and 0,2,3)
-      pos.push(wx+cn[0],y+cn[1],wz+cn[2], wx+cn[3],y+cn[4],wz+cn[5], wx+cn[6],y+cn[7],wz+cn[8],
-               wx+cn[0],y+cn[1],wz+cn[2], wx+cn[6],y+cn[7],wz+cn[8], wx+cn[9],y+cn[10],wz+cn[11]);
-      col.push(cr,cg,cb,cr,cg,cb,cr,cg,cb, cr,cg,cb,cr,cg,cb,cr,cg,cb);
+          // 4 个顶点偏移 → 2 个三角形（顺序：0,1,2 和 0,2,3）
+          cn = fd[3];
+          pos.push(
+            wx+cn[0], y+cn[1],  wz+cn[2],
+            wx+cn[3], y+cn[4],  wz+cn[5],
+            wx+cn[6], y+cn[7],  wz+cn[8],
+            wx+cn[0], y+cn[1],  wz+cn[2],
+            wx+cn[6], y+cn[7],  wz+cn[8],
+            wx+cn[9], y+cn[10], wz+cn[11]
+          );
+          col.push(
+            cr,cg,cb, cr,cg,cb, cr,cg,cb,
+            cr,cg,cb, cr,cg,cb, cr,cg,cb
+          );
+        }
+      }
     }
   }
-  if(pos.length===0)return null;
-  var geo=new THREE.BufferGeometry();
-  geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
-  geo.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
-  return new THREE.Mesh(geo,_mat);
+
+  if (pos.length === 0) return null;
+
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('color',    new THREE.Float32BufferAttribute(col, 3));
+  return new THREE.Mesh(geo, _mat);
 }
 
-function rebuildChunk(cx,cz){
-  var ch=gchunk(cx,cz); if(!ch)return;
-  if(ch.mesh){scene.remove(ch.mesh);ch.mesh.geometry.dispose();ch.mesh=null;}
-  ch.mesh=buildMesh(cx,cz,ch.data);
-  if(ch.mesh)scene.add(ch.mesh);
+// 重建区块网格：销毁旧网格 → 构建新网格 → 加入场景
+function rebuildChunk(cx, cz) {
+  var ch = gchunk(cx, cz);
+  if (!ch) return;
+  if (ch.mesh) { scene.remove(ch.mesh); ch.mesh.geometry.dispose(); ch.mesh = null; }
+  ch.mesh = buildMesh(cx, cz, ch.data);
+  if (ch.mesh) scene.add(ch.mesh);
 }
-function createChunk(cx,cz){
-  var k=ckey(cx,cz); if(chunks[k])return;
-  chunks[k]={data:genTerrain(cx,cz),mesh:null};
+
+// 首次生成区块数据（不建网格，网格由 rebuildChunk 单独触发）
+function createChunk(cx, cz) {
+  var k = ckey(cx, cz);
+  if (chunks[k]) return;
+  chunks[k] = { data: genTerrain(cx, cz), mesh: null };
 }
-function removeChunk(cx,cz){
-  var k=ckey(cx,cz),ch=chunks[k]; if(!ch)return;
-  if(ch.mesh){scene.remove(ch.mesh);ch.mesh.geometry.dispose();}
+
+// 卸载区块：从场景移除网格，释放 GPU 几何体内存，删除数据
+function removeChunk(cx, cz) {
+  var k = ckey(cx, cz);
+  var ch = chunks[k];
+  if (!ch) return;
+  if (ch.mesh) { scene.remove(ch.mesh); ch.mesh.geometry.dispose(); }
   delete chunks[k];
 }
 
-window._step=4;
 
-// ── Player ────────────────────────────────────────────────────────────────
-var player={
-  x:8, y:SEA+AMP+4, z:8,
-  vx:0, vy:0, vz:0,
-  yaw:0, pitch:0,
-  onGround:false, flying:false,
-  jumpQ:false, breakQ:false, placeQ:false,
-  slot:0,
-  inv:[GRASS,DIRT,STONE,SAND,WOOD,LEAVES,WATER]
-};
+// ═══ src/physics.js ═══
+// ─── physics.js ───────────────────────────────────────────────────────────────
+// AABB 碰撞解算。
+//
+// 算法：穿透深度最小轴推出（非扫描式）
+//   遍历玩家碰撞箱范围内所有实心方块，
+//   计算在 X/Y/Z 三轴上的穿透深度，沿最小穿透轴将玩家推出去。
+//
+// 玩家碰撞箱：以 (player.x, player.y, player.z) 为底部中心，
+//   宽度 PR×2，高度 PH（见 constants.js）。
+// 水方块视为非实心（玩家可以穿过水面）。
 
-// ── AABB collision ────────────────────────────────────────────────────────
-function resolveAABB(){
-  var hw=PR,hh=PH;
-  var x0=player.x-hw,x1=player.x+hw,y0=player.y,y1=player.y+hh,z0=player.z-hw,z1=player.z+hw;
-  var bx,by,bz,bid,ox,oy,oz;
-  for(bx=Math.floor(x0);bx<=Math.floor(x1);bx++){
-    for(by=Math.floor(y0);by<=Math.floor(y1);by++){
-      for(bz=Math.floor(z0);bz<=Math.floor(z1);bz++){
-        bid=getBlock(bx,by,bz);
-        if(bid===AIR||bid===WATER)continue;
-        ox=Math.min(player.x+hw-bx,bx+1-(player.x-hw));
-        oy=Math.min(player.y+hh-by,by+1-player.y);
-        oz=Math.min(player.z+hw-bz,bz+1-(player.z-hw));
-        if(ox<=0||oy<=0||oz<=0)continue;
-        if(oy<ox&&oy<oz){
-          if(player.y+hh/2<by+0.5){player.y-=oy;player.vy=Math.min(player.vy,0);}
-          else{player.y+=oy;player.vy=Math.max(player.vy,0);player.onGround=true;}
-        }else if(ox<oz){player.x+=(player.x<bx+0.5)?-ox:ox;player.vx=0;}
-        else{player.z+=(player.z<bz+0.5)?-oz:oz;player.vz=0;}
+function resolveAABB() {
+  var hw = PR, hh = PH;
+  var x0 = player.x - hw, x1 = player.x + hw;
+  var y0 = player.y,      y1 = player.y + hh;
+  var z0 = player.z - hw, z1 = player.z + hw;
+  var bx, by, bz, bid, ox, oy, oz;
+
+  for (bx = Math.floor(x0); bx <= Math.floor(x1); bx++) {
+    for (by = Math.floor(y0); by <= Math.floor(y1); by++) {
+      for (bz = Math.floor(z0); bz <= Math.floor(z1); bz++) {
+        bid = getBlock(bx, by, bz);
+        if (bid === AIR || bid === WATER) continue;  // 非实心，跳过
+
+        // 三轴穿透深度
+        ox = Math.min(player.x + hw - bx,  bx + 1 - (player.x - hw));
+        oy = Math.min(player.y + hh - by,  by + 1 - player.y);
+        oz = Math.min(player.z + hw - bz,  bz + 1 - (player.z - hw));
+        if (ox <= 0 || oy <= 0 || oz <= 0) continue;  // 实际未重叠
+
+        // 沿穿透最小的轴推出
+        if (oy < ox && oy < oz) {
+          // Y 轴：落地或撞天花板
+          if (player.y + hh / 2 < by + 0.5) {
+            player.y -= oy;
+            player.vy = Math.min(player.vy, 0);
+          } else {
+            player.y += oy;
+            player.vy = Math.max(player.vy, 0);
+            player.onGround = true;
+          }
+        } else if (ox < oz) {
+          // X 轴
+          player.x += (player.x < bx + 0.5) ? -ox : ox;
+          player.vx = 0;
+        } else {
+          // Z 轴
+          player.z += (player.z < bz + 0.5) ? -oz : oz;
+          player.vz = 0;
+        }
       }
     }
   }
 }
 
-// ── Raycast ───────────────────────────────────────────────────────────────
-function raycast(maxD){
-  var cp=Math.cos(player.pitch),sp=Math.sin(player.pitch);
-  var dx=-Math.sin(player.yaw)*cp,dy=sp,dz=-Math.cos(player.yaw)*cp;
-  var ox=player.x,oy=player.y+PH*0.85,oz=player.z;
-  var prev=null,d,bx,by,bz,id;
-  for(d=0;d<maxD;d+=0.05){
-    bx=Math.floor(ox+dx*d);by=Math.floor(oy+dy*d);bz=Math.floor(oz+dz*d);
-    id=getBlock(bx,by,bz);
-    if(id!==AIR&&id!==WATER)return{x:bx,y:by,z:bz,prev:prev};
-    prev={x:bx,y:by,z:bz};
+
+// ═══ src/raycast.js ═══
+// ─── raycast.js ───────────────────────────────────────────────────────────────
+// 步进式射线检测，用于挖方块和放方块的目标定位。
+//
+// 算法：从摄像机眼睛位置沿视线方向每 0.05 单位步进一次，
+//   遇到第一个实心（非 AIR/WATER）方块时停止。
+//
+// 返回值：
+//   { x, y, z }  — 被瞄准的方块坐标
+//   { prev }     — 该方块前一步的位置（用于放置：新方块放在此处）
+//   null         — 射程内无目标
+//
+// 视线方向由 player.yaw/pitch 决定（见 constants.js 约定）：
+//   forward = (-sin(yaw)*cos(pitch),  sin(pitch),  -cos(yaw)*cos(pitch))
+
+function raycast(maxD) {
+  var cp = Math.cos(player.pitch), sp = Math.sin(player.pitch);
+  var dx = -Math.sin(player.yaw) * cp;
+  var dy = sp;
+  var dz = -Math.cos(player.yaw) * cp;
+
+  // 射线起点：玩家眼睛位置（脚底 + 85% 身高）
+  var ox = player.x;
+  var oy = player.y + PH * 0.85;
+  var oz = player.z;
+
+  var prev = null, d, bx, by, bz, id;
+  for (d = 0; d < maxD; d += 0.05) {
+    bx = Math.floor(ox + dx * d);
+    by = Math.floor(oy + dy * d);
+    bz = Math.floor(oz + dz * d);
+    id = getBlock(bx, by, bz);
+    if (id !== AIR && id !== WATER) return { x: bx, y: by, z: bz, prev: prev };
+    prev = { x: bx, y: by, z: bz };
   }
   return null;
 }
 
-window._step=5;
 
-// ── Touch controls ────────────────────────────────────────────────────────
-var joy={active:false,id:-1,cx:0,cy:0,dx:0,dy:0};
-var lookAct=false,lookId=-1,lookLx=0,lookLy=0;
+// ═══ src/controls.js ═══
+// ─── controls.js ──────────────────────────────────────────────────────────────
+// 移动端触屏控制：虚拟摇杆 + 视角滑动 + 动作按钮。
+//
+// 屏幕分区：
+//   左侧 40%（#joy-zone）：虚拟摇杆，单点追踪，最大偏移 40px
+//   右侧 60%（#look-zone）：自由视角，拖动增量更新 yaw/pitch
+//
+// 虚拟摇杆（joy）：
+//   joy.dx/dy  — 摇杆偏移像素（-40 到 +40），由 game.js 每帧读取
+//   偏移换算为移动速度：joy.dx/40 ∈ [-1, 1]
+//
+// 视角控制：
+//   水平拖动 → player.yaw   -= delta * 0.004（向右拖 = yaw 减小 = 向右看）
+//   垂直拖动 → player.pitch -= delta * 0.004（向下拖 = pitch 减小 = 向下看）
+//   pitch 限制在 [-1.5, 1.5] rad（约 ±86°，避免翻转）
+//
+// 按钮（#b-jump/brk/plc/fly）：touchstart 触发，设置 player.*Q 标志，
+//   由 game.js 在下一帧处理后清除。
 
-var joyZone =document.getElementById('joy-zone');
-var joyThumb=document.getElementById('joy-thumb');
-var joyBase =document.getElementById('joy-base');
-var lookZone=document.getElementById('look-zone');
+var joy = { active: false, id: -1, cx: 0, cy: 0, dx: 0, dy: 0 };
+var lookAct = false, lookId = -1, lookLx = 0, lookLy = 0;
 
-joyZone.addEventListener('touchstart',function(e){
+var joyZone  = document.getElementById('joy-zone');
+var joyThumb = document.getElementById('joy-thumb');
+var joyBase  = document.getElementById('joy-base');
+var lookZone = document.getElementById('look-zone');
+
+// ── 摇杆 ──────────────────────────────────────────────────────────────────────
+joyZone.addEventListener('touchstart', function (e) {
   e.preventDefault();
-  var i,t,r;
-  for(i=0;i<e.changedTouches.length;i++){
-    t=e.changedTouches[i]; if(joy.active)continue;
-    joy.active=true;joy.id=t.identifier;
-    r=joyBase.getBoundingClientRect();
-    joy.cx=r.left+r.width/2;joy.cy=r.top+r.height/2;joy.dx=0;joy.dy=0;
+  var i, t, r;
+  for (i = 0; i < e.changedTouches.length; i++) {
+    t = e.changedTouches[i];
+    if (joy.active) continue;
+    joy.active = true; joy.id = t.identifier;
+    r = joyBase.getBoundingClientRect();
+    joy.cx = r.left + r.width / 2;
+    joy.cy = r.top  + r.height / 2;
+    joy.dx = 0; joy.dy = 0;
   }
-},{passive:false});
-joyZone.addEventListener('touchmove',function(e){
+}, { passive: false });
+
+joyZone.addEventListener('touchmove', function (e) {
   e.preventDefault();
-  var i,t;
-  for(i=0;i<e.changedTouches.length;i++){
-    t=e.changedTouches[i]; if(t.identifier!==joy.id)continue;
-    joy.dx=Math.max(-40,Math.min(40,t.clientX-joy.cx));
-    joy.dy=Math.max(-40,Math.min(40,t.clientY-joy.cy));
-    joyThumb.style.transform='translate(calc(-50% + '+joy.dx+'px),calc(-50% + '+joy.dy+'px))';
+  var i, t;
+  for (i = 0; i < e.changedTouches.length; i++) {
+    t = e.changedTouches[i];
+    if (t.identifier !== joy.id) continue;
+    joy.dx = Math.max(-40, Math.min(40, t.clientX - joy.cx));
+    joy.dy = Math.max(-40, Math.min(40, t.clientY - joy.cy));
+    joyThumb.style.transform = 'translate(calc(-50% + ' + joy.dx + 'px),calc(-50% + ' + joy.dy + 'px))';
   }
-},{passive:false});
-function jEnd(e){
+}, { passive: false });
+
+function jEnd(e) {
   e.preventDefault();
   var i;
-  for(i=0;i<e.changedTouches.length;i++){
-    if(e.changedTouches[i].identifier===joy.id){
-      joy.active=false;joy.dx=0;joy.dy=0;
-      joyThumb.style.transform='translate(-50%,-50%)';
+  for (i = 0; i < e.changedTouches.length; i++) {
+    if (e.changedTouches[i].identifier === joy.id) {
+      joy.active = false; joy.dx = 0; joy.dy = 0;
+      joyThumb.style.transform = 'translate(-50%,-50%)';
     }
   }
 }
-joyZone.addEventListener('touchend',jEnd,{passive:false});
-joyZone.addEventListener('touchcancel',jEnd,{passive:false});
+joyZone.addEventListener('touchend',   jEnd, { passive: false });
+joyZone.addEventListener('touchcancel', jEnd, { passive: false });
 
-lookZone.addEventListener('touchstart',function(e){
+// ── 视角滑动 ──────────────────────────────────────────────────────────────────
+lookZone.addEventListener('touchstart', function (e) {
   e.preventDefault();
-  var i,t;
-  for(i=0;i<e.changedTouches.length;i++){
-    t=e.changedTouches[i]; if(lookAct)continue;
-    lookAct=true;lookId=t.identifier;lookLx=t.clientX;lookLy=t.clientY;
+  var i, t;
+  for (i = 0; i < e.changedTouches.length; i++) {
+    t = e.changedTouches[i];
+    if (lookAct) continue;
+    lookAct = true; lookId = t.identifier;
+    lookLx = t.clientX; lookLy = t.clientY;
   }
-},{passive:false});
-lookZone.addEventListener('touchmove',function(e){
+}, { passive: false });
+
+lookZone.addEventListener('touchmove', function (e) {
   e.preventDefault();
-  var i,t;
-  for(i=0;i<e.changedTouches.length;i++){
-    t=e.changedTouches[i]; if(t.identifier!==lookId)continue;
-    player.yaw  -=(t.clientX-lookLx)*0.004;
-    player.pitch-=(t.clientY-lookLy)*0.004;
-    player.pitch=Math.max(-1.5,Math.min(1.5,player.pitch));
-    lookLx=t.clientX;lookLy=t.clientY;
+  var i, t;
+  for (i = 0; i < e.changedTouches.length; i++) {
+    t = e.changedTouches[i];
+    if (t.identifier !== lookId) continue;
+    player.yaw   -= (t.clientX - lookLx) * 0.004;
+    player.pitch -= (t.clientY - lookLy) * 0.004;
+    player.pitch  = Math.max(-1.5, Math.min(1.5, player.pitch));
+    lookLx = t.clientX; lookLy = t.clientY;
   }
-},{passive:false});
-function lEnd(e){
+}, { passive: false });
+
+function lEnd(e) {
   e.preventDefault();
   var i;
-  for(i=0;i<e.changedTouches.length;i++){if(e.changedTouches[i].identifier===lookId)lookAct=false;}
+  for (i = 0; i < e.changedTouches.length; i++) {
+    if (e.changedTouches[i].identifier === lookId) lookAct = false;
+  }
 }
-lookZone.addEventListener('touchend',lEnd,{passive:false});
-lookZone.addEventListener('touchcancel',lEnd,{passive:false});
+lookZone.addEventListener('touchend',   lEnd, { passive: false });
+lookZone.addEventListener('touchcancel', lEnd, { passive: false });
 
-function tapBtn(id,fn){
-  var el=document.getElementById(id);
-  if(el)el.addEventListener('touchstart',function(e){e.preventDefault();fn();},{passive:false});
+// ── 动作按钮 ──────────────────────────────────────────────────────────────────
+function tapBtn(id, fn) {
+  var el = document.getElementById(id);
+  if (el) el.addEventListener('touchstart', function (e) { e.preventDefault(); fn(); }, { passive: false });
 }
-tapBtn('b-jump',function(){player.jumpQ=true;});
-tapBtn('b-brk', function(){player.breakQ=true;});
-tapBtn('b-plc', function(){player.placeQ=true;});
-tapBtn('b-fly', function(){
-  player.flying=!player.flying;player.vy=0;
-  var el=document.getElementById('b-fly');if(el)el.classList.toggle('on',player.flying);
+
+tapBtn('b-jump', function () { player.jumpQ  = true; });
+tapBtn('b-brk',  function () { player.breakQ = true; });
+tapBtn('b-plc',  function () { player.placeQ = true; });
+tapBtn('b-fly',  function () {
+  player.flying = !player.flying;
+  player.vy = 0;
+  var el = document.getElementById('b-fly');
+  if (el) el.classList.toggle('on', player.flying);
 });
 
-// ── Hotbar ────────────────────────────────────────────────────────────────
-function buildHotbar(){
-  var hbar=document.getElementById('hotbar');if(!hbar)return;
-  hbar.innerHTML='';
-  var i,id,slot,cs,r,g,b;
-  for(i=0;i<player.inv.length;i++){
-    id=player.inv[i];
-    slot=document.createElement('div');
-    slot.className='slot'+(i===player.slot?' on':'');
-    slot.id='slot-'+i;
-    cs=BCOL[id];
-    r=Math.round(cs[0]*255);g=Math.round(cs[1]*255);b=Math.round(cs[2]*255);
-    slot.innerHTML='<div class="slot-ic" style="background:rgb('+r+','+g+','+b+')"></div>'
-                  +'<div class="slot-lbl">'+BNAMES[id]+'</div>';
-    (function(idx2,slotEl){
-      slotEl.addEventListener('touchstart',function(e){
+
+// ═══ src/ui.js ═══
+// ─── ui.js ────────────────────────────────────────────────────────────────────
+// 游戏 UI：热键栏渲染、槽位选择。
+//
+// 热键栏：从 player.inv 动态生成 DOM 元素，
+//   每个槽位显示方块颜色（用 BCOL 顶面色生成内联背景色）和中文名。
+//   点击/触摸切换 player.slot，更新 .on 样式类。
+
+function buildHotbar() {
+  var hbar = document.getElementById('hotbar');
+  if (!hbar) return;
+  hbar.innerHTML = '';
+
+  var i, id, slot, cs, r, g, b;
+  for (i = 0; i < player.inv.length; i++) {
+    id   = player.inv[i];
+    cs   = BCOL[id];
+    r    = Math.round(cs[0] * 255);
+    g    = Math.round(cs[1] * 255);
+    b    = Math.round(cs[2] * 255);
+
+    slot = document.createElement('div');
+    slot.className = 'slot' + (i === player.slot ? ' on' : '');
+    slot.id = 'slot-' + i;
+    slot.innerHTML =
+      '<div class="slot-ic" style="background:rgb(' + r + ',' + g + ',' + b + ')"></div>' +
+      '<div class="slot-lbl">' + BNAMES[id] + '</div>';
+
+    // 闭包捕获 i 和 slot 元素，避免循环变量陷阱
+    (function (idx, slotEl) {
+      slotEl.addEventListener('touchstart', function (e) {
         e.preventDefault();
-        var prev=document.getElementById('slot-'+player.slot);if(prev)prev.classList.remove('on');
-        player.slot=idx2;slotEl.classList.add('on');
-      },{passive:false});
-    }(i,slot));
+        var prev = document.getElementById('slot-' + player.slot);
+        if (prev) prev.classList.remove('on');
+        player.slot = idx;
+        slotEl.classList.add('on');
+      }, { passive: false });
+    }(i, slot));
+
     hbar.appendChild(slot);
   }
 }
 
-window._step=6;
 
-// ── Chunk streaming ───────────────────────────────────────────────────────
-var lastCX=null,lastCZ=null,RDIST=3;
+// ═══ src/game.js ═══
+// ─── game.js ──────────────────────────────────────────────────────────────────
+// 核心游戏逻辑：玩家状态、区块流加载、主循环、启动序列。
+//
+// 依赖（须按顺序在此之前加载）：
+//   init.js → constants.js → noise.js → world.js →
+//   renderer.js → mesh.js → physics.js → raycast.js →
+//   controls.js → ui.js
+//
+// 执行流程：
+//   1. 声明 player 对象（位置、速度、视角、背包）
+//   2. bootNext() 分帧生成并构建初始区块，避免首帧卡顿
+//   3. startGame() 在玩家点击"开始"后进入主循环
+//   4. tick(now) 每帧处理移动/物理/交互/渲染
 
-function updateChunks(){
-  var cx=Math.floor(player.x/CHUNK_W),cz=Math.floor(player.z/CHUNK_D);
-  if(cx===lastCX&&cz===lastCZ)return;
-  lastCX=cx;lastCZ=cz;
-  var dx,dz,keys,k,p2,kcx,kcz;
-  for(dx=-RDIST;dx<=RDIST;dx++)for(dz=-RDIST;dz<=RDIST;dz++)createChunk(cx+dx,cz+dz);
-  for(dx=-RDIST;dx<=RDIST;dx++)for(dz=-RDIST;dz<=RDIST;dz++)rebuildChunk(cx+dx,cz+dz);
-  keys=Object.keys(chunks);
-  for(k=0;k<keys.length;k++){
-    p2=keys[k].split(',');kcx=+p2[0];kcz=+p2[1];
-    if(Math.abs(kcx-cx)>RDIST+1||Math.abs(kcz-cz)>RDIST+1)removeChunk(kcx,kcz);
+// 所有文件共享的函数（setProgress 在 init.js 中定义）已就绪
+window._step = 3;
+setProgress(10, '初始化世界...');
+
+// ── 玩家状态 ───────────────────────────────────────────────────────────────────
+// 出生点：X=8, Y=海平面+振幅+4（地表上空），Z=8
+var player = {
+  x: 8, y: SEA + AMP + 4, z: 8,   // 位置（底部中心）
+  vx: 0, vy: 0, vz: 0,             // 速度（米/秒）
+  yaw: 0, pitch: 0,                 // 视角（弧度）
+  onGround: false,
+  flying:   false,
+  jumpQ:    false,   // 本帧跳跃请求（touchstart 设置，tick 消费）
+  breakQ:   false,   // 本帧破坏请求
+  placeQ:   false,   // 本帧放置请求
+  slot: 0,
+  inv: [GRASS, DIRT, STONE, SAND, WOOD, LEAVES, WATER]
+};
+
+window._step = 4;
+
+// ── 区块流加载 ─────────────────────────────────────────────────────────────────
+// RDIST=3 → 直径 7 区块 = 112×112 格视野
+var lastCX = null, lastCZ = null, RDIST = 3;
+
+// 每帧检查玩家所在区块是否变化，变化则加载新区块/卸载远端区块
+function updateChunks() {
+  var cx = Math.floor(player.x / CHUNK_W);
+  var cz = Math.floor(player.z / CHUNK_D);
+  if (cx === lastCX && cz === lastCZ) return;
+  lastCX = cx; lastCZ = cz;
+
+  var dx, dz, keys, k, p2, kcx, kcz;
+  for (dx = -RDIST; dx <= RDIST; dx++) {
+    for (dz = -RDIST; dz <= RDIST; dz++) {
+      createChunk(cx + dx, cz + dz);
+    }
+  }
+  for (dx = -RDIST; dx <= RDIST; dx++) {
+    for (dz = -RDIST; dz <= RDIST; dz++) {
+      rebuildChunk(cx + dx, cz + dz);
+    }
+  }
+  // 卸载超出范围的区块（RDIST+1 缓冲，避免边界抖动）
+  keys = Object.keys(chunks);
+  for (k = 0; k < keys.length; k++) {
+    p2  = keys[k].split(',');
+    kcx = +p2[0]; kcz = +p2[1];
+    if (Math.abs(kcx - cx) > RDIST + 1 || Math.abs(kcz - cz) > RDIST + 1) {
+      removeChunk(kcx, kcz);
+    }
   }
 }
 
-// ── Game loop ─────────────────────────────────────────────────────────────
-var lastT=0;
-function tick(now){
-  requestAnimationFrame(tick);
-  var dt=Math.min((now-lastT)/1000,0.05);lastT=now;
+// ── 主循环 ─────────────────────────────────────────────────────────────────────
+var lastT = 0;
 
-  // Movement
-  var sy=Math.sin(player.yaw),cy2=Math.cos(player.yaw);
-  var jx=joy.dx/40,jy=joy.dy/40;
-  var spd=player.flying?FLY_SPD:MOVE_SPD;
-  player.vx=(-jy*(-sy)+jx*cy2)*spd;
-  player.vz=(-jy*(-cy2)+jx*(-sy))*spd;
-  if(player.flying){player.vy*=0.8;}
-  else{player.vy-=GRAVITY*dt;if(player.jumpQ&&player.onGround)player.vy=JUMP_V;}
-  player.jumpQ=false;player.onGround=false;
-  player.x+=player.vx*dt;player.y+=player.vy*dt;player.z+=player.vz*dt;
+function tick(now) {
+  requestAnimationFrame(tick);
+  var dt = Math.min((now - lastT) / 1000, 0.05);  // 最大 50ms，防止大步长穿墙
+  lastT = now;
+
+  // 运动：摇杆偏移 → 世界空间速度
+  var sy = Math.sin(player.yaw), cy2 = Math.cos(player.yaw);
+  var jx = joy.dx / 40, jy = joy.dy / 40;  // 归一化到 [-1, 1]
+  var spd = player.flying ? FLY_SPD : MOVE_SPD;
+  // 摇杆前后（jy）沿视线水平方向，左右（jx）为其垂直方向
+  player.vx = (-jy * (-sy) + jx *  cy2) * spd;
+  player.vz = (-jy * (-cy2) + jx * (-sy)) * spd;
+
+  // 垂直速度：飞行模式衰减；行走模式重力 + 跳跃
+  if (player.flying) {
+    player.vy *= 0.8;
+  } else {
+    player.vy -= GRAVITY * dt;
+    if (player.jumpQ && player.onGround) player.vy = JUMP_V;
+  }
+  player.jumpQ    = false;
+  player.onGround = false;
+
+  // 积分位置，然后碰撞解算
+  player.x += player.vx * dt;
+  player.y += player.vy * dt;
+  player.z += player.vz * dt;
   resolveAABB();
 
-  // Block interactions
-  var hit,hit2,pv;
-  if(player.breakQ){
-    player.breakQ=false;
-    hit=raycast(6);if(hit)setBlock(hit.x,hit.y,hit.z,AIR);
+  // 破坏方块
+  if (player.breakQ) {
+    player.breakQ = false;
+    var hit = raycast(6);
+    if (hit) setBlock(hit.x, hit.y, hit.z, AIR);
   }
-  if(player.placeQ){
-    player.placeQ=false;
-    hit2=raycast(6);
-    if(hit2&&hit2.prev){
-      pv=hit2.prev;
-      var px2=Math.floor(player.x),py2=Math.floor(player.y),pz2=Math.floor(player.z);
-      if(!(pv.x===px2&&(pv.y===py2||pv.y===py2+1)&&pv.z===pz2))
-        setBlock(pv.x,pv.y,pv.z,player.inv[player.slot]);
+
+  // 放置方块（不能放在玩家脚下两格内，防止卡进方块）
+  if (player.placeQ) {
+    player.placeQ = false;
+    var hit2 = raycast(6);
+    if (hit2 && hit2.prev) {
+      var pv   = hit2.prev;
+      var px2  = Math.floor(player.x);
+      var py2  = Math.floor(player.y);
+      var pz2  = Math.floor(player.z);
+      if (!(pv.x === px2 && (pv.y === py2 || pv.y === py2 + 1) && pv.z === pz2)) {
+        setBlock(pv.x, pv.y, pv.z, player.inv[player.slot]);
+      }
     }
   }
 
-  // Update coords display
-  if(coordEl)coordEl.textContent='X:'+Math.floor(player.x)+' Y:'+Math.floor(player.y)+' Z:'+Math.floor(player.z);
+  // 坐标显示
+  if (coordEl) {
+    coordEl.textContent = 'X:' + Math.floor(player.x) + ' Y:' + Math.floor(player.y) + ' Z:' + Math.floor(player.z);
+  }
 
-  // Chunk streaming
+  // 区块流
   updateChunks();
 
-  // Camera
-  camera.position.set(player.x, player.y+PH*0.85, player.z);
-  camera.rotation.y=player.yaw;
-  camera.rotation.x=player.pitch;
+  // 摄像机跟随
+  camera.position.set(player.x, player.y + PH * 0.85, player.z);
+  camera.rotation.y = player.yaw;
+  camera.rotation.x = player.pitch;
 
-  renderer.render(scene,camera);
+  renderer.render(scene, camera);
 }
 
-// ── Start game ────────────────────────────────────────────────────────────
-window.startGame=function(){
-  if(menuEl)menuEl.style.display='none';
-  if(uiEl)uiEl.style.display='block';
+// ── 开始游戏 ───────────────────────────────────────────────────────────────────
+// 由菜单"开始游戏"按钮调用（见 template.html onclick）
+window.startGame = function () {
+  if (menuEl) menuEl.style.display = 'none';
+  if (uiEl)   uiEl.style.display   = 'block';
   buildHotbar();
-  lastT=performance.now();
+  lastT = performance.now();
   requestAnimationFrame(tick);
 };
 
-// ── Boot sequence (spread terrain gen over frames) ────────────────────────
-var bootSX,bootSZ,bootStep=0;
-function bootNext(){
-  try{
-    if(bootStep===0){
-      setProgress(10,'测试渲染器...');
-      renderer.render(scene,camera);
-      bootSX=Math.floor(player.x/CHUNK_W);
-      bootSZ=Math.floor(player.z/CHUNK_D);
-      bootStep=1;requestAnimationFrame(bootNext);
-    }else if(bootStep===1){
-      setProgress(25,'生成地形...');
-      var dx1,dz1;
-      for(dx1=-2;dx1<=2;dx1++)for(dz1=-2;dz1<=2;dz1++)createChunk(bootSX+dx1,bootSZ+dz1);
-      bootStep=2;requestAnimationFrame(bootNext);
-    }else if(bootStep>=2&&bootStep<=6){
-      var col2=bootStep-4,dz2;
-      for(dz2=-2;dz2<=2;dz2++)rebuildChunk(bootSX+col2,bootSZ+dz2);
-      setProgress(40+(bootStep-2)*12,'构建地形 '+(bootStep-1)+'/5...');
-      bootStep++;requestAnimationFrame(bootNext);
-    }else if(bootStep===7){
-      setProgress(92,'定位出生点...');
-      var y;
-      for(y=CHUNK_H-1;y>=0;y--){
-        if(getBlock(Math.floor(player.x),y,Math.floor(player.z))!==AIR){player.y=y+1;break;}
+// ── 启动序列 ───────────────────────────────────────────────────────────────────
+// 分帧生成初始地形，避免首次加载时的长时间白屏卡顿。
+// 每一帧只做一步工作，然后 requestAnimationFrame 交还控制权。
+var bootSX, bootSZ, bootStep = 0;
+
+function bootNext() {
+  try {
+    if (bootStep === 0) {
+      // 测试渲染器正常工作
+      setProgress(10, '测试渲染器...');
+      renderer.render(scene, camera);
+      bootSX   = Math.floor(player.x / CHUNK_W);
+      bootSZ   = Math.floor(player.z / CHUNK_D);
+      bootStep = 1;
+      requestAnimationFrame(bootNext);
+
+    } else if (bootStep === 1) {
+      // 生成 5×5 区块数据（仅数组，不建网格）
+      setProgress(25, '生成地形...');
+      var dx1, dz1;
+      for (dx1 = -2; dx1 <= 2; dx1++) {
+        for (dz1 = -2; dz1 <= 2; dz1++) {
+          createChunk(bootSX + dx1, bootSZ + dz1);
+        }
       }
-      bootStep=8;requestAnimationFrame(bootNext);
-    }else{
-      setProgress(100,'完成!');
-      if(loadEl)loadEl.style.display='none';
-      if(menuEl)menuEl.style.display='flex';
+      bootStep = 2;
+      requestAnimationFrame(bootNext);
+
+    } else if (bootStep >= 2 && bootStep <= 6) {
+      // 每帧构建一列（5 个）区块的网格，共 5 帧
+      var col2 = bootStep - 4, dz2;
+      for (dz2 = -2; dz2 <= 2; dz2++) {
+        rebuildChunk(bootSX + col2, bootSZ + dz2);
+      }
+      setProgress(40 + (bootStep - 2) * 12, '构建地形 ' + (bootStep - 1) + '/5...');
+      bootStep++;
+      requestAnimationFrame(bootNext);
+
+    } else if (bootStep === 7) {
+      // 从地表往下找第一个实心方块，作为出生点
+      setProgress(92, '定位出生点...');
+      var y;
+      for (y = CHUNK_H - 1; y >= 0; y--) {
+        if (getBlock(Math.floor(player.x), y, Math.floor(player.z)) !== AIR) {
+          player.y = y + 1;
+          break;
+        }
+      }
+      bootStep = 8;
+      requestAnimationFrame(bootNext);
+
+    } else {
+      // 启动完成，隐藏加载屏，显示主菜单
+      setProgress(100, '完成!');
+      if (loadEl) loadEl.style.display = 'none';
+      if (menuEl) menuEl.style.display = 'flex';
     }
-  }catch(e){
-    setProgress(0,'错误: '+(e.message||String(e)));
-    if(loadFill){loadFill.style.width='100%';loadFill.style.background='#f44';}
+  } catch (e) {
+    // 任一步骤出错，显示红色进度条和错误信息
+    setProgress(0, '错误: ' + (e.message || String(e)));
+    if (loadFill) { loadFill.style.width = '100%'; loadFill.style.background = '#f44'; }
   }
 }
 
