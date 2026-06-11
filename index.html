@@ -1544,7 +1544,12 @@ var placeBox = (function () {
   return ls;
 }());
 
-var _placePos = null;   // 当前帧放置预览坐标（null=不可见）
+var _place = {
+  lastPos: null,   // 上一次放置的方块坐标
+  lastDir: null,   // 由贴面法线学到的方向（单轴 ±1）
+  idleT:   0,      // 自上次有效预览起累计的无准星时间（秒）
+  pos:     null    // 当前帧预览坐标
+};
 var _lastPlaceSlot = -1;
 
 // ── 音频 ──────────────────────────────────────────────────────────────────────
@@ -1691,17 +1696,60 @@ function tick(now) {
   }
 
   // ── 放置预览框 ──────────────────────────────────────────────────────────────
-  // 热键栏换格 → 更新手持物
+  // 热键栏换格 → 更新手持物 + 清除方向记忆
   if (player.slot !== _lastPlaceSlot) {
     _lastPlaceSlot = player.slot;
     _updateHeldItem(player.slot);
+    _place.lastPos = null;
+    _place.lastDir = null;
+    _place.idleT   = 0;
   }
 
-  // 预览坐标 = 准星命中方块的前一格（selHit 已计算，直接复用）
-  _placePos = (selHit && selHit.prev) ? selHit.prev : null;
+  // ── 放置预览坐标计算 ──────────────────────────────────────────────────────
+  // 摄像机前向向量（与下方相机段公式一致，提前计算供 FOV 门控使用）
+  var _cp = Math.cos(player.pitch), _sp = Math.sin(player.pitch);
+  var _fwx = -Math.sin(player.yaw) * _cp;
+  var _fwy = _sp;
+  var _fwz = -Math.cos(player.yaw) * _cp;
 
-  if (_placePos) {
-    placeBox.position.set(_placePos.x + 0.5, _placePos.y + 0.5, _placePos.z + 0.5);
+  // 优先：准星命中方块的前一格
+  _place.pos = (selHit && selHit.prev) ? selHit.prev : null;
+
+  if (_place.pos) {
+    // 准星命中 → 重置 idleT
+    _place.idleT = 0;
+  } else {
+    // 准星未命中 → 计时；超过 3 秒清除方向记忆
+    _place.idleT += dt;
+    if (_place.idleT > 3) {
+      _place.lastPos = null;
+      _place.lastDir = null;
+      _place.idleT   = 0;
+    }
+
+    // 方向预测回退：有记忆方向且预测点在摄像机 45° 视锥内才显示
+    if (_place.lastDir && _place.lastPos) {
+      var _nx = _place.lastPos.x + _place.lastDir.x;
+      var _ny = _place.lastPos.y + _place.lastDir.y;
+      var _nz = _place.lastPos.z + _place.lastDir.z;
+      // ny 下界保护：不能预测到地面以下
+      if (_ny >= 0) {
+        var _tx = _nx + 0.5 - camera.position.x;
+        var _ty = _ny + 0.5 - camera.position.y;
+        var _tz = _nz + 0.5 - camera.position.z;
+        var _tlen = Math.sqrt(_tx * _tx + _ty * _ty + _tz * _tz);
+        // FOV 门控：点积 > cos(45°) ≈ 0.707，且距离 ≤ 8 格
+        if (_tlen > 0 &&
+            (_tx * _fwx + _ty * _fwy + _tz * _fwz) / _tlen > 0.707 &&
+            _tlen <= 8) {
+          _place.pos = { x: _nx, y: _ny, z: _nz };
+        }
+      }
+    }
+  }
+
+  if (_place.pos) {
+    placeBox.position.set(_place.pos.x + 0.5, _place.pos.y + 0.5, _place.pos.z + 0.5);
     placeBox.visible = true;
   } else {
     placeBox.visible = false;
@@ -1711,7 +1759,7 @@ function tick(now) {
   if (player.placeQ || (placeHeld && nowS - _lastPlace > PLACE_CD)) {
     player.placeQ = false;
     if (_swingT <= 0) _swingT = SWING_DUR;
-    var pv = _placePos;
+    var pv = _place.pos;
     if (pv) {
       // 碰撞体全范围防重叠：覆盖玩家 AABB 实际占据的所有体素
       var px0 = Math.floor(player.x - PR), px1 = Math.floor(player.x + PR);
@@ -1721,6 +1769,23 @@ function tick(now) {
         setBlock(pv.x, pv.y, pv.z, player.inv[player.slot]);
         digSound(player.inv[player.slot]);
         _lastPlace = nowS;
+        // 学习放置方向：从被命中方块到预览格的法线（仅准星直接命中时才学）
+        if (selHit && selHit.prev &&
+            pv.x === selHit.prev.x && pv.y === selHit.prev.y && pv.z === selHit.prev.z) {
+          var _dx = pv.x - selHit.x;
+          var _dy = pv.y - selHit.y;
+          var _dz = pv.z - selHit.z;
+          // 取绝对值最大的轴作为方向（法线应该只有一个轴为 ±1，保险起见做一遍）
+          if (Math.abs(_dx) >= Math.abs(_dy) && Math.abs(_dx) >= Math.abs(_dz)) {
+            _place.lastDir = { x: _dx > 0 ? 1 : -1, y: 0, z: 0 };
+          } else if (Math.abs(_dy) >= Math.abs(_dz)) {
+            _place.lastDir = { x: 0, y: _dy > 0 ? 1 : -1, z: 0 };
+          } else {
+            _place.lastDir = { x: 0, y: 0, z: _dz > 0 ? 1 : -1 };
+          }
+        }
+        _place.lastPos = { x: pv.x, y: pv.y, z: pv.z };
+        _place.idleT   = 0;
       }
     }
   }
