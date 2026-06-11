@@ -14,53 +14,54 @@
 html,body{width:100%;height:100%;overflow:hidden;background:#000;touch-action:none}
 canvas{position:fixed!important;top:0!important;left:0!important;width:100%!important;height:100%!important;z-index:1!important;display:block!important;touch-action:none}
 
-#loading{position:fixed;inset:0;background:#1a1a2e;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;z-index:999;gap:16px}
-#loading h1{font-size:28px;color:#4ade80;font-family:monospace;letter-spacing:2px}
-#loading-bar{width:200px;height:10px;background:#333;border-radius:5px;overflow:hidden}
-#loading-fill{height:100%;background:#4ade80;width:0%;transition:width .3s;border-radius:5px}
-#loading-text{color:#aaa;font-size:13px;font-family:monospace;text-align:center;padding:0 20px}
-#ver{position:absolute;bottom:10px;right:12px;color:#444;font-size:10px;font-family:monospace}
+#loading{position:fixed;inset:0;background:#0e1a2e;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;z-index:999;gap:16px}
+#loading h1{font-size:30px;color:#4ade80;font-family:monospace;letter-spacing:3px;text-shadow:0 0 20px rgba(74,222,128,.5)}
+#loading-bar{width:220px;height:12px;background:#1a2a40;border-radius:6px;overflow:hidden;border:1px solid rgba(74,222,128,.2)}
+#loading-fill{height:100%;background:linear-gradient(90deg,#22c55e,#4ade80);width:0%;transition:width .3s;border-radius:6px}
+#loading-text{color:#7a9ab8;font-size:13px;font-family:monospace;text-align:center;padding:0 20px}
+#ver{position:absolute;bottom:10px;right:12px;color:#334;font-size:10px;font-family:monospace}
 
-#portrait{display:none;position:fixed;inset:0;background:#111;align-items:center;justify-content:center;flex-direction:column;gap:16px;z-index:9999;color:#fff;font-family:monospace;text-align:center}
+#portrait{display:none;position:fixed;inset:0;background:#0e1a2e;align-items:center;justify-content:center;flex-direction:column;gap:16px;z-index:9999;color:#fff;font-family:monospace;text-align:center}
 @media(orientation:portrait){#portrait{display:flex}#loading,#menu,#ui{display:none!important}}
 #portrait p{font-size:18px;color:#4ade80}
 
-#menu{position:fixed;inset:0;background:rgba(0,0,0,.8);display:none;flex-direction:column;align-items:center;justify-content:center;z-index:500;gap:18px}
-#menu h1{font-size:28px;color:#4ade80;font-family:monospace}
-#menu .tip{color:#ccc;font-size:12px;line-height:2.2;text-align:center;font-family:monospace}
-#play-btn{padding:14px 48px;background:#4ade80;color:#000;border:none;border-radius:8px;font-size:20px;font-weight:bold;cursor:pointer;font-family:monospace}
+#menu{position:fixed;inset:0;background:rgba(0,8,20,.82);display:none;flex-direction:column;align-items:center;justify-content:center;z-index:500;gap:20px;backdrop-filter:blur(4px)}
+#menu h1{font-size:30px;color:#4ade80;font-family:monospace;text-shadow:0 0 20px rgba(74,222,128,.5)}
+#menu .tip{color:#8ab;font-size:12px;line-height:2.4;text-align:center;font-family:monospace;background:rgba(255,255,255,.04);padding:12px 24px;border-radius:10px;border:1px solid rgba(255,255,255,.08)}
+#play-btn{padding:15px 56px;background:linear-gradient(135deg,#22c55e,#4ade80);color:#000;border:none;border-radius:10px;font-size:22px;font-weight:bold;cursor:pointer;font-family:monospace;box-shadow:0 4px 24px rgba(74,222,128,.4)}
 
 #ui{position:fixed;inset:0;display:none;z-index:100}
 
-#xhair{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;width:30px;height:30px}
-#xhair::before,#xhair::after{content:'';position:absolute;background:rgba(255,255,255,.85)}
-#xhair::before{width:2px;height:100%;left:50%;transform:translateX(-50%)}
-#xhair::after{width:100%;height:2px;top:50%;transform:translateY(-50%)}
+/* 第三人称瞄准点：小圆点替代十字 */
+#xhair{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.75);box-shadow:0 0 0 2px rgba(0,0,0,.5)}
 
-#coords{position:absolute;top:8px;left:8px;color:#fff;font-size:11px;font-family:monospace;background:rgba(0,0,0,.5);padding:4px 8px;border-radius:5px;line-height:1.8;pointer-events:none}
+#coords{position:absolute;top:10px;left:10px;color:#e0f0ff;font-size:12px;font-family:monospace;background:rgba(0,0,0,.45);padding:5px 10px;border-radius:6px;line-height:1.9;pointer-events:none;border:1px solid rgba(255,255,255,.08)}
 
-#joy-zone{position:absolute;left:0;top:0;bottom:62px;width:40%;touch-action:none}
-#joy-base{position:absolute;bottom:18px;left:20px;width:112px;height:112px;border-radius:50%;background:rgba(255,255,255,.1);border:2px solid rgba(255,255,255,.25);pointer-events:none}
-#joy-thumb{position:absolute;top:50%;left:50%;width:48px;height:48px;border-radius:50%;background:rgba(255,255,255,.5);transform:translate(-50%,-50%);pointer-events:none}
+/* 摇杆区占左侧 42%，给右侧更大空间 */
+#joy-zone{position:absolute;left:0;top:0;bottom:72px;width:42%;touch-action:none}
+#joy-base{position:absolute;bottom:20px;left:24px;width:130px;height:130px;border-radius:50%;background:rgba(255,255,255,.08);border:2px solid rgba(255,255,255,.22);pointer-events:none}
+#joy-thumb{position:absolute;top:50%;left:50%;width:58px;height:58px;border-radius:50%;background:rgba(255,255,255,.45);border:2px solid rgba(255,255,255,.6);transform:translate(-50%,-50%);pointer-events:none}
 
-#look-zone{position:absolute;right:0;top:0;bottom:62px;left:40%;touch-action:none}
+#look-zone{position:absolute;right:0;top:0;bottom:72px;left:42%;touch-action:none}
 
-#btns{position:absolute;right:10px;bottom:70px;display:flex;flex-direction:column;gap:6px;align-items:flex-end}
-.row{display:flex;gap:6px}
-.btn{width:56px;height:56px;border-radius:50%;border:2px solid rgba(255,255,255,.35);background:rgba(0,0,0,.55);color:#fff;font-size:11px;font-family:monospace;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;user-select:none;-webkit-user-select:none;touch-action:manipulation}
-.btn:active{background:rgba(255,255,255,.2)}
-.btn .ic{font-size:20px}
-#b-jump{background:rgba(80,180,255,.35)}
-#b-fly{background:rgba(255,210,80,.3)}
-#b-fly.on{background:rgba(255,210,80,.75);border-color:#ffd940}
-#b-brk{background:rgba(255,80,80,.35)}
-#b-plc{background:rgba(80,255,120,.35)}
+/* 动作按钮区 — 更大、分组更清晰 */
+#btns{position:absolute;right:12px;bottom:78px;display:flex;flex-direction:column;gap:8px;align-items:flex-end}
+.row{display:flex;gap:8px}
+.btn{width:72px;height:72px;border-radius:50%;border:2.5px solid rgba(255,255,255,.3);background:rgba(0,0,0,.5);color:#fff;font-size:12px;font-family:monospace;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;user-select:none;-webkit-user-select:none;touch-action:manipulation;box-shadow:0 2px 12px rgba(0,0,0,.4)}
+.btn:active{background:rgba(255,255,255,.18);transform:scale(.93)}
+.btn .ic{font-size:28px;line-height:1}
+#b-jump{background:rgba(60,160,255,.4);border-color:rgba(100,200,255,.5)}
+#b-fly{background:rgba(255,210,60,.28);border-color:rgba(255,230,100,.4)}
+#b-fly.on{background:rgba(255,210,60,.7);border-color:#ffd940;box-shadow:0 0 16px rgba(255,210,60,.5)}
+#b-brk{background:rgba(255,70,70,.4);border-color:rgba(255,120,120,.5)}
+#b-plc{background:rgba(60,220,100,.38);border-color:rgba(80,255,130,.5)}
 
-#hotbar{position:absolute;bottom:6px;left:50%;transform:translateX(-50%);display:flex;gap:4px}
-.slot{width:52px;height:52px;background:rgba(0,0,0,.6);border:2px solid rgba(255,255,255,.2);border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;touch-action:manipulation;cursor:pointer}
-.slot.on{border-color:#fff}
-.slot-ic{width:28px;height:28px;border-radius:3px}
-.slot-lbl{color:#ccc;font-size:8px;font-family:monospace}
+/* 热键栏 — 更宽槽位 */
+#hotbar{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);display:flex;gap:5px}
+.slot{width:62px;height:62px;background:rgba(0,0,0,.55);border:2px solid rgba(255,255,255,.18);border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;touch-action:manipulation;cursor:pointer;transition:border-color .1s}
+.slot.on{border-color:#fff;background:rgba(255,255,255,.12);box-shadow:0 0 10px rgba(255,255,255,.2)}
+.slot-ic{width:34px;height:34px;border-radius:4px}
+.slot-lbl{color:#bcd;font-size:9px;font-family:monospace}
 </style>
 </head>
 <body>
@@ -70,16 +71,17 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
 <div id="loading">
   <h1>⛏ 我的世界</h1>
   <div id="loading-bar"><div id="loading-fill"></div></div>
-  <p id="loading-text">初始化… v15</p>
-  <p id="ver">v15</p>
+  <p id="loading-text">初始化… v17</p>
+  <p id="ver">v17</p>
 </div>
 
 <div id="menu">
   <h1>⛏ 我的世界</h1>
   <div class="tip">
-    左摇杆 移动 &nbsp;│&nbsp; 右侧滑动 视角<br>
-    🔨 破坏 &nbsp;│&nbsp; 📦 放置 &nbsp;│&nbsp; ⬆ 跳跃 &nbsp;│&nbsp; ✈ 飞行<br>
-    底部热键栏 切换方块
+    左摇杆 移动 &nbsp;│&nbsp; 右侧滑动 旋转视角<br>
+    🔨 长按破坏 &nbsp;│&nbsp; 📦 长按放置<br>
+    ⬆ 跳跃 &nbsp;│&nbsp; ✈ 切换飞行模式<br>
+    底部热键栏 选择方块 &nbsp;│&nbsp; 第三人称视角
   </div>
   <button id="play-btn" onclick="window.startGame&&window.startGame()">开始游戏</button>
 </div>
@@ -142,7 +144,7 @@ window.addEventListener('unhandledrejection', function(e) {
 setTimeout(function() {
   if (!window._ok) {
     if (!_errMsg) {
-      _st('脚本未响应 (v15) — 请截图发给开发者');
+      _st('脚本未响应 (v17) — 请截图发给开发者');
     }
     _sb(100, '#f44');
   }
@@ -298,16 +300,16 @@ function noise2D(x, z) {
 //   局部坐标 (lx, lz)：区块内偏移，[0, CHUNK_W)
 //
 // 区块数据布局：Uint8Array，索引 = lx + wy*CHUNK_W + lz*CHUNK_W*CHUNK_H
-// 每个元素是方块 ID（见 constants.js）。
+//
+// 出生平地：原点附近 32 格内保持平坦（SEA+2），平滑混合到 64 格处恢复正常丘陵。
+// 区块按需生成（走到哪生成到哪），不在此处预加载。
 
 var chunks = {};  // 已加载区块，键 = "cx,cz"
 
 function ckey(cx, cz) { return cx + ',' + cz; }
 function gchunk(cx, cz) { return chunks[ckey(cx, cz)]; }
 
-// 读取世界坐标 (wx, wy, wz) 的方块 ID
-// 超出高度范围：wy<0 返回 STONE，wy>=CHUNK_H 返回 AIR
-// 区块未加载时返回 AIR（不触发加载）
+// 读取世界坐标方块 ID（区块未加载时返回 AIR，不触发加载）
 function getBlock(wx, wy, wz) {
   if (wy < 0)        return STONE;
   if (wy >= CHUNK_H) return AIR;
@@ -320,7 +322,7 @@ function getBlock(wx, wy, wz) {
   return ch.data[lx + wy * CHUNK_W + lz * CHUNK_W * CHUNK_H];
 }
 
-// 写入方块并重建受影响的区块网格（含跨区块边界时相邻区块）
+// 写入方块并重建受影响的区块网格（含跨边界的相邻区块）
 function setBlock(wx, wy, wz, id) {
   if (wy < 0 || wy >= CHUNK_H) return;
   var cx = Math.floor(wx / CHUNK_W);
@@ -330,34 +332,40 @@ function setBlock(wx, wy, wz, id) {
   var lx = ((wx % CHUNK_W) + CHUNK_W) % CHUNK_W;
   var lz = ((wz % CHUNK_D) + CHUNK_D) % CHUNK_D;
   ch.data[lx + wy * CHUNK_W + lz * CHUNK_W * CHUNK_H] = id;
-  // 总是重建本区块
   rebuildChunk(cx, cz);
-  // 若改动在区块边界，相邻区块的外露面也需更新
   if (lx === 0)          rebuildChunk(cx - 1, cz);
   if (lx === CHUNK_W-1)  rebuildChunk(cx + 1, cz);
   if (lz === 0)          rebuildChunk(cx, cz - 1);
   if (lz === CHUNK_D-1)  rebuildChunk(cx, cz + 1);
 }
 
-// 程序化地形生成
-// 高度 h = SEA + noise2D(wx*SCALE, wz*SCALE) * AMP
-// 规则：h层=草地/沙（近水）, h-1到h-3层=泥土, 更深=石头, h+1到SEA=水
+// 地形生成
+// 出生区（|wx|<=32 且 |wz|<=32）强制平坦高度 SEA+2，
+// 32~64 格平滑混合至正常 Perlin 丘陵，64 格外完全正常。
+var _FLAT_H   = SEA + 2;  // 平坦区地表高度
+var _FLAT_IN  = 32;       // 纯平坦半径（格）
+var _FLAT_OUT = 64;       // 混合结束半径（格）
+
 function genTerrain(cx, cz) {
   var data = new Uint8Array(CHUNK_W * CHUNK_H * CHUNK_D);
-  var lx, lz, wx, wz, h, y, id;
+  var lx, lz, wx, wz, h, y, id, worldR, blend, noiseH;
   for (lx = 0; lx < CHUNK_W; lx++) {
     for (lz = 0; lz < CHUNK_D; lz++) {
       wx = cx * CHUNK_W + lx;
       wz = cz * CHUNK_D + lz;
-      h  = Math.floor(SEA + noise2D(wx * SCALE, wz * SCALE) * AMP);
-      // 实心柱从 y=0 到 y=h
+
+      // 切比雪夫距离（方形平地，视觉上更自然）
+      worldR = Math.max(Math.abs(wx), Math.abs(wz));
+      blend  = Math.max(0, Math.min(1, (worldR - _FLAT_IN) / (_FLAT_OUT - _FLAT_IN)));
+      noiseH = Math.floor(SEA + noise2D(wx * SCALE, wz * SCALE) * AMP);
+      h      = Math.round(_FLAT_H * (1 - blend) + noiseH * blend);
+
       for (y = 0; y <= h && y < CHUNK_H; y++) {
         id = (y === h)    ? ((h <= SEA + 1) ? SAND : GRASS)
            : (y >= h - 3) ? DIRT
            :                STONE;
         data[lx + y * CHUNK_W + lz * CHUNK_W * CHUNK_H] = id;
       }
-      // 水面以下至海平面填水
       for (y = h + 1; y <= SEA; y++) {
         data[lx + y * CHUNK_W + lz * CHUNK_W * CHUNK_H] = WATER;
       }
@@ -369,34 +377,60 @@ function genTerrain(cx, cz) {
 
 // ═══ src/renderer.js ═══
 // ─── renderer.js ──────────────────────────────────────────────────────────────
-// Three.js 渲染器、场景、摄像机、灯光初始化。
+// Three.js 渲染器、场景、摄像机、灯光、天空穹顶。
 //
-// 摄像机旋转约定（YXZ 欧拉顺序）：
-//   rotation.y = player.yaw   — 左右转向（yaw 减小 = 向右转）
-//   rotation.x = player.pitch — 仰俯（pitch 增大 = 抬头）
-// 这与原始 viewMatrix 中 forward=(-sin(yaw)*cos(pitch), sin(pitch), -cos(yaw)*cos(pitch)) 完全一致。
+// 天空策略：
+//   大球（radius=170，BackSide 渲染）+ 顶点色渐变，
+//   地平线 #8ec5f5 → 天顶 #1a5fc7，雾色与地平线一致，
+//   远处地形自然淡入天空色，无明显边界。
 //
-// 光照策略：环境光（0.85）提供基础亮度，微弱平行光（0.3）强调方向感。
-// 区块网格使用 MeshBasicMaterial + 烘焙顶点色，不受场景灯光影响。
+// 光照策略（对玩家模型 MeshLambertMaterial 有效，地形用 MeshBasicMaterial 不受影响）：
+//   HemisphereLight — 天空蓝/地面绿，比单一环境光更有立体感
+//   DirectionalLight — 模拟太阳，暖黄色，给玩家模型投射方向高光
 
-var renderer = new THREE.WebGLRenderer({ antialias: false }); // 移动端关闭抗锯齿
+var renderer = new THREE.WebGLRenderer({ antialias: false });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.domElement.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;z-index:1;touch-action:none';
 document.body.appendChild(renderer.domElement);
 
 var scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87ceeb);      // 天空蓝
-scene.fog = new THREE.Fog(0x87ceeb, 50, 90);       // 远处淡出，与天空同色
+scene.background = null;                             // 由天空穹顶接管
+scene.fog = new THREE.Fog(0x8ec5f5, 55, 105);       // 雾色=地平线色，无缝融合
 
 var camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 200);
-camera.rotation.order = 'YXZ';                     // 先偏航再俯仰，标准 FPS 顺序
+// 第三人称：camera.lookAt() 接管旋转，不再手动设置 rotation
 
-scene.add(new THREE.AmbientLight(0xffffff, 0.85));
-var sun = new THREE.DirectionalLight(0xfff0c8, 0.3);
-sun.position.set(1, 2, 1);
+// ── 天空穹顶 ───────────────────────────────────────────────────────────────────
+(function () {
+  var geo = new THREE.SphereGeometry(170, 16, 9);
+  var posArr = geo.attributes.position.array;
+  var colArr = new Float32Array(posArr.length);
+  // 地平线色 (0.557, 0.773, 0.961) → 天顶色 (0.102, 0.373, 0.780)
+  for (var i = 0; i < geo.attributes.position.count; i++) {
+    var yNorm = posArr[i * 3 + 1] / 170;             // -1..1
+    var t     = Math.max(0, Math.min(1, (yNorm + 0.2) / 1.2));
+    colArr[i * 3]     = 0.557 - t * 0.455;
+    colArr[i * 3 + 1] = 0.773 - t * 0.400;
+    colArr[i * 3 + 2] = 0.961 - t * 0.181;
+  }
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colArr, 3));
+  scene.add(new THREE.Mesh(
+    geo,
+    new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, depthWrite: false })
+  ));
+}());
+
+// ── 灯光 ──────────────────────────────────────────────────────────────────────
+// 半球光：天空（浅蓝）→ 地面（暗绿），为玩家模型提供自然环境光
+scene.add(new THREE.HemisphereLight(0x87ceeb, 0x4a6741, 1.2));
+
+// 太阳平行光：暖黄，从右上方斜射
+var sun = new THREE.DirectionalLight(0xfff4e0, 0.55);
+sun.position.set(2, 5, 1);
 scene.add(sun);
 
+// ── 窗口缩放 ──────────────────────────────────────────────────────────────────
 window.addEventListener('resize', function () {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
@@ -603,23 +637,29 @@ function raycast(maxD) {
 // 移动端触屏控制：虚拟摇杆 + 视角滑动 + 动作按钮。
 //
 // 屏幕分区：
-//   左侧 40%（#joy-zone）：虚拟摇杆，单点追踪，最大偏移 40px
-//   右侧 60%（#look-zone）：自由视角，拖动增量更新 yaw/pitch
+//   左侧 42%（#joy-zone）：虚拟摇杆，单点追踪，最大偏移 48px
+//   右侧 58%（#look-zone）：自由视角，拖动增量更新 yaw/pitch
 //
 // 虚拟摇杆（joy）：
-//   joy.dx/dy  — 摇杆偏移像素（-40 到 +40），由 game.js 每帧读取
-//   偏移换算为移动速度：joy.dx/40 ∈ [-1, 1]
+//   joy.dx/dy  — 摇杆偏移像素（-48 到 +48），由 game.js 每帧读取
+//   偏移换算为移动速度：joy.dx/48 ∈ [-1, 1]
 //
 // 视角控制：
-//   水平拖动 → player.yaw   -= delta * 0.004（向右拖 = yaw 减小 = 向右看）
-//   垂直拖动 → player.pitch -= delta * 0.004（向下拖 = pitch 减小 = 向下看）
-//   pitch 限制在 [-1.5, 1.5] rad（约 ±86°，避免翻转）
+//   水平拖动 → player.yaw   -= delta × 0.005
+//   垂直拖动 → player.pitch -= delta × 0.005
+//   pitch 限制在 [-1.2, 1.2] rad（避免极端视角）
 //
-// 按钮（#b-jump/brk/plc/fly）：touchstart 触发，设置 player.*Q 标志，
-//   由 game.js 在下一帧处理后清除。
+// 破坏/放置按钮支持长按：
+//   touchstart → 设置 player.breakQ/placeQ=true 并标记 breakHeld/placeHeld
+//   touchend   → 清除 breakHeld/placeHeld（单次触发由 game.js 消费，持续由 held 驱动）
 
-var joy = { active: false, id: -1, cx: 0, cy: 0, dx: 0, dy: 0 };
+var joy     = { active: false, id: -1, cx: 0, cy: 0, dx: 0, dy: 0 };
 var lookAct = false, lookId = -1, lookLx = 0, lookLy = 0;
+
+// 长按标志：game.js 在 tick 中读取，配合冷却计时实现持续动作
+var breakHeld = false, placeHeld = false;
+
+var JOY_R = 48;  // 摇杆最大偏移半径（像素）
 
 var joyZone  = document.getElementById('joy-zone');
 var joyThumb = document.getElementById('joy-thumb');
@@ -647,9 +687,10 @@ joyZone.addEventListener('touchmove', function (e) {
   for (i = 0; i < e.changedTouches.length; i++) {
     t = e.changedTouches[i];
     if (t.identifier !== joy.id) continue;
-    joy.dx = Math.max(-40, Math.min(40, t.clientX - joy.cx));
-    joy.dy = Math.max(-40, Math.min(40, t.clientY - joy.cy));
-    joyThumb.style.transform = 'translate(calc(-50% + ' + joy.dx + 'px),calc(-50% + ' + joy.dy + 'px))';
+    joy.dx = Math.max(-JOY_R, Math.min(JOY_R, t.clientX - joy.cx));
+    joy.dy = Math.max(-JOY_R, Math.min(JOY_R, t.clientY - joy.cy));
+    joyThumb.style.transform =
+      'translate(calc(-50% + ' + joy.dx + 'px),calc(-50% + ' + joy.dy + 'px))';
   }
 }, { passive: false });
 
@@ -663,7 +704,7 @@ function jEnd(e) {
     }
   }
 }
-joyZone.addEventListener('touchend',   jEnd, { passive: false });
+joyZone.addEventListener('touchend',    jEnd, { passive: false });
 joyZone.addEventListener('touchcancel', jEnd, { passive: false });
 
 // ── 视角滑动 ──────────────────────────────────────────────────────────────────
@@ -684,9 +725,9 @@ lookZone.addEventListener('touchmove', function (e) {
   for (i = 0; i < e.changedTouches.length; i++) {
     t = e.changedTouches[i];
     if (t.identifier !== lookId) continue;
-    player.yaw   -= (t.clientX - lookLx) * 0.004;
-    player.pitch -= (t.clientY - lookLy) * 0.004;
-    player.pitch  = Math.max(-1.5, Math.min(1.5, player.pitch));
+    player.yaw   -= (t.clientX - lookLx) * 0.005;   // 灵敏度略高于原版
+    player.pitch -= (t.clientY - lookLy) * 0.005;
+    player.pitch  = Math.max(-1.2, Math.min(1.2, player.pitch));
     lookLx = t.clientX; lookLy = t.clientY;
   }
 }, { passive: false });
@@ -698,18 +739,43 @@ function lEnd(e) {
     if (e.changedTouches[i].identifier === lookId) lookAct = false;
   }
 }
-lookZone.addEventListener('touchend',   lEnd, { passive: false });
+lookZone.addEventListener('touchend',    lEnd, { passive: false });
 lookZone.addEventListener('touchcancel', lEnd, { passive: false });
 
 // ── 动作按钮 ──────────────────────────────────────────────────────────────────
+// 跳跃/飞行：单次触发
 function tapBtn(id, fn) {
   var el = document.getElementById(id);
   if (el) el.addEventListener('touchstart', function (e) { e.preventDefault(); fn(); }, { passive: false });
 }
 
-tapBtn('b-jump', function () { player.jumpQ  = true; });
-tapBtn('b-brk',  function () { player.breakQ = true; });
-tapBtn('b-plc',  function () { player.placeQ = true; });
+// 破坏：长按持续破坏，touchstart 触发首次
+(function () {
+  var el = document.getElementById('b-brk');
+  if (!el) return;
+  el.addEventListener('touchstart', function (e) {
+    e.preventDefault();
+    player.breakQ = true;  // 立即触发第一次
+    breakHeld = true;
+  }, { passive: false });
+  el.addEventListener('touchend',    function (e) { e.preventDefault(); breakHeld = false; }, { passive: false });
+  el.addEventListener('touchcancel', function ()  { breakHeld = false; }, { passive: false });
+}());
+
+// 放置：长按持续放置
+(function () {
+  var el = document.getElementById('b-plc');
+  if (!el) return;
+  el.addEventListener('touchstart', function (e) {
+    e.preventDefault();
+    player.placeQ = true;  // 立即触发第一次
+    placeHeld = true;
+  }, { passive: false });
+  el.addEventListener('touchend',    function (e) { e.preventDefault(); placeHeld = false; }, { passive: false });
+  el.addEventListener('touchcancel', function ()  { placeHeld = false; }, { passive: false });
+}());
+
+tapBtn('b-jump', function () { player.jumpQ = true; });
 tapBtn('b-fly',  function () {
   player.flying = !player.flying;
   player.vy = 0;
@@ -764,45 +830,93 @@ function buildHotbar() {
 
 // ═══ src/game.js ═══
 // ─── game.js ──────────────────────────────────────────────────────────────────
-// 核心游戏逻辑：玩家状态、区块流加载、主循环、启动序列。
+// 核心游戏逻辑：玩家状态、3D 角色模型、第三人称摄像机、区块流、主循环、启动序列。
 //
-// 依赖（须按顺序在此之前加载）：
-//   init.js → constants.js → noise.js → world.js →
-//   renderer.js → mesh.js → physics.js → raycast.js →
-//   controls.js → ui.js
+// 第三人称摄像机：
+//   位置 = 玩家背后 CAM_DIST 单位 + 上方 CAM_H 单位（随 pitch 倾斜）
+//   带指数平滑，避免镜头抖动；lookAt 目标为玩家眼部位置。
 //
-// 执行流程：
-//   1. 声明 player 对象（位置、速度、视角、背包）
-//   2. bootNext() 分帧生成并构建初始区块，避免首帧卡顿
-//   3. startGame() 在玩家点击"开始"后进入主循环
-//   4. tick(now) 每帧处理移动/物理/交互/渲染
+// 玩家模型（MeshLambertMaterial，响应场景灯光）：
+//   头 / 躯干 / 左右臂 / 左右腿（带旋转枢纽组，实现行走摆腿动画）
+//
+// 长按交互：
+//   breakHeld/placeHeld 由 controls.js 维护，
+//   game.js 用冷却计时器（BREAK_CD/PLACE_CD 秒）节流，实现持续挖/放。
 
-// 所有文件共享的函数（setProgress 在 init.js 中定义）已就绪
 window._step = 3;
 setProgress(10, '初始化世界...');
 
 // ── 玩家状态 ───────────────────────────────────────────────────────────────────
-// 出生点：X=8, Y=海平面+振幅+4（地表上空），Z=8
 var player = {
-  x: 8, y: SEA + AMP + 4, z: 8,   // 位置（底部中心）
-  vx: 0, vy: 0, vz: 0,             // 速度（米/秒）
-  yaw: 0, pitch: 0,                 // 视角（弧度）
-  onGround: false,
-  flying:   false,
-  jumpQ:    false,   // 本帧跳跃请求（touchstart 设置，tick 消费）
-  breakQ:   false,   // 本帧破坏请求
-  placeQ:   false,   // 本帧放置请求
+  x: 8, y: SEA + AMP + 4, z: 8,
+  vx: 0, vy: 0, vz: 0,
+  yaw: 0, pitch: 0,
+  onGround: false, flying: false,
+  jumpQ: false, breakQ: false, placeQ: false,
   slot: 0,
   inv: [GRASS, DIRT, STONE, SAND, WOOD, LEAVES, WATER]
 };
 
 window._step = 4;
 
+// ── 玩家 3D 模型 ───────────────────────────────────────────────────────────────
+var _mSkin = new THREE.MeshLambertMaterial({ color: 0xf5c592 }); // 肤色
+var _mBody = new THREE.MeshLambertMaterial({ color: 0x3a6adc }); // 蓝色上衣
+var _mPant = new THREE.MeshLambertMaterial({ color: 0x2b3a54 }); // 深蓝裤子
+
+var playerGroup = new THREE.Group();
+
+// 头部
+var _head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), _mSkin);
+_head.position.set(0, 1.45, 0);
+playerGroup.add(_head);
+
+// 躯干
+var _torso = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.75, 0.3), _mBody);
+_torso.position.set(0, 0.95, 0);
+playerGroup.add(_torso);
+
+// 左臂（自然悬垂，随行走轻微摆动）
+var _armL = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.65, 0.25), _mSkin);
+_armL.position.set(-0.42, 0.975, 0);
+playerGroup.add(_armL);
+
+// 右臂
+var _armR = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.65, 0.25), _mSkin);
+_armR.position.set(0.42, 0.975, 0);
+playerGroup.add(_armR);
+
+// 左腿（带枢纽组，枢纽在臀部，子 Mesh 向下偏移）
+var _legLG = new THREE.Group();
+_legLG.position.set(-0.18, 0.575, 0);
+var _legL = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.75, 0.25), _mPant);
+_legL.position.set(0, -0.375, 0);
+_legLG.add(_legL);
+playerGroup.add(_legLG);
+
+// 右腿
+var _legRG = new THREE.Group();
+_legRG.position.set(0.18, 0.575, 0);
+var _legR = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.75, 0.25), _mPant);
+_legR.position.set(0, -0.375, 0);
+_legRG.add(_legR);
+playerGroup.add(_legRG);
+
+scene.add(playerGroup);
+
+// ── 第三人称摄像机状态 ─────────────────────────────────────────────────────────
+var CAM_DIST = 4.5;   // 摄像机到玩家的水平距离
+var CAM_H    = 2.0;   // 摄像机基础高度（玩家脚底以上）
+var _camX = player.x, _camY = player.y + CAM_H, _camZ = player.z + CAM_DIST;
+
+// ── 长按交互冷却 ───────────────────────────────────────────────────────────────
+var BREAK_CD = 0.22;  // 秒，连续破坏间隔
+var PLACE_CD = 0.30;  // 秒，连续放置间隔
+var _lastBreak = 0, _lastPlace = 0;
+
 // ── 区块流加载 ─────────────────────────────────────────────────────────────────
-// RDIST=3 → 直径 7 区块 = 112×112 格视野
 var lastCX = null, lastCZ = null, RDIST = 3;
 
-// 每帧检查玩家所在区块是否变化，变化则加载新区块/卸载远端区块
 function updateChunks() {
   var cx = Math.floor(player.x / CHUNK_W);
   var cz = Math.floor(player.z / CHUNK_D);
@@ -810,17 +924,14 @@ function updateChunks() {
   lastCX = cx; lastCZ = cz;
 
   var dx, dz, keys, k, p2, kcx, kcz;
+  // 先创建缺失区块数据，再重建网格（两遍：确保邻居数据先就位再建面）
   for (dx = -RDIST; dx <= RDIST; dx++) {
-    for (dz = -RDIST; dz <= RDIST; dz++) {
-      createChunk(cx + dx, cz + dz);
-    }
+    for (dz = -RDIST; dz <= RDIST; dz++) { createChunk(cx + dx, cz + dz); }
   }
   for (dx = -RDIST; dx <= RDIST; dx++) {
-    for (dz = -RDIST; dz <= RDIST; dz++) {
-      rebuildChunk(cx + dx, cz + dz);
-    }
+    for (dz = -RDIST; dz <= RDIST; dz++) { rebuildChunk(cx + dx, cz + dz); }
   }
-  // 卸载超出范围的区块（RDIST+1 缓冲，避免边界抖动）
+  // 卸载超出范围的区块（RDIST+1 缓冲防止边界频繁抖动）
   keys = Object.keys(chunks);
   for (k = 0; k < keys.length; k++) {
     p2  = keys[k].split(',');
@@ -836,20 +947,19 @@ var lastT = 0;
 
 function tick(now) {
   requestAnimationFrame(tick);
-  var dt = Math.min((now - lastT) / 1000, 0.05);  // 最大 50ms，防止大步长穿墙
+  var dt = Math.min((now - lastT) * 0.001, 0.05);
   lastT = now;
 
-  // 运动：摇杆偏移 → 世界空间速度
-  var sy = Math.sin(player.yaw), cy2 = Math.cos(player.yaw);
-  var jx = joy.dx / 40, jy = joy.dy / 40;  // 归一化到 [-1, 1]
+  // ── 移动 ───────────────────────────────────────────────────────────────────
+  var sy  = Math.sin(player.yaw), cy2 = Math.cos(player.yaw);
+  var jx  = joy.dx / JOY_R, jy = joy.dy / JOY_R;
   var spd = player.flying ? FLY_SPD : MOVE_SPD;
-  // 摇杆前后（jy）沿视线水平方向，左右（jx）为其垂直方向
-  player.vx = (-jy * (-sy) + jx *  cy2) * spd;
-  player.vz = (-jy * (-cy2) + jx * (-sy)) * spd;
+  // 摇杆上（jy<0）→ 沿视线水平方向前进，右（jx>0）→ 向右侧移
+  player.vx = (jy * sy  + jx *  cy2) * spd;
+  player.vz = (jy * cy2 + jx * (-sy)) * spd;
 
-  // 垂直速度：飞行模式衰减；行走模式重力 + 跳跃
   if (player.flying) {
-    player.vy *= 0.8;
+    player.vy *= 0.85;
   } else {
     player.vy -= GRAVITY * dt;
     if (player.jumpQ && player.onGround) player.vy = JUMP_V;
@@ -857,52 +967,75 @@ function tick(now) {
   player.jumpQ    = false;
   player.onGround = false;
 
-  // 积分位置，然后碰撞解算
   player.x += player.vx * dt;
   player.y += player.vy * dt;
   player.z += player.vz * dt;
   resolveAABB();
 
-  // 破坏方块
-  if (player.breakQ) {
+  // ── 破坏（单次 + 长按节流）─────────────────────────────────────────────────
+  var nowS = now * 0.001;
+  if (player.breakQ || (breakHeld && nowS - _lastBreak > BREAK_CD)) {
     player.breakQ = false;
-    var hit = raycast(6);
-    if (hit) setBlock(hit.x, hit.y, hit.z, AIR);
+    var hitB = raycast(6);
+    if (hitB) { setBlock(hitB.x, hitB.y, hitB.z, AIR); _lastBreak = nowS; }
   }
 
-  // 放置方块（不能放在玩家脚下两格内，防止卡进方块）
-  if (player.placeQ) {
+  // ── 放置（单次 + 长按节流）─────────────────────────────────────────────────
+  if (player.placeQ || (placeHeld && nowS - _lastPlace > PLACE_CD)) {
     player.placeQ = false;
-    var hit2 = raycast(6);
-    if (hit2 && hit2.prev) {
-      var pv   = hit2.prev;
-      var px2  = Math.floor(player.x);
-      var py2  = Math.floor(player.y);
-      var pz2  = Math.floor(player.z);
-      if (!(pv.x === px2 && (pv.y === py2 || pv.y === py2 + 1) && pv.z === pz2)) {
+    var hitP = raycast(6);
+    if (hitP && hitP.prev) {
+      var pv  = hitP.prev;
+      var ppx = Math.floor(player.x), ppy = Math.floor(player.y), ppz = Math.floor(player.z);
+      // 防止放在玩家自身两格高度内卡死
+      if (!(pv.x === ppx && (pv.y === ppy || pv.y === ppy + 1) && pv.z === ppz)) {
         setBlock(pv.x, pv.y, pv.z, player.inv[player.slot]);
+        _lastPlace = nowS;
       }
     }
   }
 
-  // 坐标显示
+  // ── 坐标显示 ───────────────────────────────────────────────────────────────
   if (coordEl) {
-    coordEl.textContent = 'X:' + Math.floor(player.x) + ' Y:' + Math.floor(player.y) + ' Z:' + Math.floor(player.z);
+    coordEl.textContent =
+      'X:' + Math.floor(player.x) + ' Y:' + Math.floor(player.y) + ' Z:' + Math.floor(player.z);
   }
 
-  // 区块流
+  // ── 区块流 ─────────────────────────────────────────────────────────────────
   updateChunks();
 
-  // 摄像机跟随
-  camera.position.set(player.x, player.y + PH * 0.85, player.z);
-  camera.rotation.y = player.yaw;
-  camera.rotation.x = player.pitch;
+  // ── 玩家模型 ───────────────────────────────────────────────────────────────
+  playerGroup.position.set(player.x, player.y, player.z);
+  playerGroup.rotation.y = player.yaw;
+
+  // 行走摆腿动画（速度归一化后缩放摆幅）
+  var moveMag = Math.min(1, Math.sqrt(player.vx * player.vx + player.vz * player.vz) / MOVE_SPD);
+  var swing   = Math.sin(now * 0.005) * 0.65 * moveMag;
+  _legLG.rotation.x =  swing;
+  _legRG.rotation.x = -swing;
+  _armL.position.z  =  Math.sin(now * 0.005) * 0.12 * moveMag;
+  _armR.position.z  = -Math.sin(now * 0.005) * 0.12 * moveMag;
+
+  // ── 第三人称摄像机 ─────────────────────────────────────────────────────────
+  // 摄像机绕玩家旋转：水平角=yaw，俯仰角受 pitch 影响但做限幅
+  var camP  = Math.max(-0.15, Math.min(0.65, player.pitch));
+  var camTX = player.x + Math.sin(player.yaw) * Math.cos(camP) * CAM_DIST;
+  var camTZ = player.z + Math.cos(player.yaw) * Math.cos(camP) * CAM_DIST;
+  var camTY = Math.max(player.y + 0.4, player.y + CAM_H - Math.sin(camP) * CAM_DIST);
+
+  // 指数平滑（15 Hz 半衰期），消除抖动
+  var lf = Math.min(1, 15 * dt);
+  _camX += (camTX - _camX) * lf;
+  _camY += (camTY - _camY) * lf;
+  _camZ += (camTZ - _camZ) * lf;
+
+  camera.position.set(_camX, _camY, _camZ);
+  camera.lookAt(player.x, player.y + PH * 0.6, player.z);
 
   renderer.render(scene, camera);
 }
 
 // ── 开始游戏 ───────────────────────────────────────────────────────────────────
-// 由菜单"开始游戏"按钮调用（见 template.html onclick）
 window.startGame = function () {
   if (menuEl) menuEl.style.display = 'none';
   if (uiEl)   uiEl.style.display   = 'block';
@@ -911,46 +1044,34 @@ window.startGame = function () {
   requestAnimationFrame(tick);
 };
 
-// ── 启动序列 ───────────────────────────────────────────────────────────────────
-// 分帧生成初始地形，避免首次加载时的长时间白屏卡顿。
-// 每一帧只做一步工作，然后 requestAnimationFrame 交还控制权。
+// ── 启动序列（分帧生成初始地形，避免白屏卡顿）─────────────────────────────────
 var bootSX, bootSZ, bootStep = 0;
 
 function bootNext() {
   try {
     if (bootStep === 0) {
-      // 测试渲染器正常工作
       setProgress(10, '测试渲染器...');
       renderer.render(scene, camera);
-      bootSX   = Math.floor(player.x / CHUNK_W);
-      bootSZ   = Math.floor(player.z / CHUNK_D);
-      bootStep = 1;
-      requestAnimationFrame(bootNext);
+      bootSX = Math.floor(player.x / CHUNK_W);
+      bootSZ = Math.floor(player.z / CHUNK_D);
+      bootStep = 1; requestAnimationFrame(bootNext);
 
     } else if (bootStep === 1) {
-      // 生成 5×5 区块数据（仅数组，不建网格）
       setProgress(25, '生成地形...');
       var dx1, dz1;
       for (dx1 = -2; dx1 <= 2; dx1++) {
-        for (dz1 = -2; dz1 <= 2; dz1++) {
-          createChunk(bootSX + dx1, bootSZ + dz1);
-        }
+        for (dz1 = -2; dz1 <= 2; dz1++) { createChunk(bootSX + dx1, bootSZ + dz1); }
       }
-      bootStep = 2;
-      requestAnimationFrame(bootNext);
+      bootStep = 2; requestAnimationFrame(bootNext);
 
     } else if (bootStep >= 2 && bootStep <= 6) {
       // 每帧构建一列（5 个）区块的网格，共 5 帧
-      var col2 = bootStep - 4, dz2;
-      for (dz2 = -2; dz2 <= 2; dz2++) {
-        rebuildChunk(bootSX + col2, bootSZ + dz2);
-      }
+      var col = bootStep - 4, dz2;
+      for (dz2 = -2; dz2 <= 2; dz2++) { rebuildChunk(bootSX + col, bootSZ + dz2); }
       setProgress(40 + (bootStep - 2) * 12, '构建地形 ' + (bootStep - 1) + '/5...');
-      bootStep++;
-      requestAnimationFrame(bootNext);
+      bootStep++; requestAnimationFrame(bootNext);
 
     } else if (bootStep === 7) {
-      // 从地表往下找第一个实心方块，作为出生点
       setProgress(92, '定位出生点...');
       var y;
       for (y = CHUNK_H - 1; y >= 0; y--) {
@@ -959,17 +1080,18 @@ function bootNext() {
           break;
         }
       }
-      bootStep = 8;
-      requestAnimationFrame(bootNext);
+      // 初始化摄像机平滑坐标到实际出生位置，防止首帧跳变
+      _camX = player.x + Math.sin(player.yaw) * CAM_DIST;
+      _camY = player.y + CAM_H;
+      _camZ = player.z + Math.cos(player.yaw) * CAM_DIST;
+      bootStep = 8; requestAnimationFrame(bootNext);
 
     } else {
-      // 启动完成，隐藏加载屏，显示主菜单
       setProgress(100, '完成!');
       if (loadEl) loadEl.style.display = 'none';
       if (menuEl) menuEl.style.display = 'flex';
     }
   } catch (e) {
-    // 任一步骤出错，显示红色进度条和错误信息
     setProgress(0, '错误: ' + (e.message || String(e)));
     if (loadFill) { loadFill.style.width = '100%'; loadFill.style.background = '#f44'; }
   }

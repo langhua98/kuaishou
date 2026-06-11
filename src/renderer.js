@@ -1,32 +1,58 @@
 // ─── renderer.js ──────────────────────────────────────────────────────────────
-// Three.js 渲染器、场景、摄像机、灯光初始化。
+// Three.js 渲染器、场景、摄像机、灯光、天空穹顶。
 //
-// 摄像机旋转约定（YXZ 欧拉顺序）：
-//   rotation.y = player.yaw   — 左右转向（yaw 减小 = 向右转）
-//   rotation.x = player.pitch — 仰俯（pitch 增大 = 抬头）
-// 这与原始 viewMatrix 中 forward=(-sin(yaw)*cos(pitch), sin(pitch), -cos(yaw)*cos(pitch)) 完全一致。
+// 天空策略：
+//   大球（radius=170，BackSide 渲染）+ 顶点色渐变，
+//   地平线 #8ec5f5 → 天顶 #1a5fc7，雾色与地平线一致，
+//   远处地形自然淡入天空色，无明显边界。
 //
-// 光照策略：环境光（0.85）提供基础亮度，微弱平行光（0.3）强调方向感。
-// 区块网格使用 MeshBasicMaterial + 烘焙顶点色，不受场景灯光影响。
+// 光照策略（对玩家模型 MeshLambertMaterial 有效，地形用 MeshBasicMaterial 不受影响）：
+//   HemisphereLight — 天空蓝/地面绿，比单一环境光更有立体感
+//   DirectionalLight — 模拟太阳，暖黄色，给玩家模型投射方向高光
 
-var renderer = new THREE.WebGLRenderer({ antialias: false }); // 移动端关闭抗锯齿
+var renderer = new THREE.WebGLRenderer({ antialias: false });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.domElement.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;z-index:1;touch-action:none';
 document.body.appendChild(renderer.domElement);
 
 var scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87ceeb);      // 天空蓝
-scene.fog = new THREE.Fog(0x87ceeb, 50, 90);       // 远处淡出，与天空同色
+scene.background = null;                             // 由天空穹顶接管
+scene.fog = new THREE.Fog(0x8ec5f5, 55, 105);       // 雾色=地平线色，无缝融合
 
 var camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 200);
-camera.rotation.order = 'YXZ';                     // 先偏航再俯仰，标准 FPS 顺序
+// 第三人称：camera.lookAt() 接管旋转，不再手动设置 rotation
 
-scene.add(new THREE.AmbientLight(0xffffff, 0.85));
-var sun = new THREE.DirectionalLight(0xfff0c8, 0.3);
-sun.position.set(1, 2, 1);
+// ── 天空穹顶 ───────────────────────────────────────────────────────────────────
+(function () {
+  var geo = new THREE.SphereGeometry(170, 16, 9);
+  var posArr = geo.attributes.position.array;
+  var colArr = new Float32Array(posArr.length);
+  // 地平线色 (0.557, 0.773, 0.961) → 天顶色 (0.102, 0.373, 0.780)
+  for (var i = 0; i < geo.attributes.position.count; i++) {
+    var yNorm = posArr[i * 3 + 1] / 170;             // -1..1
+    var t     = Math.max(0, Math.min(1, (yNorm + 0.2) / 1.2));
+    colArr[i * 3]     = 0.557 - t * 0.455;
+    colArr[i * 3 + 1] = 0.773 - t * 0.400;
+    colArr[i * 3 + 2] = 0.961 - t * 0.181;
+  }
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colArr, 3));
+  scene.add(new THREE.Mesh(
+    geo,
+    new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, depthWrite: false })
+  ));
+}());
+
+// ── 灯光 ──────────────────────────────────────────────────────────────────────
+// 半球光：天空（浅蓝）→ 地面（暗绿），为玩家模型提供自然环境光
+scene.add(new THREE.HemisphereLight(0x87ceeb, 0x4a6741, 1.2));
+
+// 太阳平行光：暖黄，从右上方斜射
+var sun = new THREE.DirectionalLight(0xfff4e0, 0.55);
+sun.position.set(2, 5, 1);
 scene.add(sun);
 
+// ── 窗口缩放 ──────────────────────────────────────────────────────────────────
 window.addEventListener('resize', function () {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();

@@ -2,23 +2,29 @@
 // 移动端触屏控制：虚拟摇杆 + 视角滑动 + 动作按钮。
 //
 // 屏幕分区：
-//   左侧 40%（#joy-zone）：虚拟摇杆，单点追踪，最大偏移 40px
-//   右侧 60%（#look-zone）：自由视角，拖动增量更新 yaw/pitch
+//   左侧 42%（#joy-zone）：虚拟摇杆，单点追踪，最大偏移 48px
+//   右侧 58%（#look-zone）：自由视角，拖动增量更新 yaw/pitch
 //
 // 虚拟摇杆（joy）：
-//   joy.dx/dy  — 摇杆偏移像素（-40 到 +40），由 game.js 每帧读取
-//   偏移换算为移动速度：joy.dx/40 ∈ [-1, 1]
+//   joy.dx/dy  — 摇杆偏移像素（-48 到 +48），由 game.js 每帧读取
+//   偏移换算为移动速度：joy.dx/48 ∈ [-1, 1]
 //
 // 视角控制：
-//   水平拖动 → player.yaw   -= delta * 0.004（向右拖 = yaw 减小 = 向右看）
-//   垂直拖动 → player.pitch -= delta * 0.004（向下拖 = pitch 减小 = 向下看）
-//   pitch 限制在 [-1.5, 1.5] rad（约 ±86°，避免翻转）
+//   水平拖动 → player.yaw   -= delta × 0.005
+//   垂直拖动 → player.pitch -= delta × 0.005
+//   pitch 限制在 [-1.2, 1.2] rad（避免极端视角）
 //
-// 按钮（#b-jump/brk/plc/fly）：touchstart 触发，设置 player.*Q 标志，
-//   由 game.js 在下一帧处理后清除。
+// 破坏/放置按钮支持长按：
+//   touchstart → 设置 player.breakQ/placeQ=true 并标记 breakHeld/placeHeld
+//   touchend   → 清除 breakHeld/placeHeld（单次触发由 game.js 消费，持续由 held 驱动）
 
-var joy = { active: false, id: -1, cx: 0, cy: 0, dx: 0, dy: 0 };
+var joy     = { active: false, id: -1, cx: 0, cy: 0, dx: 0, dy: 0 };
 var lookAct = false, lookId = -1, lookLx = 0, lookLy = 0;
+
+// 长按标志：game.js 在 tick 中读取，配合冷却计时实现持续动作
+var breakHeld = false, placeHeld = false;
+
+var JOY_R = 48;  // 摇杆最大偏移半径（像素）
 
 var joyZone  = document.getElementById('joy-zone');
 var joyThumb = document.getElementById('joy-thumb');
@@ -46,9 +52,10 @@ joyZone.addEventListener('touchmove', function (e) {
   for (i = 0; i < e.changedTouches.length; i++) {
     t = e.changedTouches[i];
     if (t.identifier !== joy.id) continue;
-    joy.dx = Math.max(-40, Math.min(40, t.clientX - joy.cx));
-    joy.dy = Math.max(-40, Math.min(40, t.clientY - joy.cy));
-    joyThumb.style.transform = 'translate(calc(-50% + ' + joy.dx + 'px),calc(-50% + ' + joy.dy + 'px))';
+    joy.dx = Math.max(-JOY_R, Math.min(JOY_R, t.clientX - joy.cx));
+    joy.dy = Math.max(-JOY_R, Math.min(JOY_R, t.clientY - joy.cy));
+    joyThumb.style.transform =
+      'translate(calc(-50% + ' + joy.dx + 'px),calc(-50% + ' + joy.dy + 'px))';
   }
 }, { passive: false });
 
@@ -62,7 +69,7 @@ function jEnd(e) {
     }
   }
 }
-joyZone.addEventListener('touchend',   jEnd, { passive: false });
+joyZone.addEventListener('touchend',    jEnd, { passive: false });
 joyZone.addEventListener('touchcancel', jEnd, { passive: false });
 
 // ── 视角滑动 ──────────────────────────────────────────────────────────────────
@@ -83,9 +90,9 @@ lookZone.addEventListener('touchmove', function (e) {
   for (i = 0; i < e.changedTouches.length; i++) {
     t = e.changedTouches[i];
     if (t.identifier !== lookId) continue;
-    player.yaw   -= (t.clientX - lookLx) * 0.004;
-    player.pitch -= (t.clientY - lookLy) * 0.004;
-    player.pitch  = Math.max(-1.5, Math.min(1.5, player.pitch));
+    player.yaw   -= (t.clientX - lookLx) * 0.005;   // 灵敏度略高于原版
+    player.pitch -= (t.clientY - lookLy) * 0.005;
+    player.pitch  = Math.max(-1.2, Math.min(1.2, player.pitch));
     lookLx = t.clientX; lookLy = t.clientY;
   }
 }, { passive: false });
@@ -97,18 +104,43 @@ function lEnd(e) {
     if (e.changedTouches[i].identifier === lookId) lookAct = false;
   }
 }
-lookZone.addEventListener('touchend',   lEnd, { passive: false });
+lookZone.addEventListener('touchend',    lEnd, { passive: false });
 lookZone.addEventListener('touchcancel', lEnd, { passive: false });
 
 // ── 动作按钮 ──────────────────────────────────────────────────────────────────
+// 跳跃/飞行：单次触发
 function tapBtn(id, fn) {
   var el = document.getElementById(id);
   if (el) el.addEventListener('touchstart', function (e) { e.preventDefault(); fn(); }, { passive: false });
 }
 
-tapBtn('b-jump', function () { player.jumpQ  = true; });
-tapBtn('b-brk',  function () { player.breakQ = true; });
-tapBtn('b-plc',  function () { player.placeQ = true; });
+// 破坏：长按持续破坏，touchstart 触发首次
+(function () {
+  var el = document.getElementById('b-brk');
+  if (!el) return;
+  el.addEventListener('touchstart', function (e) {
+    e.preventDefault();
+    player.breakQ = true;  // 立即触发第一次
+    breakHeld = true;
+  }, { passive: false });
+  el.addEventListener('touchend',    function (e) { e.preventDefault(); breakHeld = false; }, { passive: false });
+  el.addEventListener('touchcancel', function ()  { breakHeld = false; }, { passive: false });
+}());
+
+// 放置：长按持续放置
+(function () {
+  var el = document.getElementById('b-plc');
+  if (!el) return;
+  el.addEventListener('touchstart', function (e) {
+    e.preventDefault();
+    player.placeQ = true;  // 立即触发第一次
+    placeHeld = true;
+  }, { passive: false });
+  el.addEventListener('touchend',    function (e) { e.preventDefault(); placeHeld = false; }, { passive: false });
+  el.addEventListener('touchcancel', function ()  { placeHeld = false; }, { passive: false });
+}());
+
+tapBtn('b-jump', function () { player.jumpQ = true; });
 tapBtn('b-fly',  function () {
   player.flying = !player.flying;
   player.vy = 0;
