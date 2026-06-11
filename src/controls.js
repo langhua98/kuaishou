@@ -169,6 +169,9 @@ function tapBtn(id, fn) {
   el.addEventListener('touchcancel', function ()  { downHeld = false; }, { passive: false });
 }());
 
+// 视角切换：第一/第三人称（toggleView 定义在 game.js）
+tapBtn('b-view', function () { toggleView(); });
+
 tapBtn('b-fly', function () {
   player.flying = !player.flying;
   player.vy = 0;

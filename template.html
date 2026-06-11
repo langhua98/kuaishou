@@ -32,8 +32,12 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
 
 #ui{position:fixed;inset:0;display:none;z-index:100}
 
-/* 第三人称瞄准点：小圆点替代十字 */
+/* 瞄准点：第三人称=小圆点，第一人称(.fp)=十字准星 */
 #xhair{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.75);box-shadow:0 0 0 2px rgba(0,0,0,.5)}
+#xhair.fp{width:22px;height:22px;background:transparent;box-shadow:none;border-radius:0}
+#xhair.fp::before,#xhair.fp::after{content:'';position:absolute;background:rgba(255,255,255,.9);box-shadow:0 0 3px rgba(0,0,0,.7)}
+#xhair.fp::before{left:50%;top:0;width:2px;height:100%;transform:translateX(-50%)}
+#xhair.fp::after{top:50%;left:0;height:2px;width:100%;transform:translateY(-50%)}
 
 #coords{position:absolute;top:10px;left:10px;color:#e0f0ff;font-size:12px;font-family:monospace;background:rgba(0,0,0,.45);padding:5px 10px;border-radius:6px;line-height:1.9;pointer-events:none;border:1px solid rgba(255,255,255,.08)}
 
@@ -57,6 +61,8 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
 #btns.flying #b-down{display:flex}
 #b-brk{background:rgba(255,70,70,.4);border-color:rgba(255,120,120,.5)}
 #b-plc{background:rgba(60,220,100,.38);border-color:rgba(80,255,130,.5)}
+#b-view{background:rgba(60,200,220,.35);border-color:rgba(110,230,250,.5)}
+#b-view.on{background:rgba(60,200,220,.7);border-color:#5ee0f5;box-shadow:0 0 16px rgba(60,200,220,.5)}
 
 /* 热键栏 — 更宽槽位 */
 #hotbar{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);display:flex;gap:5px}
@@ -83,7 +89,7 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
     左摇杆 移动 &nbsp;│&nbsp; 右侧滑动 旋转视角<br>
     🔨 长按破坏 &nbsp;│&nbsp; 📦 长按放置<br>
     ⬆ 跳跃 &nbsp;│&nbsp; ✈ 切换飞行模式<br>
-    底部热键栏 选择方块 &nbsp;│&nbsp; 第三人称视角
+    👁 切换第一/第三人称 &nbsp;│&nbsp; 底部热键栏 选择方块
   </div>
   <button id="play-btn" onclick="window.startGame&&window.startGame()">开始游戏</button>
 </div>
@@ -95,6 +101,7 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
   <div id="look-zone"></div>
   <div id="btns">
     <div class="row">
+      <button class="btn" id="b-view"><span class="ic">👁</span><span>视角</span></button>
       <button class="btn" id="b-brk"><span class="ic">🔨</span><span>破坏</span></button>
       <button class="btn" id="b-plc"><span class="ic">📦</span><span>放置</span></button>
     </div>

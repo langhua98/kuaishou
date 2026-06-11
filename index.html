@@ -32,8 +32,12 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
 
 #ui{position:fixed;inset:0;display:none;z-index:100}
 
-/* 第三人称瞄准点：小圆点替代十字 */
+/* 瞄准点：第三人称=小圆点，第一人称(.fp)=十字准星 */
 #xhair{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.75);box-shadow:0 0 0 2px rgba(0,0,0,.5)}
+#xhair.fp{width:22px;height:22px;background:transparent;box-shadow:none;border-radius:0}
+#xhair.fp::before,#xhair.fp::after{content:'';position:absolute;background:rgba(255,255,255,.9);box-shadow:0 0 3px rgba(0,0,0,.7)}
+#xhair.fp::before{left:50%;top:0;width:2px;height:100%;transform:translateX(-50%)}
+#xhair.fp::after{top:50%;left:0;height:2px;width:100%;transform:translateY(-50%)}
 
 #coords{position:absolute;top:10px;left:10px;color:#e0f0ff;font-size:12px;font-family:monospace;background:rgba(0,0,0,.45);padding:5px 10px;border-radius:6px;line-height:1.9;pointer-events:none;border:1px solid rgba(255,255,255,.08)}
 
@@ -57,6 +61,8 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
 #btns.flying #b-down{display:flex}
 #b-brk{background:rgba(255,70,70,.4);border-color:rgba(255,120,120,.5)}
 #b-plc{background:rgba(60,220,100,.38);border-color:rgba(80,255,130,.5)}
+#b-view{background:rgba(60,200,220,.35);border-color:rgba(110,230,250,.5)}
+#b-view.on{background:rgba(60,200,220,.7);border-color:#5ee0f5;box-shadow:0 0 16px rgba(60,200,220,.5)}
 
 /* 热键栏 — 更宽槽位 */
 #hotbar{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);display:flex;gap:5px}
@@ -83,7 +89,7 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
     左摇杆 移动 &nbsp;│&nbsp; 右侧滑动 旋转视角<br>
     🔨 长按破坏 &nbsp;│&nbsp; 📦 长按放置<br>
     ⬆ 跳跃 &nbsp;│&nbsp; ✈ 切换飞行模式<br>
-    底部热键栏 选择方块 &nbsp;│&nbsp; 第三人称视角
+    👁 切换第一/第三人称 &nbsp;│&nbsp; 底部热键栏 选择方块
   </div>
   <button id="play-btn" onclick="window.startGame&&window.startGame()">开始游戏</button>
 </div>
@@ -95,6 +101,7 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
   <div id="look-zone"></div>
   <div id="btns">
     <div class="row">
+      <button class="btn" id="b-view"><span class="ic">👁</span><span>视角</span></button>
       <button class="btn" id="b-brk"><span class="ic">🔨</span><span>破坏</span></button>
       <button class="btn" id="b-plc"><span class="ic">📦</span><span>放置</span></button>
     </div>
@@ -746,12 +753,13 @@ function raycast(maxD) {
   var dy = sp;
   var dz = -Math.cos(player.yaw) * cp;
 
-  // 射线起点：玩家眼睛位置 + 右肩偏移。
-  // 相机右偏 CAM_SHOULDER 且朝向与视线平行 → 屏幕中心射线 = 眼睛射线右移同量，
-  // 起点同步右移后准星点与破坏/放置目标严格一致。
-  var ox = player.x + Math.cos(player.yaw) * CAM_SHOULDER;
+  // 射线起点：玩家眼睛位置（+ 第三人称时的右肩偏移）。
+  // 第三人称相机右偏 CAM_SHOULDER 且朝向平行 → 屏幕中心射线 = 眼睛射线右移同量，
+  // 起点同步右移后准星点与破坏/放置目标严格一致；第一人称相机即眼睛，无偏移。
+  var sh = viewFP ? 0 : CAM_SHOULDER;
+  var ox = player.x + Math.cos(player.yaw) * sh;
   var oy = player.y + PH * 0.85;
-  var oz = player.z - Math.sin(player.yaw) * CAM_SHOULDER;
+  var oz = player.z - Math.sin(player.yaw) * sh;
 
   var prev = null, d, bx, by, bz, id;
   for (d = 0; d < maxD; d += 0.05) {
@@ -937,6 +945,9 @@ function tapBtn(id, fn) {
   el.addEventListener('touchend',    function (e) { e.preventDefault(); downHeld = false; }, { passive: false });
   el.addEventListener('touchcancel', function ()  { downHeld = false; }, { passive: false });
 }());
+
+// 视角切换：第一/第三人称（toggleView 定义在 game.js）
+tapBtn('b-view', function () { toggleView(); });
 
 tapBtn('b-fly', function () {
   player.flying = !player.flying;
@@ -1288,6 +1299,54 @@ var playerGroup = new THREE.Group();
 
 scene.add(playerGroup);
 
+// ── 第一人称手臂 + 镐子 ────────────────────────────────────────────────────────
+// 挂在 camera 下（相机空间，跟随视线），仅第一人称可见。
+// 破坏/放置时播放挥动动画（绕肩部 X 轴前劈）。
+var armGroup = new THREE.Group();
+var ARM_BASE_RX = -0.25;   // 手臂静止前倾角
+var _swingT = 0;           // 挥动剩余时间（秒）
+var SWING_DUR = 0.28;
+
+(function () {
+  var skin = new THREE.MeshLambertMaterial({ color: 0xc68863 });
+  var wood = new THREE.MeshLambertMaterial({ color: 0x8a5a2b });
+  var iron = new THREE.MeshLambertMaterial({ color: 0xc0c0c8 });
+
+  // 手臂：从右下伸向前方
+  var arm = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.11, 0.46), skin);
+  arm.position.set(0, 0, -0.18);
+  armGroup.add(arm);
+
+  // 镐柄：竖直握在手前端
+  var handle = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.34, 0.05), wood);
+  handle.position.set(0, 0.12, -0.42);
+  armGroup.add(handle);
+
+  // 镐头：横在柄顶
+  var head = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.32), iron);
+  head.position.set(0, 0.29, -0.42);
+  armGroup.add(head);
+}());
+
+armGroup.position.set(0.34, -0.32, -0.5);
+armGroup.rotation.set(ARM_BASE_RX, -0.1, 0);
+armGroup.visible = false;
+camera.add(armGroup);
+scene.add(camera);   // camera 有子节点时必须加入场景树
+
+// ── 视角切换（第一/第三人称）──────────────────────────────────────────────────
+var viewFP = false;
+
+function toggleView() {
+  viewFP = !viewFP;
+  playerGroup.visible = !viewFP;
+  armGroup.visible    = viewFP;
+  var xh = document.getElementById('xhair');
+  if (xh) xh.classList.toggle('fp', viewFP);
+  var b = document.getElementById('b-view');
+  if (b) b.classList.toggle('on', viewFP);
+}
+
 // ── 第三人称摄像机（吃鸡架构）──────────────────────────────────────────────────
 // 设计原则（PUBG 同款）：
 //   1. 旋转 1:1 直出 — 朝向每帧由 yaw/pitch 直接生成，绝不平滑（手感根基）
@@ -1383,6 +1442,7 @@ function tick(now) {
   var nowS = now * 0.001;
   if (player.breakQ || (breakHeld && nowS - _lastBreak > BREAK_CD)) {
     player.breakQ = false;
+    if (_swingT <= 0) _swingT = SWING_DUR;   // 第一人称挥镐动画
     var hitB = raycast(6);
     if (hitB) { setBlock(hitB.x, hitB.y, hitB.z, AIR); _lastBreak = nowS; }
   }
@@ -1390,6 +1450,7 @@ function tick(now) {
   // ── 放置（单次 + 长按节流）─────────────────────────────────────────────────
   if (player.placeQ || (placeHeld && nowS - _lastPlace > PLACE_CD)) {
     player.placeQ = false;
+    if (_swingT <= 0) _swingT = SWING_DUR;
     var hitP = raycast(6);
     if (hitP && hitP.prev) {
       var pv  = hitP.prev;
@@ -1455,34 +1516,51 @@ function tick(now) {
   var bobY = Math.sin(_bobT * Math.PI * 2) * 0.04 * bobOn;
   var bobL = Math.sin(_bobT * Math.PI)     * 0.03 * bobOn;
 
-  // 支臂碰撞：从「肩偏后的枢轴」沿 -forward 步进找最大无遮挡长度
-  var shX = _pivX + rwx * CAM_SHOULDER;
-  var shY = _pivY;
-  var shZ = _pivZ + rwz * CAM_SHOULDER;
-  var hitD = CAM_DIST, cd, cid;
-  for (cd = 0.2; cd <= CAM_DIST; cd += 0.1) {
-    cid = getBlock(
-      Math.floor(shX - fwx * cd),
-      Math.floor(shY - fwy * cd),
-      Math.floor(shZ - fwz * cd)
+  if (viewFP) {
+    // ── 第一人称：相机即眼睛，Bob 减半（贴脸晃动更敏感）─────────────────────
+    camera.position.set(
+      player.x + rwx * bobL * 0.5,
+      player.y + PH * 0.85 + bobY * 0.6 + _dipY,
+      player.z + rwz * bobL * 0.5
     );
-    if (cid !== AIR && cid !== WATER) { hitD = Math.max(0.4, cd - 0.3); break; }
-  }
-  // 瞬缩缓伸：撞墙立刻拉近，离开后以 4/s 缓慢恢复全长
-  if (hitD < _camDcur) _camDcur = hitD;
-  else                 _camDcur += (hitD - _camDcur) * Math.min(1, 4 * dt);
+  } else {
+    // ── 第三人称：支臂碰撞，从「肩偏后的枢轴」沿 -forward 步进找无遮挡长度 ──
+    var shX = _pivX + rwx * CAM_SHOULDER;
+    var shY = _pivY;
+    var shZ = _pivZ + rwz * CAM_SHOULDER;
+    var hitD = CAM_DIST, cd, cid;
+    for (cd = 0.2; cd <= CAM_DIST; cd += 0.1) {
+      cid = getBlock(
+        Math.floor(shX - fwx * cd),
+        Math.floor(shY - fwy * cd),
+        Math.floor(shZ - fwz * cd)
+      );
+      if (cid !== AIR && cid !== WATER) { hitD = Math.max(0.4, cd - 0.3); break; }
+    }
+    // 瞬缩缓伸：撞墙立刻拉近，离开后以 4/s 缓慢恢复全长
+    if (hitD < _camDcur) _camDcur = hitD;
+    else                 _camDcur += (hitD - _camDcur) * Math.min(1, 4 * dt);
 
-  camera.position.set(
-    shX - fwx * _camDcur + rwx * bobL,
-    shY - fwy * _camDcur + bobY + _dipY,
-    shZ - fwz * _camDcur + rwz * bobL
-  );
+    camera.position.set(
+      shX - fwx * _camDcur + rwx * bobL,
+      shY - fwy * _camDcur + bobY + _dipY,
+      shZ - fwz * _camDcur + rwz * bobL
+    );
+  }
 
   // 侧移倾斜：横向移动时镜头反向微滚 ~0.8°，增加动态感
   var tgtRoll = -jx * 0.014;
   _rollCur += (tgtRoll - _rollCur) * Math.min(1, 8 * dt);
   // YXZ 欧拉直接赋值（renderer.js 已设 rotation.order）→ 朝向严格平行视线
   camera.rotation.set(player.pitch, player.yaw, _rollCur);
+
+  // ── 第一人称手臂动画：挥动（前劈）+ 行走微晃 ─────────────────────────────
+  if (_swingT > 0) _swingT -= dt;
+  if (viewFP) {
+    var swP = _swingT > 0 ? Math.sin((1 - _swingT / SWING_DUR) * Math.PI) : 0;
+    armGroup.rotation.x = ARM_BASE_RX - swP * 1.0;
+    armGroup.position.y = -0.32 + Math.sin(_bobT * Math.PI * 2) * 0.015 * bobOn;
+  }
 
   // FOV 冲刺扩张：地面跑动时 70° → 76°
   var tgFov = (!player.flying && player.onGround && moveMag > MOVE_SPD * 0.8) ? 76 : 70;
