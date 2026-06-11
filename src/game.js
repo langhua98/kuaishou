@@ -178,11 +178,10 @@ var placeBox = (function () {
 
 // 方向学习放置系统
 var _place = {
-  lastPos:    null,   // 上次放置的方块坐标 {x,y,z}
-  lastDir:    null,   // 已确认的主轴方向（连续 2 次相同才改向，防误触）
-  pendingDir: null,   // 候选新方向（与 lastDir 不同时缓冲，再次确认才覆盖）
-  idleT:      0,      // 无预览的累计秒数（超 8s 重置方向记忆）
-  pos:        null    // 当前帧预览坐标（null=不可见）
+  lastPos: null,   // 上次放置的方块坐标 {x,y,z}
+  lastDir: null,   // 从命中面（pv - selHit）得到的方向，第一次放置即生效
+  idleT:   0,      // 无预览的累计秒数（超 8s 重置）
+  pos:     null    // 当前帧预览坐标（null=不可见）
 };
 var _lastPlaceSlot = -1;
 
@@ -332,7 +331,7 @@ function tick(now) {
   // ── 放置预览框 + 方向学习更新 ───────────────────────────────────────────────
   // 热键栏换格 → 清除方向记忆（新材料从零学起）
   if (player.slot !== _lastPlaceSlot) {
-    _place.lastPos = null; _place.lastDir = null; _place.pendingDir = null; _place.idleT = 0;
+    _place.lastPos = null; _place.lastDir = null; _place.idleT = 0;
     _lastPlaceSlot = player.slot;
     _updateHeldItem(player.slot);
   }
@@ -370,8 +369,8 @@ function tick(now) {
     placeBox.visible = false;
     _place.idleT += dt;
     if (_place.idleT > 8) {
-      _place.lastPos = null; _place.lastDir = null; _place.pendingDir = null;
-      _place.idleT = 0;   // 重置计时器，避免超时后每帧重复触发（Fix G3）
+      _place.lastPos = null; _place.lastDir = null;
+      _place.idleT = 0;
     }
   }
 
@@ -390,30 +389,27 @@ function tick(now) {
         digSound(player.inv[player.slot]);
         _lastPlace = nowS;
 
-        // 方向学习：lastPos→pv 取主轴（Fix B6）
-        // 与 lastDir 一致 → 继续；不同 → 先缓存为 pendingDir，
-        // 连续两次确认相同新方向才真正改向，防止单次误触破坏建造链。
-        if (_place.lastPos) {
-          var dX = pv.x - _place.lastPos.x;
-          var dY = pv.y - _place.lastPos.y;
-          var dZ = pv.z - _place.lastPos.z;
+        // 方向 = 命中方块 → 放置位置的面法向量（第一次放置即生效）
+        // 准星命中时用 pv - selHit；准星落空（fallback）时用 pv - lastPos
+        if (selHit) {
+          var fdX = pv.x - selHit.x, fdY = pv.y - selHit.y, fdZ = pv.z - selHit.z;
+          if (fdX || fdY || fdZ) {
+            var afX = Math.abs(fdX), afY = Math.abs(fdY), afZ = Math.abs(fdZ);
+            var fd = { x: 0, y: 0, z: 0 };
+            if      (afX >= afY && afX >= afZ) fd.x = fdX > 0 ? 1 : -1;
+            else if (afY >= afX && afY >= afZ) fd.y = fdY > 0 ? 1 : -1;
+            else                               fd.z = fdZ > 0 ? 1 : -1;
+            _place.lastDir = fd;
+          }
+        } else if (_place.lastPos) {
+          var dX = pv.x - _place.lastPos.x, dY = pv.y - _place.lastPos.y, dZ = pv.z - _place.lastPos.z;
           if (dX || dY || dZ) {
             var aX = Math.abs(dX), aY = Math.abs(dY), aZ = Math.abs(dZ);
             var ndir = { x: 0, y: 0, z: 0 };
             if      (aX >= aY && aX >= aZ) ndir.x = dX > 0 ? 1 : -1;
             else if (aY >= aX && aY >= aZ) ndir.y = dY > 0 ? 1 : -1;
             else                           ndir.z = dZ > 0 ? 1 : -1;
-            if (!_place.lastDir) {
-              _place.lastDir    = ndir;           // 首次学到方向
-              _place.pendingDir = null;
-            } else if (ndir.x === _place.lastDir.x && ndir.y === _place.lastDir.y && ndir.z === _place.lastDir.z) {
-              _place.pendingDir = null;            // 与当前方向一致，清除候选
-            } else if (_place.pendingDir && ndir.x === _place.pendingDir.x && ndir.y === _place.pendingDir.y && ndir.z === _place.pendingDir.z) {
-              _place.lastDir    = ndir;            // 候选连续确认 → 接受转向
-              _place.pendingDir = null;
-            } else {
-              _place.pendingDir = ndir;            // 首次偏离 → 缓冲，不立即改向
-            }
+            _place.lastDir = ndir;
           }
         }
         _place.lastPos = { x: pv.x, y: pv.y, z: pv.z };
