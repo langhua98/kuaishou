@@ -1524,10 +1524,10 @@ var selBox = (function () {
   return ls;
 }());
 
-// ── 放置预览框（placeBox）+ 直线吸附系统 ──────────────────────────────────────
+// ── 放置预览框（placeBox）+ 方向学习放置系统 ──────────────────────────────────
 // 放置预览框：半透明绿色虚线，套在「将要放置的空格」上，随视角实时移动；
-// 直线吸附：记录前两次放置坐标 → 确定主轴方向 → 之后预览框锁定到链末端，
-//   无视准星位置，点放置即在链末追加一格，实现快速搭桥/墙/柱。
+// 方向学习：每次放置后记录 lastPos + 从 lastPos→当前 学到的主轴方向 lastDir，
+//   下一帧预览框自动锁到 lastPos+lastDir 处；转弯时立刻学到新方向，无需重置。
 var placeBox = (function () {
   var geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.007, 1.007, 1.007));
   var mat = new THREE.LineDashedMaterial({
@@ -1541,14 +1541,12 @@ var placeBox = (function () {
   return ls;
 }());
 
-// 吸附状态机
-var _snap = {
-  state: 0,      // 0=自由预览  1=记录了P1  2=轴锁定
-  P1:    null,   // 第一块坐标 {x,y,z}
-  dir:   null,   // 锁定轴方向 {x,y,z}（其中一轴为±1）
-  next:  null,   // 下一个预测落点
-  idleT: 0,      // 无放置的累计时间（超 5 s 重置）
-  pos:   null    // 当前帧有效预览坐标（null=不可见）
+// 方向学习放置系统
+var _place = {
+  lastPos: null,   // 上次放置的方块坐标 {x,y,z}
+  lastDir: null,   // 学到的主轴方向 {x,y,z}（一轴为 ±1，其余 0）
+  idleT:   0,      // 无预览的累计秒数（超 8s 重置方向记忆）
+  pos:     null    // 当前帧预览坐标（null=不可见）
 };
 var _lastPlaceSlot = -1;
 
@@ -1695,44 +1693,49 @@ function tick(now) {
     selBox.visible = false;
   }
 
-  // ── 放置预览框 + 吸附更新 ─────────────────────────────────────────────────
-  // 热键栏换格 → 重置吸附
+  // ── 放置预览框 + 方向学习更新 ───────────────────────────────────────────────
+  // 热键栏换格 → 清除方向记忆（新材料从零学起）
   if (player.slot !== _lastPlaceSlot) {
-    _snap.state = 0; _snap.P1 = null; _snap.dir = null; _snap.next = null;
+    _place.lastPos = null; _place.lastDir = null; _place.idleT = 0;
     _lastPlaceSlot = player.slot;
     _updateHeldItem(player.slot);
   }
 
   // 计算本帧预览坐标
-  _snap.pos = null;
-  if (_snap.state === 2 && _snap.next) {
-    // 轴锁定：固定在链末，若末格被占就顺轴继续找最近空格
-    var nx = _snap.next.x, ny = _snap.next.y, nz = _snap.next.z;
+  _place.pos = null;
+  if (_place.lastDir && _place.lastPos) {
+    // 有方向记忆：从 lastPos 沿 lastDir 延伸，跳过已有实体方块
+    var nx = _place.lastPos.x + _place.lastDir.x;
+    var ny = _place.lastPos.y + _place.lastDir.y;
+    var nz = _place.lastPos.z + _place.lastDir.z;
     var tries = 0;
     while (tries < 8 && getBlock(nx, ny, nz) !== AIR && getBlock(nx, ny, nz) !== WATER) {
-      nx += _snap.dir.x; ny += _snap.dir.y; nz += _snap.dir.z;
+      nx += _place.lastDir.x; ny += _place.lastDir.y; nz += _place.lastDir.z;
       tries++;
     }
-    var ddx = nx+0.5-player.x, ddy = ny+0.5-(player.y+PH*0.85), ddz = nz+0.5-player.z;
-    if (ddx*ddx + ddy*ddy + ddz*ddz <= 64) {   // 8 格内
-      _snap.pos = { x: nx, y: ny, z: nz };
+    if (tries < 8) {
+      var ddx = nx+0.5-player.x, ddy = ny+0.5-(player.y+PH*0.85), ddz = nz+0.5-player.z;
+      if (ddx*ddx + ddy*ddy + ddz*ddz <= 64) {   // 8 格内才显示
+        _place.pos = { x: nx, y: ny, z: nz };
+      }
     }
   }
-  if (!_snap.pos) {
-    // 自由预览：准星瞄到方块的前一格
+  if (!_place.pos) {
+    // 无方向记忆 / 链末过远：回退到准星自由预览
     var freeHit = raycast(6);
-    if (freeHit && freeHit.prev) _snap.pos = freeHit.prev;
+    if (freeHit && freeHit.prev) _place.pos = freeHit.prev;
   }
 
-  if (_snap.pos) {
-    placeBox.position.set(_snap.pos.x + 0.5, _snap.pos.y + 0.5, _snap.pos.z + 0.5);
+  if (_place.pos) {
+    placeBox.position.set(_place.pos.x + 0.5, _place.pos.y + 0.5, _place.pos.z + 0.5);
     placeBox.visible = true;
-    _snap.idleT = 0;
+    _place.idleT = 0;
   } else {
     placeBox.visible = false;
-    _snap.idleT += dt;
-    if (_snap.idleT > 5) {
-      _snap.state = 0; _snap.P1 = null; _snap.dir = null; _snap.next = null;
+    _place.idleT += dt;
+    if (_place.idleT > 8) {
+      // 长时间无预览（离地面太远等）→ 清除方向记忆，回到自由准星模式
+      _place.lastPos = null; _place.lastDir = null;
     }
   }
 
@@ -1740,7 +1743,7 @@ function tick(now) {
   if (player.placeQ || (placeHeld && nowS - _lastPlace > PLACE_CD)) {
     player.placeQ = false;
     if (_swingT <= 0) _swingT = SWING_DUR;
-    var pv = _snap.pos;
+    var pv = _place.pos;
     if (pv) {
       var ppx = Math.floor(player.x), ppy = Math.floor(player.y), ppz = Math.floor(player.z);
       if (!(pv.x === ppx && (pv.y === ppy || pv.y === ppy + 1) && pv.z === ppz)) {
@@ -1748,25 +1751,21 @@ function tick(now) {
         digSound(player.inv[player.slot]);
         _lastPlace = nowS;
 
-        // 更新吸附状态机
-        if (_snap.state === 0) {
-          _snap.P1 = { x: pv.x, y: pv.y, z: pv.z };
-          _snap.state = 1;
-        } else if (_snap.state === 1 && _snap.P1) {
-          var dX = pv.x - _snap.P1.x, dY = pv.y - _snap.P1.y, dZ = pv.z - _snap.P1.z;
+        // 方向学习：lastPos→pv 取主轴，每次放置都重新学（可转弯）
+        if (_place.lastPos) {
+          var dX = pv.x - _place.lastPos.x;
+          var dY = pv.y - _place.lastPos.y;
+          var dZ = pv.z - _place.lastPos.z;
           if (dX || dY || dZ) {
             var aX = Math.abs(dX), aY = Math.abs(dY), aZ = Math.abs(dZ);
-            var dir = { x: 0, y: 0, z: 0 };
-            if      (aX >= aY && aX >= aZ) dir.x = dX > 0 ? 1 : -1;
-            else if (aY >= aX && aY >= aZ) dir.y = dY > 0 ? 1 : -1;
-            else                           dir.z = dZ > 0 ? 1 : -1;
-            _snap.dir  = dir;
-            _snap.next = { x: pv.x + dir.x, y: pv.y + dir.y, z: pv.z + dir.z };
-            _snap.state = 2;
+            var ndir = { x: 0, y: 0, z: 0 };
+            if      (aX >= aY && aX >= aZ) ndir.x = dX > 0 ? 1 : -1;
+            else if (aY >= aX && aY >= aZ) ndir.y = dY > 0 ? 1 : -1;
+            else                           ndir.z = dZ > 0 ? 1 : -1;
+            _place.lastDir = ndir;
           }
-        } else if (_snap.state === 2) {
-          _snap.next = { x: pv.x + _snap.dir.x, y: pv.y + _snap.dir.y, z: pv.z + _snap.dir.z };
         }
+        _place.lastPos = { x: pv.x, y: pv.y, z: pv.z };
       }
     }
   }
