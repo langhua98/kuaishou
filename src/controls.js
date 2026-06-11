@@ -21,8 +21,11 @@
 var joy     = { active: false, id: -1, cx: 0, cy: 0, dx: 0, dy: 0 };
 var lookAct = false, lookId = -1, lookLx = 0, lookLy = 0;
 
-// 长按标志：game.js 在 tick 中读取，配合冷却计时实现持续动作
+// 长按标志：game.js 在 tick 中读取
+// breakHeld/placeHeld 配合冷却计时实现持续挖/放
+// jumpHeld/downHeld 在飞行模式下作为升/降油门
 var breakHeld = false, placeHeld = false;
+var jumpHeld  = false, downHeld  = false;
 
 var JOY_R = 48;  // 摇杆最大偏移半径（像素）
 
@@ -90,9 +93,10 @@ lookZone.addEventListener('touchmove', function (e) {
   for (i = 0; i < e.changedTouches.length; i++) {
     t = e.changedTouches[i];
     if (t.identifier !== lookId) continue;
-    player.yaw   -= (t.clientX - lookLx) * 0.005;   // 灵敏度略高于原版
+    player.yaw   -= (t.clientX - lookLx) * 0.005;
     player.pitch -= (t.clientY - lookLy) * 0.005;
-    player.pitch  = Math.max(-1.2, Math.min(1.2, player.pitch));
+    // ±89°（原版 ±90°；留 1° 余量避免万向锁奇点）
+    player.pitch  = Math.max(-1.55, Math.min(1.55, player.pitch));
     lookLx = t.clientX; lookLy = t.clientY;
   }
 }, { passive: false });
@@ -140,10 +144,37 @@ function tapBtn(id, fn) {
   el.addEventListener('touchcancel', function ()  { placeHeld = false; }, { passive: false });
 }());
 
-tapBtn('b-jump', function () { player.jumpQ = true; });
-tapBtn('b-fly',  function () {
+// 跳跃：单击触发跳跃（地面），按住时在飞行模式下持续上升
+(function () {
+  var el = document.getElementById('b-jump');
+  if (!el) return;
+  el.addEventListener('touchstart', function (e) {
+    e.preventDefault();
+    player.jumpQ = true;
+    jumpHeld = true;
+  }, { passive: false });
+  el.addEventListener('touchend',    function (e) { e.preventDefault(); jumpHeld = false; }, { passive: false });
+  el.addEventListener('touchcancel', function ()  { jumpHeld = false; }, { passive: false });
+}());
+
+// 下降：仅飞行模式可见（#btns.flying 控制），按住持续下降
+(function () {
+  var el = document.getElementById('b-down');
+  if (!el) return;
+  el.addEventListener('touchstart', function (e) {
+    e.preventDefault();
+    downHeld = true;
+  }, { passive: false });
+  el.addEventListener('touchend',    function (e) { e.preventDefault(); downHeld = false; }, { passive: false });
+  el.addEventListener('touchcancel', function ()  { downHeld = false; }, { passive: false });
+}());
+
+tapBtn('b-fly', function () {
   player.flying = !player.flying;
   player.vy = 0;
   var el = document.getElementById('b-fly');
   if (el) el.classList.toggle('on', player.flying);
+  // 飞行时显示下降键
+  var btns = document.getElementById('btns');
+  if (btns) btns.classList.toggle('flying', player.flying);
 });

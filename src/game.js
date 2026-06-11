@@ -41,10 +41,11 @@ var playerGroup = new THREE.Group();
 
 scene.add(playerGroup);
 
-// ── 第三人称摄像机状态 ─────────────────────────────────────────────────────────
-var CAM_DIST = 4.5;   // 摄像机到玩家的水平距离
-var CAM_H    = 2.0;   // 摄像机基础高度（玩家脚底以上）
-var _camX = player.x, _camY = player.y + CAM_H, _camZ = player.z + CAM_DIST;
+// ── 第三人称摄像机 ─────────────────────────────────────────────────────────────
+// 正版 MC 模型：相机在「眼睛沿视线反方向」CAM_DIST 处，朝向与玩家视线一致（刚性，
+// 无平滑、无 lookAt 低点）→ 屏幕中心点恒等于挖掘射线落点。
+// 相机碰撞：从眼睛向后步进检测，撞到实心方块就缩短距离（原版同款行为）。
+var CAM_DIST = 4.0;   // 原版第三人称默认 4 格
 
 // ── 长按交互冷却 ───────────────────────────────────────────────────────────────
 var BREAK_CD = 0.22;  // 秒，连续破坏间隔
@@ -90,13 +91,19 @@ function tick(now) {
   // ── 移动 ───────────────────────────────────────────────────────────────────
   var sy  = Math.sin(player.yaw), cy2 = Math.cos(player.yaw);
   var jx  = joy.dx / JOY_R, jy = joy.dy / JOY_R;
+  // 斜向限速：摇杆向量长度截断到 1（否则对角线快 41%）
+  var jLen = Math.sqrt(jx * jx + jy * jy);
+  if (jLen > 1) { jx /= jLen; jy /= jLen; }
   var spd = player.flying ? FLY_SPD : MOVE_SPD;
   // 摇杆上（jy<0）→ 沿视线水平方向前进，右（jx>0）→ 向右侧移
   player.vx = (jy * sy  + jx *  cy2) * spd;
   player.vz = (jy * cy2 + jx * (-sy)) * spd;
 
   if (player.flying) {
-    player.vy *= 0.85;
+    // 飞行升降：按住跳跃=升，按住下降键=降，松开悬停
+    if      (jumpHeld) player.vy = FLY_SPD * 0.75;
+    else if (downHeld) player.vy = -FLY_SPD * 0.75;
+    else               player.vy *= 0.8;
   } else {
     player.vy -= GRAVITY * dt;
     if (player.jumpQ && player.onGround) player.vy = JUMP_V;
@@ -159,23 +166,29 @@ function tick(now) {
   // ── NPC 更新 ───────────────────────────────────────────────────────────────
   updateNPCs(dt);
 
-  // ── 第三人称摄像机（正版 MC 风格）────────────────────────────────────────────
-  // 摄像机位于玩家视线方向的正反方向 CAM_DIST 单位处，与 pitch 完全联动：
-  //   偏移 = (sin(yaw)·cos(pitch), -sin(pitch), cos(yaw)·cos(pitch)) × CAM_DIST
-  // 俯视时摄像机升高（视线向下 → 偏移 Y 增加），仰视时摄像机降低，与正版 MC 完全一致。
-  var cp    = Math.cos(player.pitch), sp = Math.sin(player.pitch);
-  var camTX = player.x + Math.sin(player.yaw) * cp * CAM_DIST;
-  var camTZ = player.z + Math.cos(player.yaw) * cp * CAM_DIST;
-  var camTY = Math.max(player.y + 0.3, player.y + PH * 0.85 - sp * CAM_DIST);
+  // ── 第三人称摄像机（正版 MC 模型）────────────────────────────────────────────
+  // 视线方向 forward = (-sin(yaw)·cos(pitch), sin(pitch), -cos(yaw)·cos(pitch))
+  // 相机位置 = 眼睛 - forward × dist（dist 经碰撞检测缩短）
+  // 相机朝向 = 玩家视线朝向（YXZ 欧拉直接赋值）→ 与挖掘射线严格共线
+  var cp = Math.cos(player.pitch), sp = Math.sin(player.pitch);
+  var fwx = -Math.sin(player.yaw) * cp;
+  var fwy = sp;
+  var fwz = -Math.cos(player.yaw) * cp;
+  var eyeX = player.x, eyeY = player.y + PH * 0.85, eyeZ = player.z;
 
-  // 指数平滑（15 Hz 半衰期），消除抖动
-  var lf = Math.min(1, 15 * dt);
-  _camX += (camTX - _camX) * lf;
-  _camY += (camTY - _camY) * lf;
-  _camZ += (camTZ - _camZ) * lf;
+  // 相机碰撞：从眼睛向后 0.1 步进，撞到实心方块就停在前 0.3 处
+  var camD = CAM_DIST, cd, cbx, cby, cbz, cid;
+  for (cd = 0.1; cd <= CAM_DIST; cd += 0.1) {
+    cbx = Math.floor(eyeX - fwx * cd);
+    cby = Math.floor(eyeY - fwy * cd);
+    cbz = Math.floor(eyeZ - fwz * cd);
+    cid = getBlock(cbx, cby, cbz);
+    if (cid !== AIR && cid !== WATER) { camD = Math.max(0.5, cd - 0.3); break; }
+  }
 
-  camera.position.set(_camX, _camY, _camZ);
-  camera.lookAt(player.x, player.y + PH * 0.6, player.z);
+  camera.position.set(eyeX - fwx * camD, eyeY - fwy * camD, eyeZ - fwz * camD);
+  camera.rotation.y = player.yaw;
+  camera.rotation.x = player.pitch;
 
   renderer.render(scene, camera);
 }
@@ -236,9 +249,6 @@ function bootNext() {
           break;
         }
       }
-      _camX = player.x + Math.sin(player.yaw) * CAM_DIST;
-      _camY = player.y + PH * 0.85;
-      _camZ = player.z + Math.cos(player.yaw) * CAM_DIST;
       bootStep = 9; requestAnimationFrame(bootNext);
 
     } else {

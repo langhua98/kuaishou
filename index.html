@@ -53,6 +53,8 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
 #b-jump{background:rgba(60,160,255,.4);border-color:rgba(100,200,255,.5)}
 #b-fly{background:rgba(255,210,60,.28);border-color:rgba(255,230,100,.4)}
 #b-fly.on{background:rgba(255,210,60,.7);border-color:#ffd940;box-shadow:0 0 16px rgba(255,210,60,.5)}
+#b-down{display:none;background:rgba(160,120,255,.4);border-color:rgba(190,160,255,.5)}
+#btns.flying #b-down{display:flex}
 #b-brk{background:rgba(255,70,70,.4);border-color:rgba(255,120,120,.5)}
 #b-plc{background:rgba(60,220,100,.38);border-color:rgba(80,255,130,.5)}
 
@@ -71,8 +73,8 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
 <div id="loading">
   <h1>⛏ 我的世界</h1>
   <div id="loading-bar"><div id="loading-fill"></div></div>
-  <p id="loading-text">初始化… v18</p>
-  <p id="ver">v18</p>
+  <p id="loading-text">初始化… v19</p>
+  <p id="ver">v19</p>
 </div>
 
 <div id="menu">
@@ -98,6 +100,7 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
     </div>
     <div class="row">
       <button class="btn" id="b-fly"><span class="ic">✈</span><span>飞行</span></button>
+      <button class="btn" id="b-down"><span class="ic">⬇</span><span>下降</span></button>
       <button class="btn" id="b-jump"><span class="ic">⬆</span><span>跳跃</span></button>
     </div>
   </div>
@@ -145,7 +148,7 @@ window.addEventListener('unhandledrejection', function(e) {
 setTimeout(function() {
   if (!window._ok) {
     if (!_errMsg) {
-      _st('脚本未响应 (v18) — 请截图发给开发者');
+      _st('脚本未响应 (v19) — 请截图发给开发者');
     }
     _sb(100, '#f44');
   }
@@ -783,8 +786,11 @@ function raycast(maxD) {
 var joy     = { active: false, id: -1, cx: 0, cy: 0, dx: 0, dy: 0 };
 var lookAct = false, lookId = -1, lookLx = 0, lookLy = 0;
 
-// 长按标志：game.js 在 tick 中读取，配合冷却计时实现持续动作
+// 长按标志：game.js 在 tick 中读取
+// breakHeld/placeHeld 配合冷却计时实现持续挖/放
+// jumpHeld/downHeld 在飞行模式下作为升/降油门
 var breakHeld = false, placeHeld = false;
+var jumpHeld  = false, downHeld  = false;
 
 var JOY_R = 48;  // 摇杆最大偏移半径（像素）
 
@@ -852,9 +858,10 @@ lookZone.addEventListener('touchmove', function (e) {
   for (i = 0; i < e.changedTouches.length; i++) {
     t = e.changedTouches[i];
     if (t.identifier !== lookId) continue;
-    player.yaw   -= (t.clientX - lookLx) * 0.005;   // 灵敏度略高于原版
+    player.yaw   -= (t.clientX - lookLx) * 0.005;
     player.pitch -= (t.clientY - lookLy) * 0.005;
-    player.pitch  = Math.max(-1.2, Math.min(1.2, player.pitch));
+    // ±89°（原版 ±90°；留 1° 余量避免万向锁奇点）
+    player.pitch  = Math.max(-1.55, Math.min(1.55, player.pitch));
     lookLx = t.clientX; lookLy = t.clientY;
   }
 }, { passive: false });
@@ -902,12 +909,39 @@ function tapBtn(id, fn) {
   el.addEventListener('touchcancel', function ()  { placeHeld = false; }, { passive: false });
 }());
 
-tapBtn('b-jump', function () { player.jumpQ = true; });
-tapBtn('b-fly',  function () {
+// 跳跃：单击触发跳跃（地面），按住时在飞行模式下持续上升
+(function () {
+  var el = document.getElementById('b-jump');
+  if (!el) return;
+  el.addEventListener('touchstart', function (e) {
+    e.preventDefault();
+    player.jumpQ = true;
+    jumpHeld = true;
+  }, { passive: false });
+  el.addEventListener('touchend',    function (e) { e.preventDefault(); jumpHeld = false; }, { passive: false });
+  el.addEventListener('touchcancel', function ()  { jumpHeld = false; }, { passive: false });
+}());
+
+// 下降：仅飞行模式可见（#btns.flying 控制），按住持续下降
+(function () {
+  var el = document.getElementById('b-down');
+  if (!el) return;
+  el.addEventListener('touchstart', function (e) {
+    e.preventDefault();
+    downHeld = true;
+  }, { passive: false });
+  el.addEventListener('touchend',    function (e) { e.preventDefault(); downHeld = false; }, { passive: false });
+  el.addEventListener('touchcancel', function ()  { downHeld = false; }, { passive: false });
+}());
+
+tapBtn('b-fly', function () {
   player.flying = !player.flying;
   player.vy = 0;
   var el = document.getElementById('b-fly');
   if (el) el.classList.toggle('on', player.flying);
+  // 飞行时显示下降键
+  var btns = document.getElementById('btns');
+  if (btns) btns.classList.toggle('flying', player.flying);
 });
 
 
@@ -1250,10 +1284,11 @@ var playerGroup = new THREE.Group();
 
 scene.add(playerGroup);
 
-// ── 第三人称摄像机状态 ─────────────────────────────────────────────────────────
-var CAM_DIST = 4.5;   // 摄像机到玩家的水平距离
-var CAM_H    = 2.0;   // 摄像机基础高度（玩家脚底以上）
-var _camX = player.x, _camY = player.y + CAM_H, _camZ = player.z + CAM_DIST;
+// ── 第三人称摄像机 ─────────────────────────────────────────────────────────────
+// 正版 MC 模型：相机在「眼睛沿视线反方向」CAM_DIST 处，朝向与玩家视线一致（刚性，
+// 无平滑、无 lookAt 低点）→ 屏幕中心点恒等于挖掘射线落点。
+// 相机碰撞：从眼睛向后步进检测，撞到实心方块就缩短距离（原版同款行为）。
+var CAM_DIST = 4.0;   // 原版第三人称默认 4 格
 
 // ── 长按交互冷却 ───────────────────────────────────────────────────────────────
 var BREAK_CD = 0.22;  // 秒，连续破坏间隔
@@ -1299,13 +1334,19 @@ function tick(now) {
   // ── 移动 ───────────────────────────────────────────────────────────────────
   var sy  = Math.sin(player.yaw), cy2 = Math.cos(player.yaw);
   var jx  = joy.dx / JOY_R, jy = joy.dy / JOY_R;
+  // 斜向限速：摇杆向量长度截断到 1（否则对角线快 41%）
+  var jLen = Math.sqrt(jx * jx + jy * jy);
+  if (jLen > 1) { jx /= jLen; jy /= jLen; }
   var spd = player.flying ? FLY_SPD : MOVE_SPD;
   // 摇杆上（jy<0）→ 沿视线水平方向前进，右（jx>0）→ 向右侧移
   player.vx = (jy * sy  + jx *  cy2) * spd;
   player.vz = (jy * cy2 + jx * (-sy)) * spd;
 
   if (player.flying) {
-    player.vy *= 0.85;
+    // 飞行升降：按住跳跃=升，按住下降键=降，松开悬停
+    if      (jumpHeld) player.vy = FLY_SPD * 0.75;
+    else if (downHeld) player.vy = -FLY_SPD * 0.75;
+    else               player.vy *= 0.8;
   } else {
     player.vy -= GRAVITY * dt;
     if (player.jumpQ && player.onGround) player.vy = JUMP_V;
@@ -1368,23 +1409,29 @@ function tick(now) {
   // ── NPC 更新 ───────────────────────────────────────────────────────────────
   updateNPCs(dt);
 
-  // ── 第三人称摄像机（正版 MC 风格）────────────────────────────────────────────
-  // 摄像机位于玩家视线方向的正反方向 CAM_DIST 单位处，与 pitch 完全联动：
-  //   偏移 = (sin(yaw)·cos(pitch), -sin(pitch), cos(yaw)·cos(pitch)) × CAM_DIST
-  // 俯视时摄像机升高（视线向下 → 偏移 Y 增加），仰视时摄像机降低，与正版 MC 完全一致。
-  var cp    = Math.cos(player.pitch), sp = Math.sin(player.pitch);
-  var camTX = player.x + Math.sin(player.yaw) * cp * CAM_DIST;
-  var camTZ = player.z + Math.cos(player.yaw) * cp * CAM_DIST;
-  var camTY = Math.max(player.y + 0.3, player.y + PH * 0.85 - sp * CAM_DIST);
+  // ── 第三人称摄像机（正版 MC 模型）────────────────────────────────────────────
+  // 视线方向 forward = (-sin(yaw)·cos(pitch), sin(pitch), -cos(yaw)·cos(pitch))
+  // 相机位置 = 眼睛 - forward × dist（dist 经碰撞检测缩短）
+  // 相机朝向 = 玩家视线朝向（YXZ 欧拉直接赋值）→ 与挖掘射线严格共线
+  var cp = Math.cos(player.pitch), sp = Math.sin(player.pitch);
+  var fwx = -Math.sin(player.yaw) * cp;
+  var fwy = sp;
+  var fwz = -Math.cos(player.yaw) * cp;
+  var eyeX = player.x, eyeY = player.y + PH * 0.85, eyeZ = player.z;
 
-  // 指数平滑（15 Hz 半衰期），消除抖动
-  var lf = Math.min(1, 15 * dt);
-  _camX += (camTX - _camX) * lf;
-  _camY += (camTY - _camY) * lf;
-  _camZ += (camTZ - _camZ) * lf;
+  // 相机碰撞：从眼睛向后 0.1 步进，撞到实心方块就停在前 0.3 处
+  var camD = CAM_DIST, cd, cbx, cby, cbz, cid;
+  for (cd = 0.1; cd <= CAM_DIST; cd += 0.1) {
+    cbx = Math.floor(eyeX - fwx * cd);
+    cby = Math.floor(eyeY - fwy * cd);
+    cbz = Math.floor(eyeZ - fwz * cd);
+    cid = getBlock(cbx, cby, cbz);
+    if (cid !== AIR && cid !== WATER) { camD = Math.max(0.5, cd - 0.3); break; }
+  }
 
-  camera.position.set(_camX, _camY, _camZ);
-  camera.lookAt(player.x, player.y + PH * 0.6, player.z);
+  camera.position.set(eyeX - fwx * camD, eyeY - fwy * camD, eyeZ - fwz * camD);
+  camera.rotation.y = player.yaw;
+  camera.rotation.x = player.pitch;
 
   renderer.render(scene, camera);
 }
@@ -1445,9 +1492,6 @@ function bootNext() {
           break;
         }
       }
-      _camX = player.x + Math.sin(player.yaw) * CAM_DIST;
-      _camY = player.y + PH * 0.85;
-      _camZ = player.z + Math.cos(player.yaw) * CAM_DIST;
       bootStep = 9; requestAnimationFrame(bootNext);
 
     } else {
