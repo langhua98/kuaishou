@@ -21,7 +21,9 @@ scene.background = null;                             // 由天空穹顶接管
 scene.fog = new THREE.Fog(0x8ec5f5, 55, 105);       // 雾色=地平线色，无缝融合
 
 var camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 200);
-// 第三人称：camera.lookAt() 接管旋转，不再手动设置 rotation
+// FPS/TPS 摄像机必须用 YXZ 欧拉顺序：先偏航（世界 Y）再俯仰（本地 X）再横滚，
+// 这样 rotation.set(pitch, yaw, roll) 与 raycast 的 forward 公式严格一致
+camera.rotation.order = 'YXZ';
 
 // ── 天空穹顶 ───────────────────────────────────────────────────────────────────
 (function () {

@@ -403,7 +403,9 @@ scene.background = null;                             // 由天空穹顶接管
 scene.fog = new THREE.Fog(0x8ec5f5, 55, 105);       // 雾色=地平线色，无缝融合
 
 var camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 200);
-// 第三人称：camera.lookAt() 接管旋转，不再手动设置 rotation
+// FPS/TPS 摄像机必须用 YXZ 欧拉顺序：先偏航（世界 Y）再俯仰（本地 X）再横滚，
+// 这样 rotation.set(pitch, yaw, roll) 与 raycast 的 forward 公式严格一致
+camera.rotation.order = 'YXZ';
 
 // ── 天空穹顶 ───────────────────────────────────────────────────────────────────
 (function () {
@@ -744,10 +746,12 @@ function raycast(maxD) {
   var dy = sp;
   var dz = -Math.cos(player.yaw) * cp;
 
-  // 射线起点：玩家眼睛位置（脚底 + 85% 身高）
-  var ox = player.x;
+  // 射线起点：玩家眼睛位置 + 右肩偏移。
+  // 相机右偏 CAM_SHOULDER 且朝向与视线平行 → 屏幕中心射线 = 眼睛射线右移同量，
+  // 起点同步右移后准星点与破坏/放置目标严格一致。
+  var ox = player.x + Math.cos(player.yaw) * CAM_SHOULDER;
   var oy = player.y + PH * 0.85;
-  var oz = player.z;
+  var oz = player.z - Math.sin(player.yaw) * CAM_SHOULDER;
 
   var prev = null, d, bx, by, bz, id;
   for (d = 0; d < maxD; d += 0.05) {
@@ -1284,14 +1288,20 @@ var playerGroup = new THREE.Group();
 
 scene.add(playerGroup);
 
-// ── 第三人称摄像机 ─────────────────────────────────────────────────────────────
-// 正版 MC 模型：相机在「眼睛沿视线反方向」CAM_DIST 处，朝向与玩家视线一致（刚性，
-// 无平滑、无 lookAt 低点）→ 屏幕中心点恒等于挖掘射线落点。
-// 相机碰撞：从眼睛向后步进检测，撞到实心方块就缩短距离（原版同款行为）。
-var CAM_DIST     = 4.0;    // 原版第三人称默认 4 格
+// ── 第三人称摄像机（吃鸡架构）──────────────────────────────────────────────────
+// 设计原则（PUBG 同款）：
+//   1. 旋转 1:1 直出 — 朝向每帧由 yaw/pitch 直接生成，绝不平滑（手感根基）
+//   2. 平滑的是「枢轴点」— 吸收走路/上台阶的位移噪声，不引入瞄准延迟
+//   3. 支臂碰撞「瞬缩缓伸」— 撞墙立刻拉近（防穿模），离开障碍后缓慢恢复
+//   4. 沉浸偏移全部加在相机位置上（肩偏/Bob/落地冲击），方向保持平行
+//      → 屏幕中心射线 = 玩家眼睛射线右移肩偏量，raycast 同步右移即严格对齐
+var CAM_DIST     = 4.0;    // 支臂全长
 var CAM_SHOULDER = 0.55;   // 右肩偏移（米）
-var _camX = 0, _camY = 0, _camZ = 0;  // 平滑缓存位置
-var _bobT = 0, _fovCur = 70;          // 行走摆动计时 / 当前 FOV
+var _pivX = 0, _pivY = 0, _pivZ = 0, _pivInit = false;  // 平滑枢轴
+var _camDcur = CAM_DIST;   // 当前支臂长度（瞬缩缓伸）
+var _bobT = 0, _fovCur = 70, _rollCur = 0;              // Bob 计时 / FOV / 侧倾
+var _dipY = 0, _dipV = 0;  // 落地冲击弹簧（位移/速度）
+var _wasGround = false;
 
 // ── 长按交互冷却 ───────────────────────────────────────────────────────────────
 var BREAK_CD = 0.22;  // 秒，连续破坏间隔
@@ -1357,10 +1367,17 @@ function tick(now) {
   player.jumpQ    = false;
   player.onGround = false;
 
+  var preVy = player.vy;   // 碰撞前的垂直速度（落地冲击检测用）
   player.x += player.vx * dt;
   player.y += player.vy * dt;
   player.z += player.vz * dt;
   resolveAABB();
+
+  // 落地冲击：从 >2.5 格高度落地时给相机弹簧一个向下的冲量
+  if (!_wasGround && player.onGround && preVy < -12) {
+    _dipV = Math.max(-1.5, preVy * 0.05);
+  }
+  _wasGround = player.onGround;
 
   // ── 破坏（单次 + 长按节流）─────────────────────────────────────────────────
   var nowS = now * 0.001;
@@ -1412,51 +1429,63 @@ function tick(now) {
   // ── NPC 更新 ───────────────────────────────────────────────────────────────
   updateNPCs(dt);
 
-  // ── 第三人称摄像机（吃鸡风格）────────────────────────────────────────────────
+  // ── 第三人称摄像机（吃鸡架构，见 CAM_DIST 处注释）───────────────────────────
+  // 视线向量：由 yaw/pitch 直出，与 raycast 公式完全一致（1:1 零延迟）
   var cp = Math.cos(player.pitch), sp = Math.sin(player.pitch);
   var fwx = -Math.sin(player.yaw) * cp;
   var fwy = sp;
   var fwz = -Math.cos(player.yaw) * cp;
-  // 水平右向量（仅 yaw 决定）
-  var rwx = Math.cos(player.yaw), rwz = -Math.sin(player.yaw);
+  var rwx = Math.cos(player.yaw), rwz = -Math.sin(player.yaw);  // 水平右向量
 
-  // ① Camera Bob：落地行走时上下轻微颠簸
-  if (player.onGround && moveMag > 0.3) _bobT += dt * moveMag * 1.8;
-  var bobY = (player.onGround && moveMag > 0.3) ? Math.sin(_bobT * Math.PI * 2) * 0.055 : 0;
+  // 枢轴点平滑：水平快（25/s）垂直慢（12/s），上台阶时镜头柔和抬升
+  var tPx = player.x, tPy = player.y + PH * 0.8, tPz = player.z;
+  if (!_pivInit) { _pivX = tPx; _pivY = tPy; _pivZ = tPz; _pivInit = true; }
+  var kH = Math.min(1, 25 * dt), kV = Math.min(1, 12 * dt);
+  _pivX += (tPx - _pivX) * kH;
+  _pivZ += (tPz - _pivZ) * kH;
+  _pivY += (tPy - _pivY) * kV;
 
-  // lookAt 目标：脊梁右偏 0.3× + bob 高度（相机偏右0.55、注视点偏右0.165，玩家略左于中心）
-  var eyeX = player.x + rwx * CAM_SHOULDER * 0.3;
-  var eyeY = player.y + PH * 0.85 + bobY;
-  var eyeZ = player.z + rwz * CAM_SHOULDER * 0.3;
-  var spineY = player.y + PH * 0.85;   // 不含 bob，用于碰撞检测
+  // 落地冲击弹簧（欠阻尼：下沉后带一次微小回弹）
+  _dipV += (-_dipY * 90 - _dipV * 12) * dt;
+  _dipY += _dipV * dt;
 
-  // 相机碰撞步进（从脊梁中心检测）
-  var camD = CAM_DIST, cd, cbx, cby, cbz, cid;
-  for (cd = 0.1; cd <= CAM_DIST; cd += 0.1) {
-    cbx = Math.floor(player.x - fwx * cd);
-    cby = Math.floor(spineY   - fwy * cd);
-    cbz = Math.floor(player.z - fwz * cd);
-    cid = getBlock(cbx, cby, cbz);
-    if (cid !== AIR && cid !== WATER) { camD = Math.max(0.5, cd - 0.3); break; }
+  // Camera Bob：行走时垂直双步频颠簸 + 横向单步频摇摆（纯位置偏移，不点头）
+  var bobOn = (player.onGround && moveMag > 0.3) ? 1 : 0;
+  if (bobOn) _bobT += dt * moveMag * 1.6;
+  var bobY = Math.sin(_bobT * Math.PI * 2) * 0.04 * bobOn;
+  var bobL = Math.sin(_bobT * Math.PI)     * 0.03 * bobOn;
+
+  // 支臂碰撞：从「肩偏后的枢轴」沿 -forward 步进找最大无遮挡长度
+  var shX = _pivX + rwx * CAM_SHOULDER;
+  var shY = _pivY;
+  var shZ = _pivZ + rwz * CAM_SHOULDER;
+  var hitD = CAM_DIST, cd, cid;
+  for (cd = 0.2; cd <= CAM_DIST; cd += 0.1) {
+    cid = getBlock(
+      Math.floor(shX - fwx * cd),
+      Math.floor(shY - fwy * cd),
+      Math.floor(shZ - fwz * cd)
+    );
+    if (cid !== AIR && cid !== WATER) { hitD = Math.max(0.4, cd - 0.3); break; }
   }
+  // 瞬缩缓伸：撞墙立刻拉近，离开后以 4/s 缓慢恢复全长
+  if (hitD < _camDcur) _camDcur = hitD;
+  else                 _camDcur += (hitD - _camDcur) * Math.min(1, 4 * dt);
 
-  // ② 右肩偏移目标位置
-  var tgX = player.x - fwx * camD + rwx * CAM_SHOULDER;
-  var tgY = spineY   - fwy * camD;
-  var tgZ = player.z - fwz * camD + rwz * CAM_SHOULDER;
+  camera.position.set(
+    shX - fwx * _camDcur + rwx * bobL,
+    shY - fwy * _camDcur + bobY + _dipY,
+    shZ - fwz * _camDcur + rwz * bobL
+  );
 
-  // ③ 位置平滑跟随（lerp，消除瞬移抖动）
-  var lerpK = Math.min(1, 14 * dt);
-  if (_camX === 0 && _camY === 0) { _camX = tgX; _camY = tgY; _camZ = tgZ; }  // 首帧初始化
-  _camX += (tgX - _camX) * lerpK;
-  _camY += (tgY - _camY) * lerpK;
-  _camZ += (tgZ - _camZ) * lerpK;
+  // 侧移倾斜：横向移动时镜头反向微滚 ~0.8°，增加动态感
+  var tgtRoll = -jx * 0.014;
+  _rollCur += (tgtRoll - _rollCur) * Math.min(1, 8 * dt);
+  // YXZ 欧拉直接赋值（renderer.js 已设 rotation.order）→ 朝向严格平行视线
+  camera.rotation.set(player.pitch, player.yaw, _rollCur);
 
-  camera.position.set(_camX, _camY, _camZ);
-  camera.lookAt(eyeX, eyeY, eyeZ);
-
-  // ④ FOV 平滑过渡（地面跑步时 +6°）
-  var tgFov = (!player.flying && moveMag > FLY_SPD * 0.8) ? 76 : 70;
+  // FOV 冲刺扩张：地面跑动时 70° → 76°
+  var tgFov = (!player.flying && player.onGround && moveMag > MOVE_SPD * 0.8) ? 76 : 70;
   _fovCur += (tgFov - _fovCur) * Math.min(1, 6 * dt);
   if (Math.abs(_fovCur - camera.fov) > 0.05) {
     camera.fov = _fovCur;
