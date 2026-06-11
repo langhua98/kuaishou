@@ -9,9 +9,11 @@
 //   侧面（±X/±Z）：底部顶点→ v_low，顶部顶点→ v_high，保证草地绿条在顶、木纹垂直
 //   顶/底面（±Y）：标准矩形映射
 
+// atlasTexture 在 loadTextures() 回调后才就绪，_mat.map 由 game.js bootNext 更新
 var _mat = new THREE.MeshBasicMaterial({
-  vertexColors: true,  // 灰度亮度遮罩
-  map: atlasTexture    // 来自 textures.js
+  vertexColors: true,
+  map: null,
+  alphaTest: 0.1   // 丢弃树叶贴图的透明像素（alpha<0.1），无需混合排序
 });
 
 function buildMesh(cx, cz, data) {

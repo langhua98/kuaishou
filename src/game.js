@@ -221,29 +221,40 @@ var bootSX, bootSZ, bootStep = 0;
 function bootNext() {
   try {
     if (bootStep === 0) {
-      setProgress(10, '测试渲染器...');
+      // 步骤 0：异步加载贴图集，完成后进入步骤 1
+      setProgress(8, '加载贴图...');
+      loadTextures(function () {
+        _mat.map = atlasTexture;
+        _mat.needsUpdate = true;
+        bootStep = 1;
+        requestAnimationFrame(bootNext);
+      });
+      return;  // 等待回调，不推进 rAF
+
+    } else if (bootStep === 1) {
+      setProgress(15, '测试渲染器...');
       renderer.render(scene, camera);
       bootSX = Math.floor(player.x / CHUNK_W);
       bootSZ = Math.floor(player.z / CHUNK_D);
-      bootStep = 1; requestAnimationFrame(bootNext);
+      bootStep = 2; requestAnimationFrame(bootNext);
 
-    } else if (bootStep === 1) {
-      setProgress(25, '生成地形...');
+    } else if (bootStep === 2) {
+      setProgress(30, '生成地形...');
       var dx1, dz1;
       for (dx1 = -2; dx1 <= 2; dx1++) {
         for (dz1 = -2; dz1 <= 2; dz1++) { createChunk(bootSX + dx1, bootSZ + dz1); }
       }
-      bootStep = 2; requestAnimationFrame(bootNext);
+      bootStep = 3; requestAnimationFrame(bootNext);
 
-    } else if (bootStep >= 2 && bootStep <= 6) {
+    } else if (bootStep >= 3 && bootStep <= 7) {
       // 每帧构建一列（5 个）区块的网格，共 5 帧
-      var col = bootStep - 4, dz2;
+      var col = bootStep - 5, dz2;
       for (dz2 = -2; dz2 <= 2; dz2++) { rebuildChunk(bootSX + col, bootSZ + dz2); }
-      setProgress(40 + (bootStep - 2) * 12, '构建地形 ' + (bootStep - 1) + '/5...');
+      setProgress(42 + (bootStep - 3) * 12, '构建地形 ' + (bootStep - 2) + '/5...');
       bootStep++; requestAnimationFrame(bootNext);
 
-    } else if (bootStep === 7) {
-      setProgress(92, '定位出生点...');
+    } else if (bootStep === 8) {
+      setProgress(94, '定位出生点...');
       var y;
       for (y = CHUNK_H - 1; y >= 0; y--) {
         if (getBlock(Math.floor(player.x), y, Math.floor(player.z)) !== AIR) {
@@ -251,11 +262,10 @@ function bootNext() {
           break;
         }
       }
-      // 初始化摄像机平滑坐标（与 tick 中的公式一致，防止首帧跳变）
       _camX = player.x + Math.sin(player.yaw) * CAM_DIST;
       _camY = player.y + PH * 0.85;
       _camZ = player.z + Math.cos(player.yaw) * CAM_DIST;
-      bootStep = 8; requestAnimationFrame(bootNext);
+      bootStep = 9; requestAnimationFrame(bootNext);
 
     } else {
       setProgress(100, '完成!');
