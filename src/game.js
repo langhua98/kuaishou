@@ -41,80 +41,151 @@ var playerGroup = new THREE.Group();
 
 scene.add(playerGroup);
 
-// ── 第一人称手臂 + 镐子 ────────────────────────────────────────────────────────
-// 挂在 camera 下（相机空间，跟随视线），仅第一人称可见。
-// 破坏/放置时播放挥动动画（绕肩部 X 轴前劈）。
-var armGroup = new THREE.Group();
-var ARM_BASE_RX = -0.25;   // 手臂静止前倾角
-var _swingT = 0;           // 挥动剩余时间（秒）
-var SWING_DUR = 0.28;
+// ── 第一人称双手臂系统 ────────────────────────────────────────────────────────
+// 右臂（armGroup）  持当前热键栏方块的迷你立方体，破坏时播前劈动画
+// 左臂（armGroupL） 空手，走路时与右臂反相摆动
+// 两组均挂在 camera 下（相机空间），仅第一人称可见
+var armGroup  = new THREE.Group();   // 右臂
+var armGroupL = new THREE.Group();   // 左臂
+var ARM_BASE_RX = -0.25;
+var _swingT = 0, SWING_DUR = 0.28;
 
-// 设置 BoxGeometry 某个面的 UV 到皮肤贴图的像素矩形（64×64 皮肤）
+// 手持物料（贴图就绪后填入 atlasTexture）
+var _handItemMat  = new THREE.MeshBasicMaterial({ map: null });
+var _handItemMesh = null;   // 当前手持方块网格
+var _handSlotLast = -1;
+
+// UV 工具：把 Steve 皮肤（64×64）上的像素矩形映射到 BoxGeometry 某面
 function _setFaceUV(geo, face, px, py, pw, phh) {
   var uv = geo.attributes.uv;
   var u0 = px / 64, u1 = (px + pw) / 64;
   var v1 = 1 - py / 64, v0 = 1 - (py + phh) / 64;
-  var o = face * 4;
-  uv.setXY(o,     u0, v1);
-  uv.setXY(o + 1, u1, v1);
-  uv.setXY(o + 2, u0, v0);
-  uv.setXY(o + 3, u1, v0);
+  var o  = face * 4;
+  uv.setXY(o,   u0, v1); uv.setXY(o+1, u1, v1);
+  uv.setXY(o+2, u0, v0); uv.setXY(o+3, u1, v0);
+  uv.needsUpdate = true;
+}
+
+// 手持方块迷你立方体（UV 取自贴图集，与地形共用 atlasTexture）
+function _makeHandCube(blockId) {
+  var tex = BTEX[blockId];
+  if (!tex) return null;
+  var geo = new THREE.BoxGeometry(0.22, 0.22, 0.22);
+  var uv  = geo.attributes.uv;
+  // face 顺序：+X,-X,+Y,-Y,+Z,-Z → side,side,top,bot,side,side
+  var fMap = [tex[1], tex[1], tex[0], tex[2], tex[1], tex[1]];
+  for (var f = 0; f < 6; f++) {
+    var ti = fMap[f];
+    var tc = ti % ATLAS_COLS, tr = (ti / ATLAS_COLS) | 0;
+    var u0 = tc / ATLAS_COLS + _UV_EPS_U, u1 = (tc+1) / ATLAS_COLS - _UV_EPS_U;
+    var v0 = 1 - (tr+1) / ATLAS_ROWS + _UV_EPS_V, v1 = 1 - tr / ATLAS_ROWS - _UV_EPS_V;
+    var o  = f * 4;
+    uv.setXY(o, u0, v1); uv.setXY(o+1, u1, v1);
+    uv.setXY(o+2, u0, v0); uv.setXY(o+3, u1, v0);
+  }
+  uv.needsUpdate = true;
+  return new THREE.Mesh(geo, _handItemMat);
+}
+
+// 切换手持物（slot 变化或贴图加载完成时调用）
+function _updateHeldItem(slot) {
+  if (_handItemMesh) { armGroup.remove(_handItemMesh); _handItemMesh = null; }
+  var cube = _makeHandCube(player.inv[slot]);
+  if (cube) {
+    // MC 经典握法：方块在手端前方，轻微旋转露出三个面
+    cube.position.set(0.04, -0.14, -0.52);
+    cube.rotation.set(0.35, 0.75, 0.18);
+    armGroup.add(cube);
+    _handItemMesh = cube;
+  }
 }
 
 (function () {
-  // Steve 皮肤（MC 原版，与方块贴图同源），像素风 NearestFilter
   var skinTex = new THREE.TextureLoader().load('assets/textures/entity/steve.png');
   skinTex.magFilter = THREE.NearestFilter;
   skinTex.minFilter = THREE.NearestFilter;
   var skin = new THREE.MeshLambertMaterial({ map: skinTex });
-  var wood = new THREE.MeshLambertMaterial({ color: 0x8a5a2b });
-  var iron = new THREE.MeshLambertMaterial({ color: 0xc0c0c8 });
 
-  // 手臂：4×12×4 比例的盒子，长轴沿 Y（与皮肤布局一致），UV 取右臂区域
-  // 经典皮肤右臂：顶(44,16) 底(48,16) 右(40,20) 前(44,20) 左(48,20) 后(52,20)
-  var armGeo = new THREE.BoxGeometry(0.12, 0.42, 0.12);
-  _setFaceUV(armGeo, 0, 40, 20, 4, 12);  // +X 右
-  _setFaceUV(armGeo, 1, 48, 20, 4, 12);  // -X 左
-  _setFaceUV(armGeo, 2, 44, 16, 4, 4);   // +Y 肩顶
-  _setFaceUV(armGeo, 3, 48, 16, 4, 4);   // -Y 手底
-  _setFaceUV(armGeo, 4, 44, 20, 4, 12);  // +Z 前
-  _setFaceUV(armGeo, 5, 52, 20, 4, 12);  // -Z 后
-  var arm = new THREE.Mesh(armGeo, skin);
-  // 长轴转向前方：手端（-Y）旋转后指向 -Z（视线方向）
-  arm.rotation.x = Math.PI / 2;
-  arm.position.set(0, 0, -0.18);
-  armGroup.add(arm);
+  // ── 右臂 ── Steve 皮肤右臂区域（经典 64×64 布局）
+  // 面序：+X外,−X内,+Y肩顶,−Y手底,+Z前,−Z后
+  var rGeo = new THREE.BoxGeometry(0.125, 0.42, 0.125);
+  _setFaceUV(rGeo, 0, 40, 20, 4, 12);
+  _setFaceUV(rGeo, 1, 48, 20, 4, 12);
+  _setFaceUV(rGeo, 2, 44, 16, 4,  4);
+  _setFaceUV(rGeo, 3, 48, 16, 4,  4);
+  _setFaceUV(rGeo, 4, 44, 20, 4, 12);
+  _setFaceUV(rGeo, 5, 52, 20, 4, 12);
+  var rArm = new THREE.Mesh(rGeo, skin);
+  rArm.rotation.x = Math.PI / 2;
+  rArm.position.set(0, 0, -0.16);
+  armGroup.add(rArm);
 
-  // 镐柄：竖直握在手前端
-  var handle = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.34, 0.05), wood);
-  handle.position.set(0, 0.12, -0.42);
-  armGroup.add(handle);
-
-  // 镐头：横在柄顶
-  var head = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.32), iron);
-  head.position.set(0, 0.29, -0.42);
-  armGroup.add(head);
+  // ── 左臂 ── Steve 皮肤左臂区域（1.8+ 64×64 下半部分 32-48, 48-64）
+  var lGeo = new THREE.BoxGeometry(0.125, 0.42, 0.125);
+  _setFaceUV(lGeo, 0, 40, 52, 4, 12);  // +X 内
+  _setFaceUV(lGeo, 1, 32, 52, 4, 12);  // −X 外
+  _setFaceUV(lGeo, 2, 36, 48, 4,  4);  // +Y 肩顶
+  _setFaceUV(lGeo, 3, 40, 48, 4,  4);  // −Y 手底
+  _setFaceUV(lGeo, 4, 36, 52, 4, 12);  // +Z 前
+  _setFaceUV(lGeo, 5, 44, 52, 4, 12);  // −Z 后
+  var lArm = new THREE.Mesh(lGeo, skin);
+  lArm.rotation.x = Math.PI / 2;
+  lArm.position.set(0, 0, -0.16);
+  armGroupL.add(lArm);
 }());
 
-armGroup.position.set(0.34, -0.32, -0.5);
-armGroup.rotation.set(ARM_BASE_RX, -0.1, 0);
+// 右臂：右下方，前倾，内旋
+armGroup.position.set( 0.30, -0.28, -0.45);
+armGroup.rotation.set(ARM_BASE_RX,  0.08,  0.10);
 armGroup.visible = false;
 camera.add(armGroup);
+
+// 左臂：左下方，前倾，内旋（镜像）
+armGroupL.position.set(-0.30, -0.28, -0.45);
+armGroupL.rotation.set(ARM_BASE_RX, -0.08, -0.10);
+armGroupL.visible = false;
+camera.add(armGroupL);
+
 scene.add(camera);   // camera 有子节点时必须加入场景树
 
-// ── 选中方块预览框 ─────────────────────────────────────────────────────────────
-// 绿色虚线线框：每帧 raycast，套在准星瞄准的方块上，先看清目标再点击破坏/放置
+// ── 破坏目标框（selBox）：套在准星瞄准的实心方块上 ────────────────────────────
 var selBox = (function () {
   var geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.004, 1.004, 1.004));
-  var mat = new THREE.LineDashedMaterial({
-    color: 0x00ff66, dashSize: 0.10, gapSize: 0.06, linewidth: 2
-  });
-  var ls = new THREE.LineSegments(geo, mat);
-  ls.computeLineDistances();   // LineDashedMaterial 必须：计算虚线距离
+  var mat = new THREE.LineDashedMaterial({ color: 0x00ff66, dashSize: 0.10, gapSize: 0.06, linewidth: 2 });
+  var ls  = new THREE.LineSegments(geo, mat);
+  ls.computeLineDistances();
   ls.visible = false;
   scene.add(ls);
   return ls;
 }());
+
+// ── 放置预览框（placeBox）+ 直线吸附系统 ──────────────────────────────────────
+// 放置预览框：半透明绿色虚线，套在「将要放置的空格」上，随视角实时移动；
+// 直线吸附：记录前两次放置坐标 → 确定主轴方向 → 之后预览框锁定到链末端，
+//   无视准星位置，点放置即在链末追加一格，实现快速搭桥/墙/柱。
+var placeBox = (function () {
+  var geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.007, 1.007, 1.007));
+  var mat = new THREE.LineDashedMaterial({
+    color: 0x44ffaa, dashSize: 0.18, gapSize: 0.10, linewidth: 2,
+    opacity: 0.75, transparent: true
+  });
+  var ls = new THREE.LineSegments(geo, mat);
+  ls.computeLineDistances();
+  ls.visible = false;
+  scene.add(ls);
+  return ls;
+}());
+
+// 吸附状态机
+var _snap = {
+  state: 0,      // 0=自由预览  1=记录了P1  2=轴锁定
+  P1:    null,   // 第一块坐标 {x,y,z}
+  dir:   null,   // 锁定轴方向 {x,y,z}（其中一轴为±1）
+  next:  null,   // 下一个预测落点
+  idleT: 0,      // 无放置的累计时间（超 5 s 重置）
+  pos:   null    // 当前帧有效预览坐标（null=不可见）
+};
+var _lastPlaceSlot = -1;
 
 // ── 音频 ──────────────────────────────────────────────────────────────────────
 initAudio();              // 预载音效（异步，不阻塞）；解锁在 startGame（用户手势）
@@ -128,6 +199,7 @@ function toggleView() {
   viewFP = !viewFP;
   playerGroup.visible = !viewFP;
   armGroup.visible    = viewFP;
+  armGroupL.visible   = viewFP;
   var xh = document.getElementById('xhair');
   if (xh) xh.classList.toggle('fp', viewFP);
   var b = document.getElementById('b-view');
@@ -249,30 +321,89 @@ function tick(now) {
     }
   }
 
-  // ── 放置（单次 + 长按节流）─────────────────────────────────────────────────
-  if (player.placeQ || (placeHeld && nowS - _lastPlace > PLACE_CD)) {
-    player.placeQ = false;
-    if (_swingT <= 0) _swingT = SWING_DUR;
-    var hitP = raycast(6);
-    if (hitP && hitP.prev) {
-      var pv  = hitP.prev;
-      var ppx = Math.floor(player.x), ppy = Math.floor(player.y), ppz = Math.floor(player.z);
-      // 防止放在玩家自身两格高度内卡死
-      if (!(pv.x === ppx && (pv.y === ppy || pv.y === ppy + 1) && pv.z === ppz)) {
-        setBlock(pv.x, pv.y, pv.z, player.inv[player.slot]);
-        digSound(player.inv[player.slot]);   // MC：放置音 = 挖掘音
-        _lastPlace = nowS;
-      }
-    }
-  }
-
-  // ── 选中预览框：套在准星瞄准的方块上 ───────────────────────────────────────
+  // ── 破坏目标框：每帧 raycast，套在准星瞄准的实心方块上 ──────────────────────
   var selHit = raycast(6);
   if (selHit) {
     selBox.visible = true;
     selBox.position.set(selHit.x + 0.5, selHit.y + 0.5, selHit.z + 0.5);
   } else {
     selBox.visible = false;
+  }
+
+  // ── 放置预览框 + 吸附更新 ─────────────────────────────────────────────────
+  // 热键栏换格 → 重置吸附
+  if (player.slot !== _lastPlaceSlot) {
+    _snap.state = 0; _snap.P1 = null; _snap.dir = null; _snap.next = null;
+    _lastPlaceSlot = player.slot;
+    _updateHeldItem(player.slot);
+  }
+
+  // 计算本帧预览坐标
+  _snap.pos = null;
+  if (_snap.state === 2 && _snap.next) {
+    // 轴锁定：固定在链末，若末格被占就顺轴继续找最近空格
+    var nx = _snap.next.x, ny = _snap.next.y, nz = _snap.next.z;
+    var tries = 0;
+    while (tries < 8 && getBlock(nx, ny, nz) !== AIR && getBlock(nx, ny, nz) !== WATER) {
+      nx += _snap.dir.x; ny += _snap.dir.y; nz += _snap.dir.z;
+      tries++;
+    }
+    var ddx = nx+0.5-player.x, ddy = ny+0.5-(player.y+PH*0.85), ddz = nz+0.5-player.z;
+    if (ddx*ddx + ddy*ddy + ddz*ddz <= 64) {   // 8 格内
+      _snap.pos = { x: nx, y: ny, z: nz };
+    }
+  }
+  if (!_snap.pos) {
+    // 自由预览：准星瞄到方块的前一格
+    var freeHit = raycast(6);
+    if (freeHit && freeHit.prev) _snap.pos = freeHit.prev;
+  }
+
+  if (_snap.pos) {
+    placeBox.position.set(_snap.pos.x + 0.5, _snap.pos.y + 0.5, _snap.pos.z + 0.5);
+    placeBox.visible = true;
+    _snap.idleT = 0;
+  } else {
+    placeBox.visible = false;
+    _snap.idleT += dt;
+    if (_snap.idleT > 5) {
+      _snap.state = 0; _snap.P1 = null; _snap.dir = null; _snap.next = null;
+    }
+  }
+
+  // ── 放置（单次 + 长按节流）─────────────────────────────────────────────────
+  if (player.placeQ || (placeHeld && nowS - _lastPlace > PLACE_CD)) {
+    player.placeQ = false;
+    if (_swingT <= 0) _swingT = SWING_DUR;
+    var pv = _snap.pos;
+    if (pv) {
+      var ppx = Math.floor(player.x), ppy = Math.floor(player.y), ppz = Math.floor(player.z);
+      if (!(pv.x === ppx && (pv.y === ppy || pv.y === ppy + 1) && pv.z === ppz)) {
+        setBlock(pv.x, pv.y, pv.z, player.inv[player.slot]);
+        digSound(player.inv[player.slot]);
+        _lastPlace = nowS;
+
+        // 更新吸附状态机
+        if (_snap.state === 0) {
+          _snap.P1 = { x: pv.x, y: pv.y, z: pv.z };
+          _snap.state = 1;
+        } else if (_snap.state === 1 && _snap.P1) {
+          var dX = pv.x - _snap.P1.x, dY = pv.y - _snap.P1.y, dZ = pv.z - _snap.P1.z;
+          if (dX || dY || dZ) {
+            var aX = Math.abs(dX), aY = Math.abs(dY), aZ = Math.abs(dZ);
+            var dir = { x: 0, y: 0, z: 0 };
+            if      (aX >= aY && aX >= aZ) dir.x = dX > 0 ? 1 : -1;
+            else if (aY >= aX && aY >= aZ) dir.y = dY > 0 ? 1 : -1;
+            else                           dir.z = dZ > 0 ? 1 : -1;
+            _snap.dir  = dir;
+            _snap.next = { x: pv.x + dir.x, y: pv.y + dir.y, z: pv.z + dir.z };
+            _snap.state = 2;
+          }
+        } else if (_snap.state === 2) {
+          _snap.next = { x: pv.x + _snap.dir.x, y: pv.y + _snap.dir.y, z: pv.z + _snap.dir.z };
+        }
+      }
+    }
   }
 
   // ── 坐标显示 ───────────────────────────────────────────────────────────────
@@ -374,12 +505,18 @@ function tick(now) {
   // YXZ 欧拉直接赋值（renderer.js 已设 rotation.order）→ 朝向严格平行视线
   camera.rotation.set(player.pitch, player.yaw, _rollCur);
 
-  // ── 第一人称手臂动画：挥动（前劈）+ 行走微晃 ─────────────────────────────
+  // ── 第一人称手臂动画 ──────────────────────────────────────────────────────
   if (_swingT > 0) _swingT -= dt;
   if (viewFP) {
     var swP = _swingT > 0 ? Math.sin((1 - _swingT / SWING_DUR) * Math.PI) : 0;
-    armGroup.rotation.x = ARM_BASE_RX - swP * 1.0;
-    armGroup.position.y = -0.32 + Math.sin(_bobT * Math.PI * 2) * 0.015 * bobOn;
+    // 右臂：前劈挥动 + 走路上下摆
+    armGroup.rotation.x  = ARM_BASE_RX - swP * 1.0;
+    armGroup.position.y  = -0.28 + Math.sin(_bobT * Math.PI * 2)          * 0.018 * bobOn;
+    armGroup.position.x  =  0.30 + jx * 0.02;
+    // 左臂：与右臂反相摆动（一左一右的自然走路手感）
+    armGroupL.rotation.x = ARM_BASE_RX + Math.sin(_bobT * Math.PI * 2)    * 0.08  * bobOn;
+    armGroupL.position.y = -0.28 + Math.sin(_bobT * Math.PI * 2 + Math.PI) * 0.018 * bobOn;
+    armGroupL.position.x = -0.30 + jx * 0.02;
   }
 
   // FOV 冲刺扩张：地面跑动时 70° → 76°
@@ -414,6 +551,11 @@ function bootNext() {
       loadTextures(function () {
         _mat.map = atlasTexture;
         _mat.needsUpdate = true;
+        // 贴图就绪后更新手持物材质并初始化手持方块
+        _handItemMat.map = atlasTexture;
+        _handItemMat.needsUpdate = true;
+        _updateHeldItem(player.slot);
+        _lastPlaceSlot = player.slot;
         bootStep = 1;
         requestAnimationFrame(bootNext);
       });
