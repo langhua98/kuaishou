@@ -49,13 +49,39 @@ var ARM_BASE_RX = -0.25;   // 手臂静止前倾角
 var _swingT = 0;           // 挥动剩余时间（秒）
 var SWING_DUR = 0.28;
 
+// 设置 BoxGeometry 某个面的 UV 到皮肤贴图的像素矩形（64×64 皮肤）
+function _setFaceUV(geo, face, px, py, pw, phh) {
+  var uv = geo.attributes.uv;
+  var u0 = px / 64, u1 = (px + pw) / 64;
+  var v1 = 1 - py / 64, v0 = 1 - (py + phh) / 64;
+  var o = face * 4;
+  uv.setXY(o,     u0, v1);
+  uv.setXY(o + 1, u1, v1);
+  uv.setXY(o + 2, u0, v0);
+  uv.setXY(o + 3, u1, v0);
+}
+
 (function () {
-  var skin = new THREE.MeshLambertMaterial({ color: 0xc68863 });
+  // Steve 皮肤（MC 原版，与方块贴图同源），像素风 NearestFilter
+  var skinTex = new THREE.TextureLoader().load('assets/textures/entity/steve.png');
+  skinTex.magFilter = THREE.NearestFilter;
+  skinTex.minFilter = THREE.NearestFilter;
+  var skin = new THREE.MeshLambertMaterial({ map: skinTex });
   var wood = new THREE.MeshLambertMaterial({ color: 0x8a5a2b });
   var iron = new THREE.MeshLambertMaterial({ color: 0xc0c0c8 });
 
-  // 手臂：从右下伸向前方
-  var arm = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.11, 0.46), skin);
+  // 手臂：4×12×4 比例的盒子，长轴沿 Y（与皮肤布局一致），UV 取右臂区域
+  // 经典皮肤右臂：顶(44,16) 底(48,16) 右(40,20) 前(44,20) 左(48,20) 后(52,20)
+  var armGeo = new THREE.BoxGeometry(0.12, 0.42, 0.12);
+  _setFaceUV(armGeo, 0, 40, 20, 4, 12);  // +X 右
+  _setFaceUV(armGeo, 1, 48, 20, 4, 12);  // -X 左
+  _setFaceUV(armGeo, 2, 44, 16, 4, 4);   // +Y 肩顶
+  _setFaceUV(armGeo, 3, 48, 16, 4, 4);   // -Y 手底
+  _setFaceUV(armGeo, 4, 44, 20, 4, 12);  // +Z 前
+  _setFaceUV(armGeo, 5, 52, 20, 4, 12);  // -Z 后
+  var arm = new THREE.Mesh(armGeo, skin);
+  // 长轴转向前方：手端（-Y）旋转后指向 -Z（视线方向）
+  arm.rotation.x = Math.PI / 2;
   arm.position.set(0, 0, -0.18);
   armGroup.add(arm);
 
@@ -75,6 +101,20 @@ armGroup.rotation.set(ARM_BASE_RX, -0.1, 0);
 armGroup.visible = false;
 camera.add(armGroup);
 scene.add(camera);   // camera 有子节点时必须加入场景树
+
+// ── 选中方块预览框 ─────────────────────────────────────────────────────────────
+// 绿色虚线线框：每帧 raycast，套在准星瞄准的方块上，先看清目标再点击破坏/放置
+var selBox = (function () {
+  var geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.004, 1.004, 1.004));
+  var mat = new THREE.LineDashedMaterial({
+    color: 0x00ff66, dashSize: 0.10, gapSize: 0.06, linewidth: 2
+  });
+  var ls = new THREE.LineSegments(geo, mat);
+  ls.computeLineDistances();   // LineDashedMaterial 必须：计算虚线距离
+  ls.visible = false;
+  scene.add(ls);
+  return ls;
+}());
 
 // ── 音频 ──────────────────────────────────────────────────────────────────────
 initAudio();              // 预载音效（异步，不阻塞）；解锁在 startGame（用户手势）
@@ -224,6 +264,15 @@ function tick(now) {
         _lastPlace = nowS;
       }
     }
+  }
+
+  // ── 选中预览框：套在准星瞄准的方块上 ───────────────────────────────────────
+  var selHit = raycast(6);
+  if (selHit) {
+    selBox.visible = true;
+    selBox.position.set(selHit.x + 0.5, selHit.y + 0.5, selHit.z + 0.5);
+  } else {
+    selBox.visible = false;
   }
 
   // ── 坐标显示 ───────────────────────────────────────────────────────────────
