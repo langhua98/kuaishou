@@ -21,6 +21,7 @@ const SRC_FILES = [
   'src/noise.js',
   'src/world.js',
   'src/renderer.js',
+  'src/textures.js',  // atlasTexture + BTEX（需在 mesh.js 之前）
   'src/mesh.js',
   'src/physics.js',
   'src/raycast.js',

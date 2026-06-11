@@ -185,12 +185,14 @@ function tick(now) {
   _armL.position.z  =  Math.sin(now * 0.005) * 0.12 * moveMag;
   _armR.position.z  = -Math.sin(now * 0.005) * 0.12 * moveMag;
 
-  // ── 第三人称摄像机 ─────────────────────────────────────────────────────────
-  // 摄像机绕玩家旋转：水平角=yaw，俯仰角受 pitch 影响但做限幅
-  var camP  = Math.max(-0.15, Math.min(0.65, player.pitch));
-  var camTX = player.x + Math.sin(player.yaw) * Math.cos(camP) * CAM_DIST;
-  var camTZ = player.z + Math.cos(player.yaw) * Math.cos(camP) * CAM_DIST;
-  var camTY = Math.max(player.y + 0.4, player.y + CAM_H - Math.sin(camP) * CAM_DIST);
+  // ── 第三人称摄像机（正版 MC 风格）────────────────────────────────────────────
+  // 摄像机位于玩家视线方向的正反方向 CAM_DIST 单位处，与 pitch 完全联动：
+  //   偏移 = (sin(yaw)·cos(pitch), -sin(pitch), cos(yaw)·cos(pitch)) × CAM_DIST
+  // 俯视时摄像机升高（视线向下 → 偏移 Y 增加），仰视时摄像机降低，与正版 MC 完全一致。
+  var cp    = Math.cos(player.pitch), sp = Math.sin(player.pitch);
+  var camTX = player.x + Math.sin(player.yaw) * cp * CAM_DIST;
+  var camTZ = player.z + Math.cos(player.yaw) * cp * CAM_DIST;
+  var camTY = Math.max(player.y + 0.3, player.y + PH * 0.85 - sp * CAM_DIST);
 
   // 指数平滑（15 Hz 半衰期），消除抖动
   var lf = Math.min(1, 15 * dt);
@@ -249,9 +251,9 @@ function bootNext() {
           break;
         }
       }
-      // 初始化摄像机平滑坐标到实际出生位置，防止首帧跳变
+      // 初始化摄像机平滑坐标（与 tick 中的公式一致，防止首帧跳变）
       _camX = player.x + Math.sin(player.yaw) * CAM_DIST;
-      _camY = player.y + CAM_H;
+      _camY = player.y + PH * 0.85;
       _camZ = player.z + Math.cos(player.yaw) * CAM_DIST;
       bootStep = 8; requestAnimationFrame(bootNext);
 
