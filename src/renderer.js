@@ -55,8 +55,13 @@ sun.position.set(2, 5, 1);
 scene.add(sun);
 
 // ── 窗口缩放 ──────────────────────────────────────────────────────────────────
-window.addEventListener('resize', function () {
+function _onResize() {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
-});
+}
+window.addEventListener('resize', _onResize);
+// iOS Safari：地址栏动态显隐只触发 visualViewport resize，不触发 window resize
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', _onResize);
+}

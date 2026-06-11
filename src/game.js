@@ -548,6 +548,13 @@ function tick(now) {
 // ── 开始游戏 ───────────────────────────────────────────────────────────────────
 window.startGame = function () {
   unlockAudio();   // 用户手势内：解锁 iOS 音频 + 启动背景音乐
+
+  // iOS Safari 在地址栏显示/隐藏过程中 window.innerHeight 会变化，
+  // 脚本初始化时可能用了错误的高度导致画面压瘪；在这里强制刷新一次。
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+
   if (menuEl) menuEl.style.display = 'none';
   if (uiEl)   uiEl.style.display   = 'block';
   buildHotbar();
