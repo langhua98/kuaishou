@@ -45,7 +45,10 @@ scene.add(playerGroup);
 // 正版 MC 模型：相机在「眼睛沿视线反方向」CAM_DIST 处，朝向与玩家视线一致（刚性，
 // 无平滑、无 lookAt 低点）→ 屏幕中心点恒等于挖掘射线落点。
 // 相机碰撞：从眼睛向后步进检测，撞到实心方块就缩短距离（原版同款行为）。
-var CAM_DIST = 4.0;   // 原版第三人称默认 4 格
+var CAM_DIST     = 4.0;    // 原版第三人称默认 4 格
+var CAM_SHOULDER = 0.55;   // 右肩偏移（米）
+var _camX = 0, _camY = 0, _camZ = 0;  // 平滑缓存位置
+var _bobT = 0, _fovCur = 70;          // 行走摆动计时 / 当前 FOV
 
 // ── 长按交互冷却 ───────────────────────────────────────────────────────────────
 var BREAK_CD = 0.22;  // 秒，连续破坏间隔
@@ -166,28 +169,56 @@ function tick(now) {
   // ── NPC 更新 ───────────────────────────────────────────────────────────────
   updateNPCs(dt);
 
-  // ── 第三人称摄像机（正版 MC 模型）────────────────────────────────────────────
-  // 视线方向 forward = (-sin(yaw)·cos(pitch), sin(pitch), -cos(yaw)·cos(pitch))
-  // 相机位置 = 眼睛 - forward × dist（dist 经碰撞检测缩短）
-  // 相机朝向 = 玩家视线朝向（YXZ 欧拉直接赋值）→ 与挖掘射线严格共线
+  // ── 第三人称摄像机（吃鸡风格）────────────────────────────────────────────────
   var cp = Math.cos(player.pitch), sp = Math.sin(player.pitch);
   var fwx = -Math.sin(player.yaw) * cp;
   var fwy = sp;
   var fwz = -Math.cos(player.yaw) * cp;
-  var eyeX = player.x, eyeY = player.y + PH * 0.85, eyeZ = player.z;
+  // 水平右向量（仅 yaw 决定）
+  var rwx = Math.cos(player.yaw), rwz = -Math.sin(player.yaw);
 
-  // 相机碰撞：从眼睛向后 0.1 步进，撞到实心方块就停在前 0.3 处
+  // ① Camera Bob：落地行走时上下轻微颠簸
+  if (player.onGround && moveMag > 0.3) _bobT += dt * moveMag * 1.8;
+  var bobY = (player.onGround && moveMag > 0.3) ? Math.sin(_bobT * Math.PI * 2) * 0.055 : 0;
+
+  // lookAt 目标：脊梁右偏 0.3× + bob 高度（相机偏右0.55、注视点偏右0.165，玩家略左于中心）
+  var eyeX = player.x + rwx * CAM_SHOULDER * 0.3;
+  var eyeY = player.y + PH * 0.85 + bobY;
+  var eyeZ = player.z + rwz * CAM_SHOULDER * 0.3;
+  var spineY = player.y + PH * 0.85;   // 不含 bob，用于碰撞检测
+
+  // 相机碰撞步进（从脊梁中心检测）
   var camD = CAM_DIST, cd, cbx, cby, cbz, cid;
   for (cd = 0.1; cd <= CAM_DIST; cd += 0.1) {
-    cbx = Math.floor(eyeX - fwx * cd);
-    cby = Math.floor(eyeY - fwy * cd);
-    cbz = Math.floor(eyeZ - fwz * cd);
+    cbx = Math.floor(player.x - fwx * cd);
+    cby = Math.floor(spineY   - fwy * cd);
+    cbz = Math.floor(player.z - fwz * cd);
     cid = getBlock(cbx, cby, cbz);
     if (cid !== AIR && cid !== WATER) { camD = Math.max(0.5, cd - 0.3); break; }
   }
 
-  camera.position.set(eyeX - fwx * camD, eyeY - fwy * camD, eyeZ - fwz * camD);
+  // ② 右肩偏移目标位置
+  var tgX = player.x - fwx * camD + rwx * CAM_SHOULDER;
+  var tgY = spineY   - fwy * camD;
+  var tgZ = player.z - fwz * camD + rwz * CAM_SHOULDER;
+
+  // ③ 位置平滑跟随（lerp，消除瞬移抖动）
+  var lerpK = Math.min(1, 14 * dt);
+  if (_camX === 0 && _camY === 0) { _camX = tgX; _camY = tgY; _camZ = tgZ; }  // 首帧初始化
+  _camX += (tgX - _camX) * lerpK;
+  _camY += (tgY - _camY) * lerpK;
+  _camZ += (tgZ - _camZ) * lerpK;
+
+  camera.position.set(_camX, _camY, _camZ);
   camera.lookAt(eyeX, eyeY, eyeZ);
+
+  // ④ FOV 平滑过渡（地面跑步时 +6°）
+  var tgFov = (!player.flying && moveMag > FLY_SPD * 0.8) ? 76 : 70;
+  _fovCur += (tgFov - _fovCur) * Math.min(1, 6 * dt);
+  if (Math.abs(_fovCur - camera.fov) > 0.05) {
+    camera.fov = _fovCur;
+    camera.updateProjectionMatrix();
+  }
 
   renderer.render(scene, camera);
 }
