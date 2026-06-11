@@ -948,14 +948,15 @@ function buildHotbar() {
 
 // ═══ src/models.js ═══
 // ─── models.js ────────────────────────────────────────────────────────────────
-// GLTF 模型加载：玩家角色 + NPC（狐狸/马/鹦鹉）。
+// GLTF 模型加载：玩家角色（Steve）+ NPC（僵尸/狐狸/马/鹦鹉）。
 //
-// 模型来源（均为 CC0/公有领域，提交在 assets/models/）：
-//   player.glb — Kenney Starter Kit 角色（kenney.nl，CC0），
-//                方块积木风格，动画：idle / walk / jump
-//   fox.glb    — Fox，PixelMannen（CC0，Khronos 官方样例），动画：Survey/Walk/Run
-//   horse.glb  — Horse，three.js 示例（mirada/ro.me），形变动画
-//   parrot.glb — Parrot，同上，飞行动画
+// 模型来源（提交在 assets/models/）：
+//   player.glb — Steve，hexianWeb/Third-Person-MC（MIT），
+//                24 个动画：idle/forward/running_forward/jump/falling/出拳/潜行等
+//   zombie.glb — 僵尸，同上（MIT），同套动画体系
+//   fox.glb    — Fox，PixelMannen（CC0，Khronos 官方样例）
+//   horse.glb  — Horse，three.js 示例（mirada/ro.me）
+//   parrot.glb — Parrot，同上
 //
 // 加载策略：异步、不阻塞游戏启动。
 //   玩家先用盒子占位（game.js 构建），player.glb 加载完成后热替换。
@@ -963,7 +964,7 @@ function buildHotbar() {
 //
 // 对外接口：
 //   loadPlayerModel()  — 异步加载玩家模型
-//   playerAnim(state)  — 切换玩家动画状态：'idle' | 'walk' | 'run' | 'jump'
+//   playerAnim(state)  — 切换玩家动画状态：'idle' | 'walk' | 'run' | 'jump' | 'fall'
 //   playerMixer        — 玩家动画混合器（tick 中 update）
 //   spawnNPCs() / updateNPCs(dt) — NPC 生成与 AI 更新
 
@@ -977,9 +978,10 @@ var _pCurrent   = '';
 // 状态 → 可能的动画名（不同模型命名不同，按序取第一个存在的）
 var _ANIM_ALIAS = {
   idle: ['idle', 'Idle'],
-  walk: ['walk', 'Walking', 'Walk'],
-  run:  ['run', 'Running', 'walk', 'Walking'],  // 没有跑步动画就用走路
-  jump: ['jump', 'Jump']
+  walk: ['forward', 'walk', 'Walking', 'Walk'],
+  run:  ['running_forward', 'run', 'Running', 'forward', 'walk'],
+  jump: ['jump', 'Jump'],
+  fall: ['falling', 'jump', 'Jump']
 };
 
 function loadPlayerModel() {
@@ -1108,6 +1110,14 @@ function _addFlyNPC(model, clip, targetH) {
 }
 
 function spawnNPCs() {
+  // 僵尸 ×2（缓慢徘徊，MC 标准身高 1.8）
+  gltfLoader.load('assets/models/zombie.glb', function (g) {
+    _addGroundNPC(g.scene, _firstClip(g.animations, 'forward'), 1.8, 0.7);
+    gltfLoader.load('assets/models/zombie.glb', function (g2) {
+      _addGroundNPC(g2.scene, _firstClip(g2.animations, 'forward'), 1.8, 0.8);
+    });
+  }, undefined, function () {});
+
   // 狐狸 ×2
   gltfLoader.load('assets/models/fox.glb', function (g) {
     _addGroundNPC(g.scene, _firstClip(g.animations, 'Walk'), 0.9, 1.5);
@@ -1335,10 +1345,11 @@ function tick(now) {
   playerGroup.position.set(player.x, player.y, player.z);
   playerGroup.rotation.y = player.yaw;
 
-  // GLTF 动画状态机：跳跃中 > 移动速度 → jump / run / walk / idle
+  // GLTF 动画状态机：空中（上升=jump/下落=fall）> 移动速度 → run / walk / idle
   var moveMag = Math.sqrt(player.vx * player.vx + player.vz * player.vz);
   if (playerMixer) {
-    if      (!player.onGround && !player.flying && Math.abs(player.vy) > 2) playerAnim('jump');
+    if      (!player.onGround && !player.flying && player.vy >  2) playerAnim('jump');
+    else if (!player.onGround && !player.flying && player.vy < -4) playerAnim('fall');
     else if (moveMag > FLY_SPD * 0.8) playerAnim('run');
     else if (moveMag > 0.5)           playerAnim('walk');
     else                              playerAnim('idle');

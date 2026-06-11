@@ -145,10 +145,11 @@ function tick(now) {
   playerGroup.position.set(player.x, player.y, player.z);
   playerGroup.rotation.y = player.yaw;
 
-  // GLTF 动画状态机：跳跃中 > 移动速度 → jump / run / walk / idle
+  // GLTF 动画状态机：空中（上升=jump/下落=fall）> 移动速度 → run / walk / idle
   var moveMag = Math.sqrt(player.vx * player.vx + player.vz * player.vz);
   if (playerMixer) {
-    if      (!player.onGround && !player.flying && Math.abs(player.vy) > 2) playerAnim('jump');
+    if      (!player.onGround && !player.flying && player.vy >  2) playerAnim('jump');
+    else if (!player.onGround && !player.flying && player.vy < -4) playerAnim('fall');
     else if (moveMag > FLY_SPD * 0.8) playerAnim('run');
     else if (moveMag > 0.5)           playerAnim('walk');
     else                              playerAnim('idle');
