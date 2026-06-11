@@ -10,11 +10,15 @@
 //   顶/底面（±Y）：标准矩形映射
 
 // atlasTexture 在 loadTextures() 回调后才就绪，_mat.map 由 game.js bootNext 更新
+// 所有贴图在组装时已合成为完全不透明（见 textures.js），无需 alphaTest
 var _mat = new THREE.MeshBasicMaterial({
   vertexColors: true,
-  map: null,
-  alphaTest: 0.1   // 丢弃树叶贴图的透明像素（alpha<0.1），无需混合排序
+  map: null
 });
+
+// UV 半像素内缩：避免在贴图集边缘采样到相邻格的颜色（atlas bleeding）
+var _UV_EPS_U = 0.5 / (ATLAS_COLS * TILE);  // 半像素（U 方向）
+var _UV_EPS_V = 0.5 / (ATLAS_ROWS * TILE);  // 半像素（V 方向）
 
 function buildMesh(cx, cz, data) {
   var pos = [], col = [], uv = [];
@@ -41,11 +45,12 @@ function buildMesh(cx, cz, data) {
           ti = BTEX[id][fd[4] === 0 ? 0 : (fd[4] === 3 ? 2 : 1)];
           tc = ti % ATLAS_COLS;
           tr = (ti / ATLAS_COLS) | 0;
-          u0 = tc / ATLAS_COLS;
-          u1 = (tc + 1) / ATLAS_COLS;
+          // 半像素内缩，防止采样到相邻贴图格
+          u0 = tc / ATLAS_COLS + _UV_EPS_U;
+          u1 = (tc + 1) / ATLAS_COLS - _UV_EPS_U;
           // Three.js UV v=0 在图片底部，v=1 在顶部（与 canvas y 轴相反）
-          v1 = 1 - tr / ATLAS_ROWS;        // 贴图格顶边（小 canvas y）
-          v0 = 1 - (tr + 1) / ATLAS_ROWS;  // 贴图格底边
+          v1 = 1 - tr / ATLAS_ROWS - _UV_EPS_V;        // 贴图格顶边
+          v0 = 1 - (tr + 1) / ATLAS_ROWS + _UV_EPS_V;  // 贴图格底边
 
           cn = fd[3];
           pos.push(

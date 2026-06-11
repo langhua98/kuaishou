@@ -71,8 +71,8 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
 <div id="loading">
   <h1>⛏ 我的世界</h1>
   <div id="loading-bar"><div id="loading-fill"></div></div>
-  <p id="loading-text">初始化… v17</p>
-  <p id="ver">v17</p>
+  <p id="loading-text">初始化… v18</p>
+  <p id="ver">v18</p>
 </div>
 
 <div id="menu">
@@ -105,6 +105,7 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
 </div>
 
 <script src="three.min.js"></script>
+<script src="GLTFLoader.js"></script>
 
 <!-- Diagnostic: runs before the game bundle -->
 <script>
@@ -144,7 +145,7 @@ window.addEventListener('unhandledrejection', function(e) {
 setTimeout(function() {
   if (!window._ok) {
     if (!_errMsg) {
-      _st('脚本未响应 (v17) — 请截图发给开发者');
+      _st('脚本未响应 (v18) — 请截图发给开发者');
     }
     _sb(100, '#f44');
   }
@@ -486,43 +487,56 @@ var _TX_LIST = [
 
 // 加载所有贴图、组装 atlas canvas，完成后调用 onReady()
 // 由 game.js bootNext 在渲染器就绪后调用
+//
+// 透明像素处理（修复方块接缝穿模）：
+//   Minetest 的 grass_side 是"叠加层"设计（仅顶部绿条不透明，需叠在泥土上），
+//   leaves 也含透明孔隙。直接用 + alphaTest 会让侧面出现透视洞。
+//   → 组装时先铺底图：grass_side 底=dirt，leaves 底=深绿色，全部变为不透明。
 function loadTextures(onReady) {
   var W = ATLAS_COLS * TILE, H = ATLAS_ROWS * TILE;
   var cv = document.createElement('canvas');
   cv.width = W; cv.height = H;
   var ctx = cv.getContext('2d');
 
-  var total = _TX_LIST.length, done = 0;
+  var imgs = [], total = _TX_LIST.length, done = 0;
+
+  function allLoaded() {
+    // 全部图片就绪后按依赖顺序合成（dirt 必须先于 grass_side 画好）
+    var i, col, row;
+    for (i = 0; i < total; i++) {
+      col = (i % ATLAS_COLS) * TILE;
+      row = ((i / ATLAS_COLS) | 0) * TILE;
+
+      if (i === 1 && imgs[2]) {
+        // grass_side：先铺 dirt 底，再叠加绿条层
+        ctx.drawImage(imgs[2], 0, 0, TILE, TILE, col, row, TILE, TILE);
+      } else if (i === 7) {
+        // leaves：先铺深绿底，填掉透明孔隙
+        ctx.fillStyle = '#1e3d14';
+        ctx.fillRect(col, row, TILE, TILE);
+      }
+
+      if (imgs[i]) {
+        // 取左上角 16×16（水为 16×256 动画图，取首帧）
+        ctx.drawImage(imgs[i], 0, 0, TILE, TILE, col, row, TILE, TILE);
+      } else {
+        // 加载失败：洋红占位
+        ctx.fillStyle = '#ff00ff';
+        ctx.fillRect(col, row, TILE, TILE);
+      }
+    }
+
+    atlasTexture = new THREE.CanvasTexture(cv);
+    atlasTexture.magFilter = THREE.NearestFilter;
+    atlasTexture.minFilter = THREE.NearestFilter;
+    atlasTexture.needsUpdate = true;
+    onReady();
+  }
 
   _TX_LIST.forEach(function (url, i) {
     var img = new Image();
-    img.onload = function () {
-      var col = i % ATLAS_COLS, row = (i / ATLAS_COLS) | 0;
-      // 所有图取左上角 16×16（水为动画图，取首帧）
-      ctx.drawImage(img, 0, 0, TILE, TILE, col * TILE, row * TILE, TILE, TILE);
-      if (++done === total) {
-        atlasTexture = new THREE.CanvasTexture(cv);
-        atlasTexture.magFilter = THREE.NearestFilter;
-        atlasTexture.minFilter = THREE.NearestFilter;
-        atlasTexture.needsUpdate = true;
-        onReady();
-      }
-    };
-    img.onerror = function () {
-      // 加载失败时用纯色占位，不阻断其余贴图
-      var ec = document.createElement('canvas');
-      ec.width = ec.height = TILE;
-      ec.getContext('2d').fillStyle = '#ff00ff';
-      ec.getContext('2d').fillRect(0, 0, TILE, TILE);
-      ctx.drawImage(ec, (i % ATLAS_COLS) * TILE, ((i / ATLAS_COLS) | 0) * TILE);
-      if (++done === total) {
-        atlasTexture = new THREE.CanvasTexture(cv);
-        atlasTexture.magFilter = THREE.NearestFilter;
-        atlasTexture.minFilter = THREE.NearestFilter;
-        atlasTexture.needsUpdate = true;
-        onReady();
-      }
-    };
+    img.onload  = function () { imgs[i] = img;  if (++done === total) allLoaded(); };
+    img.onerror = function () { imgs[i] = null; if (++done === total) allLoaded(); };
     img.src = url;
   });
 }
@@ -541,11 +555,15 @@ function loadTextures(onReady) {
 //   顶/底面（±Y）：标准矩形映射
 
 // atlasTexture 在 loadTextures() 回调后才就绪，_mat.map 由 game.js bootNext 更新
+// 所有贴图在组装时已合成为完全不透明（见 textures.js），无需 alphaTest
 var _mat = new THREE.MeshBasicMaterial({
   vertexColors: true,
-  map: null,
-  alphaTest: 0.1   // 丢弃树叶贴图的透明像素（alpha<0.1），无需混合排序
+  map: null
 });
+
+// UV 半像素内缩：避免在贴图集边缘采样到相邻格的颜色（atlas bleeding）
+var _UV_EPS_U = 0.5 / (ATLAS_COLS * TILE);  // 半像素（U 方向）
+var _UV_EPS_V = 0.5 / (ATLAS_ROWS * TILE);  // 半像素（V 方向）
 
 function buildMesh(cx, cz, data) {
   var pos = [], col = [], uv = [];
@@ -572,11 +590,12 @@ function buildMesh(cx, cz, data) {
           ti = BTEX[id][fd[4] === 0 ? 0 : (fd[4] === 3 ? 2 : 1)];
           tc = ti % ATLAS_COLS;
           tr = (ti / ATLAS_COLS) | 0;
-          u0 = tc / ATLAS_COLS;
-          u1 = (tc + 1) / ATLAS_COLS;
+          // 半像素内缩，防止采样到相邻贴图格
+          u0 = tc / ATLAS_COLS + _UV_EPS_U;
+          u1 = (tc + 1) / ATLAS_COLS - _UV_EPS_U;
           // Three.js UV v=0 在图片底部，v=1 在顶部（与 canvas y 轴相反）
-          v1 = 1 - tr / ATLAS_ROWS;        // 贴图格顶边（小 canvas y）
-          v0 = 1 - (tr + 1) / ATLAS_ROWS;  // 贴图格底边
+          v1 = 1 - tr / ATLAS_ROWS - _UV_EPS_V;        // 贴图格顶边
+          v0 = 1 - (tr + 1) / ATLAS_ROWS + _UV_EPS_V;  // 贴图格底边
 
           cn = fd[3];
           pos.push(
@@ -927,6 +946,181 @@ function buildHotbar() {
 }
 
 
+// ═══ src/models.js ═══
+// ─── models.js ────────────────────────────────────────────────────────────────
+// GLTF 模型加载：玩家角色 + NPC（狐狸）。
+//
+// 模型来源（均为 CC0/公有领域，提交在 assets/models/）：
+//   robot.glb — RobotExpressive，Tomás Laulhé 制作（CC0），
+//               动画：Idle / Walking / Running / Jump 等 14 个
+//   fox.glb   — Fox，PixelMannen 制作（CC0，Khronos 官方样例），
+//               动画：Survey / Walk / Run
+//
+// 加载策略：异步、不阻塞游戏启动。
+//   玩家先用盒子占位模型（game.js 构建），robot.glb 加载完成后热替换。
+//   狐狸 NPC 在模型就绪后才生成。
+//
+// 对外接口：
+//   loadPlayerModel()       — 开始异步加载玩家模型（替换 playerGroup 内容）
+//   playerAnim(name)        — 切换玩家动画（带 0.2s 淡入淡出）
+//   playerMixer             — 玩家动画混合器（tick 中 update）
+//   spawnNPCs() / updateNPCs(dt) — 狐狸生成与漫游 AI
+
+var gltfLoader = new THREE.GLTFLoader();
+
+// ── 玩家模型 ──────────────────────────────────────────────────────────────────
+var playerMixer   = null;   // THREE.AnimationMixer，null = 模型未就绪
+var _pActions     = {};     // name → AnimationAction
+var _pCurrent     = '';     // 当前动画名
+
+function loadPlayerModel() {
+  gltfLoader.load('assets/models/robot.glb', function (gltf) {
+    var model = gltf.scene;
+
+    // 归一化身高到 PH（1.7）
+    var bbox = new THREE.Box3().setFromObject(model);
+    var s = PH / (bbox.max.y - bbox.min.y);
+    model.scale.set(s, s, s);
+    // 模型默认朝 +Z，游戏 yaw=0 时玩家朝 -Z → 转 180°
+    model.rotation.y = Math.PI;
+
+    // 移除盒子占位模型，挂载 GLTF
+    while (playerGroup.children.length) playerGroup.remove(playerGroup.children[0]);
+    playerGroup.add(model);
+
+    playerMixer = new THREE.AnimationMixer(model);
+    var i, c;
+    for (i = 0; i < gltf.animations.length; i++) {
+      c = gltf.animations[i];
+      _pActions[c.name] = playerMixer.clipAction(c);
+    }
+    playerAnim('Idle');
+  }, undefined, function () {
+    // 加载失败：保留盒子模型，无动画
+  });
+}
+
+// 切换玩家动画（同名重复调用为空操作）
+function playerAnim(name) {
+  if (!playerMixer || _pCurrent === name || !_pActions[name]) return;
+  var prev = _pActions[_pCurrent];
+  var next = _pActions[name];
+  if (prev) prev.fadeOut(0.2);
+  next.reset().fadeIn(0.2).play();
+  _pCurrent = name;
+}
+
+// ── NPC：漫游的狐狸 ───────────────────────────────────────────────────────────
+var NPC_COUNT = 3;
+var npcs = [];  // { group, mixer, x, y, z, yaw, speed, timer }
+
+function spawnNPCs() {
+  gltfLoader.load('assets/models/fox.glb', function (gltf) {
+    var i, src, model, mixer, walkClip, npc, ang;
+
+    walkClip = null;
+    for (i = 0; i < gltf.animations.length; i++) {
+      if (gltf.animations[i].name === 'Walk') walkClip = gltf.animations[i];
+    }
+
+    for (i = 0; i < NPC_COUNT; i++) {
+      // 每只狐狸独立 load 的开销大，改用 clone；
+      // 狐狸是 SkinnedMesh，普通 clone 骨骼引用会错乱，
+      // 但 r147 的 SkeletonUtils 不在 UMD 包里 → 简单起见首只用原模型，
+      // 其余重复 gltfLoader.load（文件已被浏览器 HTTP 缓存，第二次加载几乎瞬时）
+      if (i === 0) {
+        _addFox(gltf.scene, walkClip);
+      } else {
+        gltfLoader.load('assets/models/fox.glb', (function () {
+          return function (g2) {
+            var wc = null, j;
+            for (j = 0; j < g2.animations.length; j++) {
+              if (g2.animations[j].name === 'Walk') wc = g2.animations[j];
+            }
+            _addFox(g2.scene, wc);
+          };
+        }()));
+      }
+    }
+  }, undefined, function () { /* 加载失败：无 NPC */ });
+}
+
+function _addFox(model, walkClip) {
+  // 狐狸原始模型很大（~100 单位），缩放到约 0.9 格高
+  var bbox = new THREE.Box3().setFromObject(model);
+  var s = 0.9 / (bbox.max.y - bbox.min.y);
+  model.scale.set(s, s, s);
+  // 模型头朝 +Z，前进约定为 -Z → 转 180°
+  model.rotation.y = Math.PI;
+
+  var group = new THREE.Group();
+  group.add(model);
+  scene.add(group);
+
+  var mixer = null;
+  if (walkClip) {
+    mixer = new THREE.AnimationMixer(model);
+    mixer.clipAction(walkClip).play();
+  }
+
+  // 出生在玩家附近 8~16 格的随机方向
+  var ang = Math.random() * Math.PI * 2;
+  var dist = 8 + Math.random() * 8;
+  var nx = player.x + Math.sin(ang) * dist;
+  var nz = player.z + Math.cos(ang) * dist;
+
+  npcs.push({
+    group: group, mixer: mixer,
+    x: nx, y: _groundY(nx, nz), z: nz,
+    yaw: Math.random() * Math.PI * 2,
+    speed: 1.2 + Math.random() * 0.8,
+    timer: 2 + Math.random() * 3   // 距下次转向的秒数
+  });
+}
+
+// 从高空往下找第一个实心方块顶面的 y
+function _groundY(wx, wz) {
+  var bx = Math.floor(wx), bz = Math.floor(wz), y, id;
+  for (y = CHUNK_H - 1; y >= 0; y--) {
+    id = getBlock(bx, y, bz);
+    if (id !== AIR && id !== WATER) return y + 1;
+  }
+  return SEA + 2;
+}
+
+// 漫游 AI：直走 + 随机转向 + 贴地，遇水掉头
+function updateNPCs(dt) {
+  var i, n, nx, nz, gy;
+  for (i = 0; i < npcs.length; i++) {
+    n = npcs[i];
+
+    n.timer -= dt;
+    if (n.timer <= 0) {
+      n.yaw  += (Math.random() - 0.5) * Math.PI;  // 随机偏转 ±90°
+      n.timer = 2 + Math.random() * 4;
+    }
+
+    // 模型旋转后面朝 -Z 方向（与玩家一致的前进约定）
+    nx = n.x - Math.sin(n.yaw) * n.speed * dt;
+    nz = n.z - Math.cos(n.yaw) * n.speed * dt;
+    gy = _groundY(nx, nz);
+
+    // 前方落差超过 2 格或是水 → 掉头
+    if (Math.abs(gy - n.y) > 2 ||
+        getBlock(Math.floor(nx), Math.floor(gy) - 1, Math.floor(nz)) === WATER) {
+      n.yaw += Math.PI;
+    } else {
+      n.x = nx; n.z = nz;
+      n.y += (gy - n.y) * Math.min(1, 10 * dt);  // 平滑贴地
+    }
+
+    n.group.position.set(n.x, n.y, n.z);
+    n.group.rotation.y = n.yaw;
+    if (n.mixer) n.mixer.update(dt);
+  }
+}
+
+
 // ═══ src/game.js ═══
 // ─── game.js ──────────────────────────────────────────────────────────────────
 // 核心游戏逻辑：玩家状态、3D 角色模型、第三人称摄像机、区块流、主循环、启动序列。
@@ -958,48 +1152,16 @@ var player = {
 
 window._step = 4;
 
-// ── 玩家 3D 模型 ───────────────────────────────────────────────────────────────
-var _mSkin = new THREE.MeshLambertMaterial({ color: 0xf5c592 }); // 肤色
-var _mBody = new THREE.MeshLambertMaterial({ color: 0x3a6adc }); // 蓝色上衣
-var _mPant = new THREE.MeshLambertMaterial({ color: 0x2b3a54 }); // 深蓝裤子
-
+// ── 玩家模型容器 ───────────────────────────────────────────────────────────────
+// 启动时放一个简单盒子占位（GLTF 模型异步加载完成后由 models.js 热替换）
 var playerGroup = new THREE.Group();
 
-// 头部
-var _head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), _mSkin);
-_head.position.set(0, 1.45, 0);
-playerGroup.add(_head);
-
-// 躯干
-var _torso = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.75, 0.3), _mBody);
-_torso.position.set(0, 0.95, 0);
-playerGroup.add(_torso);
-
-// 左臂（自然悬垂，随行走轻微摆动）
-var _armL = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.65, 0.25), _mSkin);
-_armL.position.set(-0.42, 0.975, 0);
-playerGroup.add(_armL);
-
-// 右臂
-var _armR = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.65, 0.25), _mSkin);
-_armR.position.set(0.42, 0.975, 0);
-playerGroup.add(_armR);
-
-// 左腿（带枢纽组，枢纽在臀部，子 Mesh 向下偏移）
-var _legLG = new THREE.Group();
-_legLG.position.set(-0.18, 0.575, 0);
-var _legL = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.75, 0.25), _mPant);
-_legL.position.set(0, -0.375, 0);
-_legLG.add(_legL);
-playerGroup.add(_legLG);
-
-// 右腿
-var _legRG = new THREE.Group();
-_legRG.position.set(0.18, 0.575, 0);
-var _legR = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.75, 0.25), _mPant);
-_legR.position.set(0, -0.375, 0);
-_legRG.add(_legR);
-playerGroup.add(_legRG);
+(function () {
+  var mat  = new THREE.MeshLambertMaterial({ color: 0x3a6adc });
+  var body = new THREE.Mesh(new THREE.BoxGeometry(0.6, PH, 0.35), mat);
+  body.position.y = PH / 2;
+  playerGroup.add(body);
+}());
 
 scene.add(playerGroup);
 
@@ -1107,13 +1269,17 @@ function tick(now) {
   playerGroup.position.set(player.x, player.y, player.z);
   playerGroup.rotation.y = player.yaw;
 
-  // 行走摆腿动画（速度归一化后缩放摆幅）
-  var moveMag = Math.min(1, Math.sqrt(player.vx * player.vx + player.vz * player.vz) / MOVE_SPD);
-  var swing   = Math.sin(now * 0.005) * 0.65 * moveMag;
-  _legLG.rotation.x =  swing;
-  _legRG.rotation.x = -swing;
-  _armL.position.z  =  Math.sin(now * 0.005) * 0.12 * moveMag;
-  _armR.position.z  = -Math.sin(now * 0.005) * 0.12 * moveMag;
+  // GLTF 动画状态机：移动速度 → Idle / Walking / Running
+  var moveMag = Math.sqrt(player.vx * player.vx + player.vz * player.vz);
+  if (playerMixer) {
+    if      (moveMag > FLY_SPD * 0.8) playerAnim('Running');
+    else if (moveMag > 0.5)           playerAnim('Walking');
+    else                              playerAnim('Idle');
+    playerMixer.update(dt);
+  }
+
+  // ── NPC 更新 ───────────────────────────────────────────────────────────────
+  updateNPCs(dt);
 
   // ── 第三人称摄像机（正版 MC 风格）────────────────────────────────────────────
   // 摄像机位于玩家视线方向的正反方向 CAM_DIST 单位处，与 pitch 完全联动：
@@ -1201,6 +1367,9 @@ function bootNext() {
       setProgress(100, '完成!');
       if (loadEl) loadEl.style.display = 'none';
       if (menuEl) menuEl.style.display = 'flex';
+      // 异步加载 GLTF 模型（不阻塞进入游戏；完成前玩家为盒子占位、无 NPC）
+      loadPlayerModel();
+      spawnNPCs();
     }
   } catch (e) {
     setProgress(0, '错误: ' + (e.message || String(e)));

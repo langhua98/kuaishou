@@ -27,6 +27,7 @@ const SRC_FILES = [
   'src/raycast.js',
   'src/controls.js',
   'src/ui.js',
+  'src/models.js',   // GLTF 玩家模型 + NPC（需在 game.js 之前：game.js 调用其函数）
   'src/game.js',
 ]
 

@@ -28,48 +28,16 @@ var player = {
 
 window._step = 4;
 
-// ── 玩家 3D 模型 ───────────────────────────────────────────────────────────────
-var _mSkin = new THREE.MeshLambertMaterial({ color: 0xf5c592 }); // 肤色
-var _mBody = new THREE.MeshLambertMaterial({ color: 0x3a6adc }); // 蓝色上衣
-var _mPant = new THREE.MeshLambertMaterial({ color: 0x2b3a54 }); // 深蓝裤子
-
+// ── 玩家模型容器 ───────────────────────────────────────────────────────────────
+// 启动时放一个简单盒子占位（GLTF 模型异步加载完成后由 models.js 热替换）
 var playerGroup = new THREE.Group();
 
-// 头部
-var _head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), _mSkin);
-_head.position.set(0, 1.45, 0);
-playerGroup.add(_head);
-
-// 躯干
-var _torso = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.75, 0.3), _mBody);
-_torso.position.set(0, 0.95, 0);
-playerGroup.add(_torso);
-
-// 左臂（自然悬垂，随行走轻微摆动）
-var _armL = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.65, 0.25), _mSkin);
-_armL.position.set(-0.42, 0.975, 0);
-playerGroup.add(_armL);
-
-// 右臂
-var _armR = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.65, 0.25), _mSkin);
-_armR.position.set(0.42, 0.975, 0);
-playerGroup.add(_armR);
-
-// 左腿（带枢纽组，枢纽在臀部，子 Mesh 向下偏移）
-var _legLG = new THREE.Group();
-_legLG.position.set(-0.18, 0.575, 0);
-var _legL = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.75, 0.25), _mPant);
-_legL.position.set(0, -0.375, 0);
-_legLG.add(_legL);
-playerGroup.add(_legLG);
-
-// 右腿
-var _legRG = new THREE.Group();
-_legRG.position.set(0.18, 0.575, 0);
-var _legR = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.75, 0.25), _mPant);
-_legR.position.set(0, -0.375, 0);
-_legRG.add(_legR);
-playerGroup.add(_legRG);
+(function () {
+  var mat  = new THREE.MeshLambertMaterial({ color: 0x3a6adc });
+  var body = new THREE.Mesh(new THREE.BoxGeometry(0.6, PH, 0.35), mat);
+  body.position.y = PH / 2;
+  playerGroup.add(body);
+}());
 
 scene.add(playerGroup);
 
@@ -177,13 +145,17 @@ function tick(now) {
   playerGroup.position.set(player.x, player.y, player.z);
   playerGroup.rotation.y = player.yaw;
 
-  // 行走摆腿动画（速度归一化后缩放摆幅）
-  var moveMag = Math.min(1, Math.sqrt(player.vx * player.vx + player.vz * player.vz) / MOVE_SPD);
-  var swing   = Math.sin(now * 0.005) * 0.65 * moveMag;
-  _legLG.rotation.x =  swing;
-  _legRG.rotation.x = -swing;
-  _armL.position.z  =  Math.sin(now * 0.005) * 0.12 * moveMag;
-  _armR.position.z  = -Math.sin(now * 0.005) * 0.12 * moveMag;
+  // GLTF 动画状态机：移动速度 → Idle / Walking / Running
+  var moveMag = Math.sqrt(player.vx * player.vx + player.vz * player.vz);
+  if (playerMixer) {
+    if      (moveMag > FLY_SPD * 0.8) playerAnim('Running');
+    else if (moveMag > 0.5)           playerAnim('Walking');
+    else                              playerAnim('Idle');
+    playerMixer.update(dt);
+  }
+
+  // ── NPC 更新 ───────────────────────────────────────────────────────────────
+  updateNPCs(dt);
 
   // ── 第三人称摄像机（正版 MC 风格）────────────────────────────────────────────
   // 摄像机位于玩家视线方向的正反方向 CAM_DIST 单位处，与 pitch 完全联动：
@@ -271,6 +243,9 @@ function bootNext() {
       setProgress(100, '完成!');
       if (loadEl) loadEl.style.display = 'none';
       if (menuEl) menuEl.style.display = 'flex';
+      // 异步加载 GLTF 模型（不阻塞进入游戏；完成前玩家为盒子占位、无 NPC）
+      loadPlayerModel();
+      spawnNPCs();
     }
   } catch (e) {
     setProgress(0, '错误: ' + (e.message || String(e)));

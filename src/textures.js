@@ -45,43 +45,56 @@ var _TX_LIST = [
 
 // 加载所有贴图、组装 atlas canvas，完成后调用 onReady()
 // 由 game.js bootNext 在渲染器就绪后调用
+//
+// 透明像素处理（修复方块接缝穿模）：
+//   Minetest 的 grass_side 是"叠加层"设计（仅顶部绿条不透明，需叠在泥土上），
+//   leaves 也含透明孔隙。直接用 + alphaTest 会让侧面出现透视洞。
+//   → 组装时先铺底图：grass_side 底=dirt，leaves 底=深绿色，全部变为不透明。
 function loadTextures(onReady) {
   var W = ATLAS_COLS * TILE, H = ATLAS_ROWS * TILE;
   var cv = document.createElement('canvas');
   cv.width = W; cv.height = H;
   var ctx = cv.getContext('2d');
 
-  var total = _TX_LIST.length, done = 0;
+  var imgs = [], total = _TX_LIST.length, done = 0;
+
+  function allLoaded() {
+    // 全部图片就绪后按依赖顺序合成（dirt 必须先于 grass_side 画好）
+    var i, col, row;
+    for (i = 0; i < total; i++) {
+      col = (i % ATLAS_COLS) * TILE;
+      row = ((i / ATLAS_COLS) | 0) * TILE;
+
+      if (i === 1 && imgs[2]) {
+        // grass_side：先铺 dirt 底，再叠加绿条层
+        ctx.drawImage(imgs[2], 0, 0, TILE, TILE, col, row, TILE, TILE);
+      } else if (i === 7) {
+        // leaves：先铺深绿底，填掉透明孔隙
+        ctx.fillStyle = '#1e3d14';
+        ctx.fillRect(col, row, TILE, TILE);
+      }
+
+      if (imgs[i]) {
+        // 取左上角 16×16（水为 16×256 动画图，取首帧）
+        ctx.drawImage(imgs[i], 0, 0, TILE, TILE, col, row, TILE, TILE);
+      } else {
+        // 加载失败：洋红占位
+        ctx.fillStyle = '#ff00ff';
+        ctx.fillRect(col, row, TILE, TILE);
+      }
+    }
+
+    atlasTexture = new THREE.CanvasTexture(cv);
+    atlasTexture.magFilter = THREE.NearestFilter;
+    atlasTexture.minFilter = THREE.NearestFilter;
+    atlasTexture.needsUpdate = true;
+    onReady();
+  }
 
   _TX_LIST.forEach(function (url, i) {
     var img = new Image();
-    img.onload = function () {
-      var col = i % ATLAS_COLS, row = (i / ATLAS_COLS) | 0;
-      // 所有图取左上角 16×16（水为动画图，取首帧）
-      ctx.drawImage(img, 0, 0, TILE, TILE, col * TILE, row * TILE, TILE, TILE);
-      if (++done === total) {
-        atlasTexture = new THREE.CanvasTexture(cv);
-        atlasTexture.magFilter = THREE.NearestFilter;
-        atlasTexture.minFilter = THREE.NearestFilter;
-        atlasTexture.needsUpdate = true;
-        onReady();
-      }
-    };
-    img.onerror = function () {
-      // 加载失败时用纯色占位，不阻断其余贴图
-      var ec = document.createElement('canvas');
-      ec.width = ec.height = TILE;
-      ec.getContext('2d').fillStyle = '#ff00ff';
-      ec.getContext('2d').fillRect(0, 0, TILE, TILE);
-      ctx.drawImage(ec, (i % ATLAS_COLS) * TILE, ((i / ATLAS_COLS) | 0) * TILE);
-      if (++done === total) {
-        atlasTexture = new THREE.CanvasTexture(cv);
-        atlasTexture.magFilter = THREE.NearestFilter;
-        atlasTexture.minFilter = THREE.NearestFilter;
-        atlasTexture.needsUpdate = true;
-        onReady();
-      }
-    };
+    img.onload  = function () { imgs[i] = img;  if (++done === total) allLoaded(); };
+    img.onerror = function () { imgs[i] = null; if (++done === total) allLoaded(); };
     img.src = url;
   });
 }
