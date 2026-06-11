@@ -1529,10 +1529,8 @@ var selBox = (function () {
   return ls;
 }());
 
-// ── 放置预览框（placeBox）+ 方向学习放置系统 ──────────────────────────────────
-// 放置预览框：半透明绿色虚线，套在「将要放置的空格」上，随视角实时移动；
-// 方向学习：每次放置后记录 lastPos + 从 lastPos→当前 学到的主轴方向 lastDir，
-//   下一帧预览框自动锁到 lastPos+lastDir 处；转弯时立刻学到新方向，无需重置。
+// 放置预览框（placeBox）：始终跟随准星命中方块的前一格
+// 准星朝天 / 朝空 → 无预览 → 无法放置，行为自然一致。
 var placeBox = (function () {
   var geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.007, 1.007, 1.007));
   var mat = new THREE.LineDashedMaterial({
@@ -1546,13 +1544,7 @@ var placeBox = (function () {
   return ls;
 }());
 
-// 方向学习放置系统
-var _place = {
-  lastPos: null,   // 上次放置的方块坐标 {x,y,z}
-  lastDir: null,   // 从命中面（pv - selHit）得到的方向，第一次放置即生效
-  idleT:   0,      // 无预览的累计秒数（超 8s 重置）
-  pos:     null    // 当前帧预览坐标（null=不可见）
-};
+var _placePos = null;   // 当前帧放置预览坐标（null=不可见）
 var _lastPlaceSlot = -1;
 
 // ── 音频 ──────────────────────────────────────────────────────────────────────
@@ -1698,59 +1690,30 @@ function tick(now) {
     selBox.visible = false;
   }
 
-  // ── 放置预览框 + 方向学习更新 ───────────────────────────────────────────────
-  // 热键栏换格 → 清除方向记忆（新材料从零学起）
+  // ── 放置预览框 ──────────────────────────────────────────────────────────────
+  // 热键栏换格 → 更新手持物
   if (player.slot !== _lastPlaceSlot) {
-    _place.lastPos = null; _place.lastDir = null; _place.idleT = 0;
     _lastPlaceSlot = player.slot;
     _updateHeldItem(player.slot);
   }
 
-  // 计算本帧预览坐标
-  // selHit 已在上方计算，直接复用，避免第二次 raycast（Fix F1）
-  _place.pos = null;
-  if (selHit && selHit.prev) _place.pos = selHit.prev;
+  // 预览坐标 = 准星命中方块的前一格（selHit 已计算，直接复用）
+  _placePos = (selHit && selHit.prev) ? selHit.prev : null;
 
-  if (!_place.pos && _place.lastDir && _place.lastPos) {
-    // 兜底：准星朝天/空旷时，沿 lastDir 从 lastPos 延伸预测下一格
-    var nx = _place.lastPos.x + _place.lastDir.x;
-    var ny = _place.lastPos.y + _place.lastDir.y;
-    var nz = _place.lastPos.z + _place.lastDir.z;
-    var tries = 0;
-    while (tries < 8 && ny >= 0) {               // ny>=0 防止向下钻入 y<0（Fix C2）
-      var blk = getBlock(nx, ny, nz);             // 单次调用，不重复查（Fix D3）
-      if (blk === AIR || blk === WATER) break;
-      nx += _place.lastDir.x; ny += _place.lastDir.y; nz += _place.lastDir.z;
-      tries++;
-    }
-    if (tries < 8 && ny >= 0) {
-      var ddx = nx+0.5-player.x, ddy = ny+0.5-(player.y+PH*0.85), ddz = nz+0.5-player.z;
-      if (ddx*ddx + ddy*ddy + ddz*ddz <= 64) {
-        _place.pos = { x: nx, y: ny, z: nz };
-      }
-    }
-  }
-
-  if (_place.pos) {
-    placeBox.position.set(_place.pos.x + 0.5, _place.pos.y + 0.5, _place.pos.z + 0.5);
+  if (_placePos) {
+    placeBox.position.set(_placePos.x + 0.5, _placePos.y + 0.5, _placePos.z + 0.5);
     placeBox.visible = true;
-    _place.idleT = 0;
   } else {
     placeBox.visible = false;
-    _place.idleT += dt;
-    if (_place.idleT > 8) {
-      _place.lastPos = null; _place.lastDir = null;
-      _place.idleT = 0;
-    }
   }
 
   // ── 放置（单次 + 长按节流）─────────────────────────────────────────────────
   if (player.placeQ || (placeHeld && nowS - _lastPlace > PLACE_CD)) {
     player.placeQ = false;
     if (_swingT <= 0) _swingT = SWING_DUR;
-    var pv = _place.pos;
+    var pv = _placePos;
     if (pv) {
-      // 碰撞体全范围防重叠：覆盖玩家 AABB 实际占据的所有体素（Fix C4）
+      // 碰撞体全范围防重叠：覆盖玩家 AABB 实际占据的所有体素
       var px0 = Math.floor(player.x - PR), px1 = Math.floor(player.x + PR);
       var pz0 = Math.floor(player.z - PR), pz1 = Math.floor(player.z + PR);
       var py0 = Math.floor(player.y),      py1 = Math.floor(player.y + PH - 0.01);
@@ -1758,31 +1721,6 @@ function tick(now) {
         setBlock(pv.x, pv.y, pv.z, player.inv[player.slot]);
         digSound(player.inv[player.slot]);
         _lastPlace = nowS;
-
-        // 方向 = 命中方块 → 放置位置的面法向量（第一次放置即生效）
-        // 准星命中时用 pv - selHit；准星落空（fallback）时用 pv - lastPos
-        if (selHit) {
-          var fdX = pv.x - selHit.x, fdY = pv.y - selHit.y, fdZ = pv.z - selHit.z;
-          if (fdX || fdY || fdZ) {
-            var afX = Math.abs(fdX), afY = Math.abs(fdY), afZ = Math.abs(fdZ);
-            var fd = { x: 0, y: 0, z: 0 };
-            if      (afX >= afY && afX >= afZ) fd.x = fdX > 0 ? 1 : -1;
-            else if (afY >= afX && afY >= afZ) fd.y = fdY > 0 ? 1 : -1;
-            else                               fd.z = fdZ > 0 ? 1 : -1;
-            _place.lastDir = fd;
-          }
-        } else if (_place.lastPos) {
-          var dX = pv.x - _place.lastPos.x, dY = pv.y - _place.lastPos.y, dZ = pv.z - _place.lastPos.z;
-          if (dX || dY || dZ) {
-            var aX = Math.abs(dX), aY = Math.abs(dY), aZ = Math.abs(dZ);
-            var ndir = { x: 0, y: 0, z: 0 };
-            if      (aX >= aY && aX >= aZ) ndir.x = dX > 0 ? 1 : -1;
-            else if (aY >= aX && aY >= aZ) ndir.y = dY > 0 ? 1 : -1;
-            else                           ndir.z = dZ > 0 ? 1 : -1;
-            _place.lastDir = ndir;
-          }
-        }
-        _place.lastPos = { x: pv.x, y: pv.y, z: pv.z };
       }
     }
   }
