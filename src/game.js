@@ -145,12 +145,13 @@ function tick(now) {
   playerGroup.position.set(player.x, player.y, player.z);
   playerGroup.rotation.y = player.yaw;
 
-  // GLTF 动画状态机：移动速度 → Idle / Walking / Running
+  // GLTF 动画状态机：跳跃中 > 移动速度 → jump / run / walk / idle
   var moveMag = Math.sqrt(player.vx * player.vx + player.vz * player.vz);
   if (playerMixer) {
-    if      (moveMag > FLY_SPD * 0.8) playerAnim('Running');
-    else if (moveMag > 0.5)           playerAnim('Walking');
-    else                              playerAnim('Idle');
+    if      (!player.onGround && !player.flying && Math.abs(player.vy) > 2) playerAnim('jump');
+    else if (moveMag > FLY_SPD * 0.8) playerAnim('run');
+    else if (moveMag > 0.5)           playerAnim('walk');
+    else                              playerAnim('idle');
     playerMixer.update(dt);
   }
 
