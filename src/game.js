@@ -76,6 +76,11 @@ armGroup.visible = false;
 camera.add(armGroup);
 scene.add(camera);   // camera 有子节点时必须加入场景树
 
+// ── 音频 ──────────────────────────────────────────────────────────────────────
+initAudio();              // 预载音效（异步，不阻塞）；解锁在 startGame（用户手势）
+var _stepPh  = 0;         // 脚步相位（_bobT 每半周期触发一步）
+var _inWater = false;     // 入水检测（false→true 时播水花）
+
 // ── 视角切换（第一/第三人称）──────────────────────────────────────────────────
 var viewFP = false;
 
@@ -178,7 +183,18 @@ function tick(now) {
   if (!_wasGround && player.onGround && preVy < -12) {
     _dipV = Math.max(-1.5, preVy * 0.05);
   }
+  // 落地脚步声（任何下落着地都响一声）
+  if (!_wasGround && player.onGround && preVy < -4) {
+    stepSound(getBlock(Math.floor(player.x), Math.floor(player.y) - 1, Math.floor(player.z)));
+  }
   _wasGround = player.onGround;
+
+  // 入水水花：脚部方块从非水变水
+  var feetWater = getBlock(
+    Math.floor(player.x), Math.floor(player.y + 0.2), Math.floor(player.z)
+  ) === WATER;
+  if (feetWater && !_inWater) splashSound();
+  _inWater = feetWater;
 
   // ── 破坏（单次 + 长按节流）─────────────────────────────────────────────────
   var nowS = now * 0.001;
@@ -186,7 +202,11 @@ function tick(now) {
     player.breakQ = false;
     if (_swingT <= 0) _swingT = SWING_DUR;   // 第一人称挥镐动画
     var hitB = raycast(6);
-    if (hitB) { setBlock(hitB.x, hitB.y, hitB.z, AIR); _lastBreak = nowS; }
+    if (hitB) {
+      digSound(getBlock(hitB.x, hitB.y, hitB.z));   // 先取 ID 再清除
+      setBlock(hitB.x, hitB.y, hitB.z, AIR);
+      _lastBreak = nowS;
+    }
   }
 
   // ── 放置（单次 + 长按节流）─────────────────────────────────────────────────
@@ -200,6 +220,7 @@ function tick(now) {
       // 防止放在玩家自身两格高度内卡死
       if (!(pv.x === ppx && (pv.y === ppy || pv.y === ppy + 1) && pv.z === ppz)) {
         setBlock(pv.x, pv.y, pv.z, player.inv[player.slot]);
+        digSound(player.inv[player.slot]);   // MC：放置音 = 挖掘音
         _lastPlace = nowS;
       }
     }
@@ -254,7 +275,15 @@ function tick(now) {
 
   // Camera Bob：行走时垂直双步频颠簸 + 横向单步频摇摆（纯位置偏移，不点头）
   var bobOn = (player.onGround && moveMag > 0.3) ? 1 : 0;
-  if (bobOn) _bobT += dt * moveMag * 1.6;
+  if (bobOn) {
+    _bobT += dt * moveMag * 1.6;
+    // 脚步声：Bob 每半周期（一只脚落地）触发一次，材质取脚下方块
+    var stepNow = Math.floor(_bobT * 2);
+    if (stepNow !== _stepPh) {
+      _stepPh = stepNow;
+      stepSound(getBlock(Math.floor(player.x), Math.floor(player.y) - 1, Math.floor(player.z)));
+    }
+  }
   var bobY = Math.sin(_bobT * Math.PI * 2) * 0.04 * bobOn;
   var bobL = Math.sin(_bobT * Math.PI)     * 0.03 * bobOn;
 
@@ -317,6 +346,7 @@ function tick(now) {
 
 // ── 开始游戏 ───────────────────────────────────────────────────────────────────
 window.startGame = function () {
+  unlockAudio();   // 用户手势内：解锁 iOS 音频 + 启动背景音乐
   if (menuEl) menuEl.style.display = 'none';
   if (uiEl)   uiEl.style.display   = 'block';
   buildHotbar();
