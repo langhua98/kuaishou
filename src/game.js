@@ -337,9 +337,14 @@ function tick(now) {
   }
 
   // 计算本帧预览坐标
+  // 准星优先：始终跟随准星指向的方块前一格；
+  // 准星没打到任何方块时（朝天/空旷），再用方向记忆兜底延伸链末。
   _place.pos = null;
-  if (_place.lastDir && _place.lastPos) {
-    // 有方向记忆：从 lastPos 沿 lastDir 延伸，跳过已有实体方块
+  var freeHit = raycast(6);
+  if (freeHit && freeHit.prev) _place.pos = freeHit.prev;
+
+  if (!_place.pos && _place.lastDir && _place.lastPos) {
+    // 兜底：从 lastPos 沿 lastDir 延伸，跳过已有实体方块
     var nx = _place.lastPos.x + _place.lastDir.x;
     var ny = _place.lastPos.y + _place.lastDir.y;
     var nz = _place.lastPos.z + _place.lastDir.z;
@@ -350,15 +355,10 @@ function tick(now) {
     }
     if (tries < 8) {
       var ddx = nx+0.5-player.x, ddy = ny+0.5-(player.y+PH*0.85), ddz = nz+0.5-player.z;
-      if (ddx*ddx + ddy*ddy + ddz*ddz <= 64) {   // 8 格内才显示
+      if (ddx*ddx + ddy*ddy + ddz*ddz <= 64) {
         _place.pos = { x: nx, y: ny, z: nz };
       }
     }
-  }
-  if (!_place.pos) {
-    // 无方向记忆 / 链末过远：回退到准星自由预览
-    var freeHit = raycast(6);
-    if (freeHit && freeHit.prev) _place.pos = freeHit.prev;
   }
 
   if (_place.pos) {
