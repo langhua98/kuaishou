@@ -12,6 +12,9 @@ var UNIT_TYPES = {
                wpnR: 'sword_1handed', wpnL: null,           name: '蛮兵' },
   ranger:    { model: 'Rogue',            h: 1.75, hp: 9,  dmg: 3, range: 13,  spd: 4.4, atkCd: 2.2, ranged: true,
                wpnR: 'crossbow_2handed', wpnL: null,        name: '游侠' },
+  cavalry:   { model: 'Knight', mount: 'horse', h: 2.40, hp: 18, dmg: 5, range: 2.2, spd: 8.5,
+               chargeDmg: 12, atkCd: 1.0, ranged: false,
+               wpnR: 'sword_1handed', wpnL: null, name: '骑兵', cavalry: true },
   // 敌方（骷髅军）
   skel_war:  { model: 'Skeleton_Warrior', h: 1.75, hp: 12, dmg: 4, range: 1.9, spd: 3.8, atkCd: 1.2, ranged: false,
                wpnR: 'Skeleton_Blade', wpnL: 'Skeleton_Shield_Small_A', name: '骷髅战士' },
@@ -20,6 +23,24 @@ var UNIT_TYPES = {
   skel_rog:  { model: 'Skeleton_Rogue',   h: 1.70, hp: 8,  dmg: 3, range: 12,  spd: 3.6, atkCd: 2.5, ranged: true,
                wpnR: 'Skeleton_Crossbow', wpnL: null,       name: '骷髅弩手' },
 };
+
+// 骑兵调参（需求文档关键数值）
+var CAV = {
+  chargeMinDist: 25,    // 冲锋起点最短距离
+  chargeGoodDist: 40,   // 冲锋起点推荐距离
+  chargeDmgMult: 2.5,   // 冲锋伤害倍率
+  meleeMaxT: 10,        // MELEE 最长持续（s）
+  meleeCrowd: 4,        // 触发 BREAKAWAY 的包围人数
+  breakDist: 35,        // BREAKAWAY 撤离最短距离
+  breakFarDist: 70,     // BREAKAWAY 撤离目标距离
+  regroupMaxT: 15,      // REGROUP 最长等待（s）
+  retreatHp: 0.25,      // 触发 RETREAT 的血量比
+  retreatOutnum: 3,     // 触发 RETREAT 的包围人数（低血量时）
+  scanIv: 0.5,          // 目标评分刷新间隔
+};
+
+// 骑兵目标评分权重（需求文档 §4.3）
+var SCORE_ENEMY = { skel_rog: 90, skel_war: 40, skel_min: 30, knight: 50, barbarian: 45, ranger: 80 };
 
 // 战斗调参（需求文档 §2 节流 + P1 步兵参数）
 var BTL = {
@@ -39,8 +60,8 @@ var BTL = {
   corpseT: 3,           // 尸体保留秒数
 };
 
-// 我方编制 / 敌方波次
-var SQUAD = ['knight', 'knight', 'knight', 'barbarian', 'ranger', 'ranger'];
+// 我方编制 / 敌方波次（含骑兵 P2）
+var SQUAD = ['cavalry', 'knight', 'knight', 'barbarian', 'ranger', 'ranger'];
 function waveComp(n) {     // 第 n 波（1 起）敌人构成
   var c = ['skel_war', 'skel_war', 'skel_min', 'skel_rog'];
   var extra = Math.min(n - 1, 4), i;

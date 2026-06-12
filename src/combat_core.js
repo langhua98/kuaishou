@@ -13,18 +13,21 @@ var _unitSeq = 1;
 // ── 模型加载（首次开战时调用，含武器）─────────────────────────────────────────
 function loadArmyModels(onDone, onProgress) {
   var models = {};
-  var seen = {};
+  var seen = {}, mounts = {};
   var names = [], k, t;
   for (k in UNIT_TYPES) {
     t = UNIT_TYPES[k];
     if (!seen[t.model]) { seen[t.model] = 1; names.push(t.model); }
+    if (t.mount && !seen[t.mount]) { seen[t.mount] = 1; names.push(t.mount); mounts[t.mount] = 1; }
     if (t.wpnR && !seen[t.wpnR]) { seen[t.wpnR] = 1; names.push(t.wpnR); }
     if (t.wpnL && !seen[t.wpnL]) { seen[t.wpnL] = 1; names.push(t.wpnL); }
   }
   if (!seen['arrow']) names.push('arrow');
   var done = 0, total = names.length;
   names.forEach(function (n) {
-    gltfLoader.load('assets/models/army/' + n + '.glb', function (g) {
+    // 坐骑从 assets/models/ 加载，其余兵装从 assets/models/army/
+    var path = mounts[n] ? 'assets/models/' + n + '.glb' : 'assets/models/army/' + n + '.glb';
+    gltfLoader.load(path, function (g) {
       _armyGltf[n] = g;
       if (++done === total) { _armyLoaded = true; onDone(); }
       else if (onProgress) onProgress(done, total);
@@ -68,13 +71,34 @@ function spawnUnit(kind, side, x, z) {
   var g = _armyGltf[t.model];
   if (!g) return null;
 
+  var group = new THREE.Group();
   var model = cloneSkinned(g.scene);
-  _prepModel(model, t.h);                       // models.js：归一化身高+阴影
+  var horseMixer = null;
+
+  if (t.cavalry) {
+    // 骑兵：马在地面，骑手坐在马背上
+    _prepModel(model, 1.8);
+    model.position.y = 0.95;    // 抬高至马背高度
+    var hg = _armyGltf[t.mount];
+    if (hg) {
+      var horseModel = hg.scene.clone(true);
+      _prepModel(horseModel, 1.5);
+      group.add(horseModel);
+      horseMixer = new THREE.AnimationMixer(horseModel);
+      if (hg.animations.length > 0) {
+        var hact = horseMixer.clipAction(hg.animations[0]);
+        hact.setLoop(THREE.LoopRepeat, Infinity);
+        hact.play();
+      }
+    }
+  } else {
+    _prepModel(model, t.h);
+  }
+
   _attachWeapon(model, t.wpnR, 'handslot.r');
   if (t.wpnL) _attachWeapon(model, t.wpnL, 'handslot.l');
-
-  var group = new THREE.Group();
   group.add(model);
+
   var gy = _groundY(Math.floor(x), Math.floor(z));
   group.position.set(x, gy, z);
   scene.add(group);
@@ -89,12 +113,14 @@ function spawnUnit(kind, side, x, z) {
   var u = {
     id: _unitSeq++, side: side, kind: kind, t: t,
     x: x, y: gy, z: z, yaw: 0,
+    vx: 0, vz: 0, speed: 0,
     hp: t.hp, atkCd: 0, actT: 0,
-    state: side === 0 ? 'FOLLOW' : 'SEEK',
-    stateT: 0, target: null, nextDecide: 0,
+    state: side === 0 ? 'FOLLOW' : (t.cavalry ? 'SCAN' : 'SEEK'),
+    stateT: 0, target: null, nextDecide: 0, nextScore: 0,
     deadT: 0, cheering: false, cheerT: 0,
+    chargeFrom: null, breakDir: null, regroupT: 0,
     group: group, model: model, mixer: mixer, anims: anims, curAnim: '',
-    hpBar: null,
+    horseMixer: horseMixer, hpBar: null,
   };
   playAnim(u, ANIM.idle, 0);
   makeHpBar(u);
