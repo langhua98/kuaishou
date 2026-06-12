@@ -76,13 +76,13 @@ function spawnUnit(kind, side, x, z) {
   var horseMixer = null;
 
   if (t.cavalry) {
-    // 骑兵：马在地面，骑手坐在马背上
+    // 骑兵：马在地面（2.2m 含头），骑手骑于马背（约 1.4m 处）
     _prepModel(model, 1.8);
-    model.position.y = 0.95;    // 抬高至马背高度
+    model.position.y = 1.4;     // 马背高度约为全高 2.2m 的 64%
     var hg = _armyGltf[t.mount];
     if (hg) {
       var horseModel = hg.scene.clone(true);
-      _prepModel(horseModel, 1.5);
+      _prepModel(horseModel, 2.2);
       group.add(horseModel);
       horseMixer = new THREE.AnimationMixer(horseModel);
       if (hg.animations.length > 0) {

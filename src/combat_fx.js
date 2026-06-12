@@ -145,20 +145,18 @@ function damagePlayer(dmg) {
   }
 }
 
-// ── 玩家挥剑攻击：前方锥形范围内最近敌人（game.js 破坏键调用，命中则不挖方块）──
+// ── 玩家挥剑攻击：范围内最近敌人（game.js 破坏键调用，命中则不挖方块）──────
+// 不做朝向限制——只要在 playerReach 半径内即可命中，手机操作不精准需要宽容度。
+// side !== 1 保证绝对不会打中友军。
 function tryPlayerAttack() {
   if (!combatUnits.length) return false;
-  var fx = -Math.sin(player.yaw), fz = -Math.cos(player.yaw);   // raycast.js 同款前向
-  var best = null, bd = BTL.playerReach, i, u, dx, dz, d, dot;
+  var best = null, bd = BTL.playerReach, i, u, dx, dz, d;
   for (i = 0; i < combatUnits.length; i++) {
     u = combatUnits[i];
-    if (u.side !== 1 || u.state === 'DEAD') continue;
+    if (u.side !== 1 || u.state === 'DEAD') continue;   // 只打敌方，绝不打友军
     dx = u.x - player.x; dz = u.z - player.z;
     d = Math.sqrt(dx * dx + dz * dz);
-    if (d > bd) continue;
-    dot = (dx * fx + dz * fz) / (d || 1);
-    if (dot < 0.5) continue;                  // ±60° 锥外
-    bd = d; best = u;
+    if (d < bd) { bd = d; best = u; }
   }
   if (!best) return false;
   damageUnit(best, BTL.playerDmg, _playerProxy());

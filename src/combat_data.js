@@ -12,7 +12,7 @@ var UNIT_TYPES = {
                wpnR: 'sword_1handed', wpnL: null,           name: '蛮兵' },
   ranger:    { model: 'Rogue',            h: 1.75, hp: 9,  dmg: 3, range: 13,  spd: 4.4, atkCd: 2.2, ranged: true,
                wpnR: 'crossbow_2handed', wpnL: null,        name: '游侠' },
-  cavalry:   { model: 'Knight', mount: 'horse', h: 2.40, hp: 18, dmg: 5, range: 2.2, spd: 8.5,
+  cavalry:   { model: 'Knight', mount: 'horse', h: 3.30, hp: 18, dmg: 5, range: 2.2, spd: 8.5,
                chargeDmg: 12, atkCd: 1.0, ranged: false,
                wpnR: 'sword_1handed', wpnL: null, name: '骑兵', cavalry: true },
   // 敌方（骷髅军）
