@@ -630,7 +630,7 @@ function bootNext() {
       bootStep++; requestAnimationFrame(bootNext);
 
     } else if (bootStep === 8) {
-      setProgress(94, '定位出生点...');
+      setProgress(90, '定位出生点...');
       var y;
       for (y = CHUNK_H - 1; y >= 0; y--) {
         if (getBlock(Math.floor(player.x), y, Math.floor(player.z)) !== AIR) {
@@ -639,6 +639,11 @@ function bootNext() {
         }
       }
       bootStep = 9; requestAnimationFrame(bootNext);
+
+    } else if (bootStep === 9) {
+      setProgress(94, '建造故宫...');
+      buildForbiddenCity();
+      bootStep = 10; requestAnimationFrame(bootNext);
 
     } else {
       setProgress(100, '完成!');

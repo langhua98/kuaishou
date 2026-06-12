@@ -29,6 +29,7 @@ const SRC_FILES = [
   'src/ui.js',
   'src/audio.js',    // 音乐 + 音效（需在 game.js 之前：game.js 调用其函数）
   'src/models.js',   // GLTF 玩家模型 + NPC（需在 game.js 之前：game.js 调用其函数）
+  'src/gugong.js',   // 故宫建筑生成器（需在 game.js 之前：boot 序列调用 buildForbiddenCity）
   'src/game.js',
 ]
 
