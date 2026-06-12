@@ -342,30 +342,33 @@ function tick(now) {
   var _fwy = _sp;
   var _fwz = -Math.cos(player.yaw) * _cp;
 
-  // 优先：准星命中方块的前一格
-  _place.pos = (selHit && selHit.prev) ? selHit.prev : null;
+  _place.pos = null;
+  var _idleInc = true;  // 本帧是否累计 idleT
 
-  if (_place.pos) {
-    // 准星命中 → 重置 idleT
-    _place.idleT = 0;
-  } else {
-    // 准星未命中 → 计时；超过 7 秒清除方向记忆
-    _place.idleT += dt;
-    if (_place.idleT > 7) {
-      _place.lastPos = null;
-      _place.lastDir = null;
-      _place.idleT   = 0;
-    }
+  if (_place.lastDir && _place.lastPos) {
+    // ── 方向模式：已学到放置方向 ──────────────────────────────────────────
+    var _nx = _place.lastPos.x + _place.lastDir.x;
+    var _ny = _place.lastPos.y + _place.lastDir.y;
+    var _nz = _place.lastPos.z + _place.lastDir.z;
 
-    // 方向预测回退：有记忆方向且预测点在摄像机 45° 视锥内才显示
-    if (_place.lastDir && _place.lastPos) {
-      var _nx = _place.lastPos.x + _place.lastDir.x;
-      var _ny = _place.lastPos.y + _place.lastDir.y;
-      var _nz = _place.lastPos.z + _place.lastDir.z;
-      // ny 下界保护：不能预测到地面以下
-      if (_ny >= 0) {
-        // FOV 门控基准：玩家眼睛位置（非摄像机——第三人称摄像机在身后 4 m，
-        // 用 camera.position 会让 Y/X 方向预测块超出 8 格而被误杀）
+    // 准星是否打在上一个放置的方块上（无论哪个面）
+    var _onLast = selHit &&
+      selHit.x === _place.lastPos.x &&
+      selHit.y === _place.lastPos.y &&
+      selHit.z === _place.lastPos.z;
+
+    if (selHit && !_onLast) {
+      // 准星打到了其他方块 → 准星临时接管（允许随时切换方向）
+      _place.pos = selHit.prev ? selHit.prev : null;
+      _idleInc = false;
+    } else if (_ny >= 0) {
+      if (_onLast) {
+        // 准星打在上一个方块上 → 忽略面，强制用方向预测
+        // （防止俯视该方块顶面时预览跑到上方）
+        _place.pos = { x: _nx, y: _ny, z: _nz };
+        _idleInc = false;
+      } else {
+        // 准星未命中 → FOV 门控回退
         var _eyeX = player.x + (viewFP ? 0 : Math.cos(player.yaw) * CAM_SHOULDER);
         var _eyeY = player.y + PH * 0.85;
         var _eyeZ = player.z + (viewFP ? 0 : -Math.sin(player.yaw) * CAM_SHOULDER);
@@ -373,14 +376,30 @@ function tick(now) {
         var _ty = _ny + 0.5 - _eyeY;
         var _tz = _nz + 0.5 - _eyeZ;
         var _tlen = Math.sqrt(_tx * _tx + _ty * _ty + _tz * _tz);
-        // FOV 门控：点积 > cos(45°) ≈ 0.707，且距离 ≤ 6 格（与 raycast 一致）
         if (_tlen > 0 &&
             (_tx * _fwx + _ty * _fwy + _tz * _fwz) / _tlen > 0.707 &&
             _tlen <= 6) {
           _place.pos = { x: _nx, y: _ny, z: _nz };
+          _idleInc = false;
         }
       }
     }
+  } else if (selHit && selHit.prev) {
+    // ── 无方向记忆 → 准星完全主导 ─────────────────────────────────────────
+    _place.pos = selHit.prev;
+    _idleInc = false;
+  }
+
+  // 超时清除方向记忆（连续 7 秒无有效预览）
+  if (_idleInc) {
+    _place.idleT += dt;
+    if (_place.idleT > 7) {
+      _place.lastPos = null;
+      _place.lastDir = null;
+      _place.idleT   = 0;
+    }
+  } else {
+    _place.idleT = 0;
   }
 
   if (_place.pos) {
