@@ -1,13 +1,26 @@
 // ─── combat_cmd.js ────────────────────────────────────────────────────────────
-// 指挥层：开战按钮 + 四命令按钮（跟随/冲锋/驻守/撤退）+ 波次与胜负流程。
+// 指挥层：招兵面板（按兵种点击刷兵，无需开战）+ 四命令按钮（跟随/冲锋/驻守/撤退）。
 //
-// 开战流程：首次点击 → 加载军队模型（按钮显示进度）→ 生成我方小队 + 第 1 波敌军。
-// 胜利：敌方全灭 → 我方欢呼 → 按钮变「下一波」。
-// 我方全灭且玩家阵亡不结束战斗（敌人会向玩家复活点推进，可再点撤退重整）。
+// 招兵：点 ➕ 展开兵种面板 → 点兵种按钮刷 1 个该兵种。
+//   我方刷在玩家身边 2~4m；敌方刷在玩家面前 9~14m。
+//   首次点击触发模型加载（按钮显示进度），加载完自动补刷刚才点的兵种。
+// 胜负：敌人从有到无 → 我方欢呼几秒。
 
-var _btlWave = 0;          // 当前波次（0=未开战）
-var _btlActive = false;
-var _cmdWrap = null, _btlBtn = null;
+var _cmdWrap = null, _recruitBtn = null, _recruitPanel = null;
+var _pendingSpawn = null;     // 模型加载期间点的兵种（加载完自动刷出）
+var _hadEnemies = false;
+var ALLY_CAP = 12;            // 我方上限（与 BTL.maxEnemies 共同构成性能预算）
+
+// 招兵面板兵种（顺序即按钮顺序；skel_ 前缀 = 敌方）
+var _RECRUIT = [
+  ['🛡️', 'knight'],
+  ['🪓', 'barbarian'],
+  ['🏹', 'ranger'],
+  ['🐎', 'cavalry'],
+  ['💀', 'skel_war'],
+  ['☠️', 'skel_min'],
+  ['🎯', 'skel_rog'],
+];
 
 function buildBattleUI() {
   var ui = document.getElementById('ui');
@@ -18,8 +31,10 @@ function buildBattleUI() {
     'flex-direction:column;gap:8px;z-index:110';
   ui.appendChild(_cmdWrap);
 
-  _btlBtn = _mkBtn('⚔️', '开战', function () { startWave(); });
-  _cmdWrap.appendChild(_btlBtn);
+  _recruitBtn = _mkBtn('➕', '招兵', function () {
+    _recruitPanel.style.display = _recruitPanel.style.display === 'none' ? 'flex' : 'none';
+  });
+  _cmdWrap.appendChild(_recruitBtn);
 
   var orders = [
     ['🏃', '跟随', 'follow'],
@@ -36,11 +51,25 @@ function buildBattleUI() {
         battleToast('命令：' + o[1]);
       });
       b.id = 'cmd-' + o[2];
-      b.style.display = 'none';            // 开战后才显示
       _cmdWrap.appendChild(b);
     }(orders[i]));
   }
   _hiliteOrder();
+
+  // 兵种面板（招兵按钮右侧展开）
+  _recruitPanel = document.createElement('div');
+  _recruitPanel.style.cssText = 'position:absolute;left:80px;top:60px;display:none;' +
+    'flex-direction:column;gap:6px;z-index:110';
+  ui.appendChild(_recruitPanel);
+  for (i = 0; i < _RECRUIT.length; i++) {
+    (function (r) {
+      var enemy = r[1].indexOf('skel_') === 0;
+      var b = _mkBtn(r[0], UNIT_TYPES[r[1]].name, function () { spawnKind(r[1]); });
+      b.id = 'rec-' + r[1];
+      if (enemy) b.style.borderColor = 'rgba(239,68,68,.6)';
+      _recruitPanel.appendChild(b);
+    }(_RECRUIT[i]));
+  }
 }
 
 function _mkBtn(ic, label, onTap) {
@@ -61,73 +90,60 @@ function _hiliteOrder() {
   }
 }
 
-function _showOrderBtns() {
-  var ids = ['follow', 'charge', 'hold', 'retreat'], i, el;
-  for (i = 0; i < ids.length; i++) {
-    el = document.getElementById('cmd-' + ids[i]);
-    if (el) el.style.display = 'flex';
-  }
-}
-
-// ── 开战 / 下一波 ─────────────────────────────────────────────────────────────
-function startWave() {
-  if (_btlActive) return;
+// ── 刷兵 ──────────────────────────────────────────────────────────────────────
+function spawnKind(kind) {
   if (!_armyLoaded) {
-    _btlBtn.disabled = true;
-    _btlBtn.lastChild.textContent = '加载…';
+    _pendingSpawn = kind;
+    if (_recruitBtn.disabled) return;       // 已在加载，更新待刷兵种即可
+    _recruitBtn.disabled = true;
     loadArmyModels(function () {
-      _btlBtn.disabled = false;
-      startWave();
+      _recruitBtn.disabled = false;
+      _recruitBtn.lastChild.textContent = '招兵';
+      if (_pendingSpawn) { var k = _pendingSpawn; _pendingSpawn = null; spawnKind(k); }
     }, function (done, total) {
-      _btlBtn.lastChild.textContent = done + '/' + total;
+      _recruitBtn.lastChild.textContent = done + '/' + total;
     });
     return;
   }
 
-  _btlWave++;
-  _btlActive = true;
-  _respawn = [player.x, player.y, player.z];
+  var t = UNIT_TYPES[kind];
+  var side = kind.indexOf('skel_') === 0 ? 1 : 0;
+  if (side === 0 && countAlive(0) >= ALLY_CAP)       { battleToast('我方已满编（' + ALLY_CAP + '）'); return; }
+  if (side === 1 && countAlive(1) >= BTL.maxEnemies) { battleToast('敌人已达上限（' + BTL.maxEnemies + '）'); return; }
+
+  if (!_respawn) _respawn = [player.x, player.y, player.z];
   updatePlayerHud();
 
-  // 我方小队（首战生成；后续波次补满阵亡空缺）
-  var have = countAlive(0), i, a, r;
-  if (have < SQUAD.length) {
-    for (i = have; i < SQUAD.length; i++) {
-      a = (i / SQUAD.length) * Math.PI * 2;
-      spawnUnit(SQUAD[i], 0, player.x + Math.sin(a) * 4, player.z + Math.cos(a) * 4);
-    }
+  var a, r, x, z;
+  if (side === 0) {
+    a = Math.random() * Math.PI * 2;
+    r = 2.5 + Math.random() * 1.5;
+    x = player.x + Math.sin(a) * r;
+    z = player.z + Math.cos(a) * r;
+  } else {
+    // 玩家面前扇区（前向 = -sin(yaw), -cos(yaw)，与 raycast.js 一致）
+    a = player.yaw + (Math.random() - 0.5) * 0.9;
+    r = 9 + Math.random() * 5;
+    x = player.x - Math.sin(a) * r;
+    z = player.z - Math.cos(a) * r;
   }
-  // 我方解除欢呼
-  for (i = 0; i < combatUnits.length; i++) combatUnits[i].cheering = false;
-
-  // 敌军：玩家前方扇区 30~38m 散布
-  var comp = waveComp(_btlWave);
-  var baseA = player.yaw + (Math.random() - 0.5);
-  for (i = 0; i < comp.length; i++) {
-    a = baseA + (Math.random() - 0.5) * 1.2;
-    r = 30 + Math.random() * 8;
-    spawnUnit(comp[i], 1, player.x + Math.sin(a) * r, player.z + Math.cos(a) * r);
-  }
-
-  battleSfx('atk_draw');
-  battleToast('第 ' + _btlWave + ' 波：骷髅军 ' + comp.length + ' 人来袭！');
-  _btlBtn.style.display = 'none';
-  _showOrderBtns();
+  var u = spawnUnit(kind, side, x, z);
+  if (u) battleToast((side === 0 ? '我方 ' : '敌方 ') + t.name + ' 入场');
 }
 
-// 每帧胜负检查（combat_ai.js 的 combatUpdate 末尾调用）
+// 每帧胜负检查（combat_ai.js 的 combatUpdate 调用）：敌人从有到无 → 欢呼
 function battleProgress() {
-  if (!_btlActive) return;
-  if (countAlive(1) === 0) {
-    _btlActive = false;
-    var i, u;
-    for (i = 0; i < combatUnits.length; i++) {
-      u = combatUnits[i];
-      if (u.side === 0 && u.state !== 'DEAD') { u.cheering = true; u.cheerT = 4; u.target = null; u.state = 'IDLE'; }
+  var en = countAlive(1);
+  if (en > 0) { _hadEnemies = true; return; }
+  if (!_hadEnemies) return;
+  _hadEnemies = false;
+  var i, u;
+  for (i = 0; i < combatUnits.length; i++) {
+    u = combatUnits[i];
+    if (u.side === 0 && u.state !== 'DEAD') {
+      u.cheering = true; u.cheerT = 3; u.target = null; u.state = 'IDLE';
     }
-    battleSfx('atk_clang');
-    battleToast('🎉 第 ' + _btlWave + ' 波击退！');
-    _btlBtn.style.display = 'flex';
-    _btlBtn.lastChild.textContent = '下一波';
   }
+  battleSfx('atk_clang');
+  battleToast('🎉 敌人已肃清！');
 }

@@ -10,8 +10,9 @@
 var playerOrder = 'follow';
 
 // 敌我目标选择：最近的存活敌对单位；敌方还会考虑玩家本体
-function _pickTarget(u) {
-  var best = null, bd = BTL.detectR * BTL.detectR, i, o, dx, dz, d;
+// anyRange=true（冲锋命令）时不限索敌距离——否则敌人超过 28m 冲锋令毫无反应
+function _pickTarget(u, anyRange) {
+  var best = null, bd = anyRange ? Infinity : BTL.detectR * BTL.detectR, i, o, dx, dz, d;
   for (i = 0; i < combatUnits.length; i++) {
     o = combatUnits[i];
     if (o.side === u.side || o.state === 'DEAD') continue;
@@ -28,6 +29,23 @@ function _pickTarget(u) {
 function _distTo(u, t) {
   var dx = t.x - u.x, dz = t.z - u.z;
   return Math.sqrt(dx * dx + dz * dz);
+}
+
+// 编队跟随：按黄金角给每人分配玩家身边一个固定槽位（散开站位，不再扎堆罚站）
+function _followFormation(u, dt) {
+  var t = u.t;
+  var sa = u.id * 2.4;
+  var sr = 2.6 + (u.id % 3) * 1.0 + (t.cavalry ? 1.4 : 0);
+  var fx = player.x + Math.sin(sa) * sr, fz = player.z + Math.cos(sa) * sr;
+  var dx = fx - u.x, dz = fz - u.z;
+  var d = Math.sqrt(dx * dx + dz * dz);
+  if (d > 1.4) {
+    steerMove(u, fx, fz, d > 8 ? t.spd : t.spd * 0.55, dt);
+    if (u.actT <= 0) playAnim(u, d > 8 ? ANIM.run : ANIM.walk, 0.2);
+  } else {
+    faceTo(u, player.x, player.z, dt);   // 站定时面向玩家待命
+    if (u.actT <= 0) playAnim(u, u.cheering ? ANIM.cheer : ANIM.idle, 0.2);
+  }
 }
 
 // ── 骑兵辅助函数 ──────────────────────────────────────────────────────────────
@@ -66,9 +84,9 @@ function _scoreTarget(u, enemy) {
 }
 
 // 评分选最优目标（骑兵专用，替代 _pickTarget 的近距优先逻辑）
-function _pickBestTarget(u) {
+function _pickBestTarget(u, anyRange) {
   var best = null, bestScore = -Infinity;
-  var detectR2 = BTL.detectR * BTL.detectR;
+  var detectR2 = anyRange ? Infinity : BTL.detectR * BTL.detectR;
   var i, o, dx, dz, score;
   for (i = 0; i < combatUnits.length; i++) {
     o = combatUnits[i];
@@ -167,16 +185,15 @@ function _aiCavalry(u, dt, now) {
       }
     }
 
-    // 我方命令
+    // 我方命令（hold/retreat 强制覆盖任何战斗状态；follow/charge 需先解除 HOLD）
     if (u.side === 0) {
       if (playerOrder === 'hold')         { if (u.state !== 'HOLD') { u.state = 'HOLD'; u.target = null; } }
-      else if (playerOrder === 'retreat') { u.state = 'RETREAT'; u.target = null; }
-      else if (playerOrder === 'charge')  {
-        if (u.state === 'FOLLOW' || u.state === 'IDLE') u.state = 'SCAN';
-      } else {
-        if (!u.target && u.state !== 'FOLLOW') u.state = 'FOLLOW';
-        if (!u.target) { u.target = _pickBestTarget(u); tgt = u.target; }
-        if (u.target && u.state === 'FOLLOW') u.state = 'SCAN';
+      else if (playerOrder === 'retreat') { u.state = 'FOLLOW'; u.target = null; }
+      else {
+        if (u.state === 'HOLD') { u.state = 'FOLLOW'; u.target = null; }
+        if (!u.target) { u.target = _pickBestTarget(u, playerOrder === 'charge'); tgt = u.target; }
+        if (u.target && (u.state === 'FOLLOW' || u.state === 'IDLE')) u.state = 'SCAN';
+        else if (!u.target && (u.state === 'SCAN' || u.state === 'POSITION')) u.state = 'FOLLOW';
       }
     } else {
       if (!u.target) { u.target = _pickBestTarget(u); tgt = u.target; }
@@ -196,23 +213,19 @@ function _aiCavalry(u, dt, now) {
   switch (u.state) {
 
     case 'FOLLOW':
-      d = Math.sqrt((player.x - u.x) * (player.x - u.x) + (player.z - u.z) * (player.z - u.z));
-      if (d > BTL.followFar * 1.3) {
-        steerMove(u, player.x, player.z, t.spd * 0.7, dt);
-        if (u.actT <= 0) playAnim(u, ANIM.run, 0.2);
-      } else if (d < BTL.followNear * 1.5) {
-        steerMove(u, u.x + (u.x - player.x), u.z + (u.z - player.z), t.spd * 0.4, dt);
-        if (u.actT <= 0) playAnim(u, ANIM.walk, 0.2);
-      } else {
-        if (u.actT <= 0) playAnim(u, u.cheering ? ANIM.cheer : ANIM.idle, 0.2);
-      }
+      _followFormation(u, dt);
       break;
 
     case 'SCAN':
       if (!tgt) { u.target = _pickBestTarget(u); tgt = u.target; }
       if (!tgt) { u.state = u.side === 0 ? 'FOLLOW' : 'IDLE'; break; }
-      u.chargeFrom = _pickChargePos(u, tgt);
-      u.state = 'POSITION'; u.stateT = 0;
+      // 目标太近凑不出冲锋助跑距离：直接近战，不绕去 40m 外起跑（观感像抗命）
+      if (_distTo(u, tgt) < CAV.chargeMinDist) {
+        u.state = 'MELEE'; u.stateT = 0;
+      } else {
+        u.chargeFrom = _pickChargePos(u, tgt);
+        u.state = 'POSITION'; u.stateT = 0;
+      }
       break;
 
     case 'POSITION':
@@ -370,14 +383,17 @@ function _aiUnit(u, dt, now) {
     if (u.target && !u.target.isPlayer && u.target.state === 'DEAD') u.target = null;
 
     if (u.side === 0) {
-      // 我方按命令行事
+      // 我方按命令行事（hold/retreat 强制覆盖；follow/charge 需先解除 HOLD——
+      // 否则按过驻守后单位永远卡在 HOLD 不听后续命令）
       if (playerOrder === 'hold')         { if (u.state !== 'HOLD') { u.state = 'HOLD'; u.target = null; } }
       else if (playerOrder === 'retreat') { u.state = 'FOLLOW'; u.target = null; }
-      else if (playerOrder === 'charge')  { if (u.state === 'FOLLOW' || u.state === 'IDLE') u.state = 'SEEK'; }
-      else                                { if (u.state === 'SEEK' && !u.target) u.state = 'FOLLOW'; }
-      // 跟随中遇敌就近反击（跟随≠挨打）；撤退命令下不反击
-      if (playerOrder !== 'retreat' && !u.target) u.target = _pickTarget(u);
-      if (u.target && playerOrder !== 'retreat' && u.state !== 'HOLD') u.state = 'SEEK';
+      else {
+        if (u.state === 'HOLD') { u.state = 'FOLLOW'; u.target = null; }
+        // 跟随中遇敌就近反击（跟随≠挨打）；冲锋不限索敌距离
+        if (!u.target) u.target = _pickTarget(u, playerOrder === 'charge');
+        if (u.target) { if (u.state === 'FOLLOW' || u.state === 'IDLE') u.state = 'SEEK'; }
+        else if (u.state === 'SEEK' || u.state === 'FIGHT') u.state = 'FOLLOW';
+      }
     } else {
       if (!u.target) u.target = _pickTarget(u);
       u.state = u.target ? 'SEEK' : 'IDLE';
@@ -389,16 +405,7 @@ function _aiUnit(u, dt, now) {
   switch (u.state) {
 
     case 'FOLLOW':
-      d = Math.sqrt((player.x - u.x) * (player.x - u.x) + (player.z - u.z) * (player.z - u.z));
-      if (d > BTL.followFar) {
-        steerMove(u, player.x, player.z, t.spd, dt);
-        if (u.actT <= 0) playAnim(u, d > BTL.followFar * 2 ? ANIM.run : ANIM.walk, 0.2);
-      } else if (d < BTL.followNear) {
-        steerMove(u, u.x + (u.x - player.x), u.z + (u.z - player.z), t.spd * 0.5, dt);
-        if (u.actT <= 0) playAnim(u, ANIM.walk, 0.2);
-      } else {
-        if (u.actT <= 0) playAnim(u, u.cheering ? ANIM.cheer : ANIM.idle, 0.2);
-      }
+      _followFormation(u, dt);
       break;
 
     case 'SEEK':

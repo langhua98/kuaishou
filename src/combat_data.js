@@ -60,16 +60,6 @@ var BTL = {
   corpseT: 3,           // 尸体保留秒数
 };
 
-// 我方编制 / 敌方波次（含骑兵 P2）
-var SQUAD = ['cavalry', 'knight', 'knight', 'barbarian', 'ranger', 'ranger'];
-function waveComp(n) {     // 第 n 波（1 起）敌人构成
-  var c = ['skel_war', 'skel_war', 'skel_min', 'skel_rog'];
-  var extra = Math.min(n - 1, 4), i;
-  for (i = 0; i < extra; i++) c.push(i % 2 ? 'skel_min' : 'skel_war');
-  if (n >= 3) c.push('skel_rog');
-  return c.slice(0, BTL.maxEnemies);
-}
-
 // 动画名（KayKit 全系角色通用）
 var ANIM = {
   idle: 'Idle', walk: 'Walking_A', run: 'Running_A',
