@@ -123,7 +123,7 @@ function battleProgress() {
     var i, u;
     for (i = 0; i < combatUnits.length; i++) {
       u = combatUnits[i];
-      if (u.side === 0 && u.state !== 'DEAD') { u.cheering = true; u.target = null; u.state = 'IDLE'; }
+      if (u.side === 0 && u.state !== 'DEAD') { u.cheering = true; u.cheerT = 4; u.target = null; u.state = 'IDLE'; }
     }
     battleSfx('atk_clang');
     battleToast('🎉 第 ' + _btlWave + ' 波击退！');

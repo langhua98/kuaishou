@@ -69,6 +69,55 @@ function steerMove(u, tx, tz, spd, dt) {
   return true;
 }
 
+// ── 硬碰撞解算（每帧，AI 移动之后、渲染同步之前）────────────────────────────
+// 软分离力只在移动时生效；站定攻击的单位靠这里保证不重叠：
+//   单位↔单位：圆形（半径 UNIT_R）两两推挤，各退一半
+//   单位↔玩家：只推单位（不干扰玩家操作手感）
+//   推挤不得进入实心方块/跌落悬崖（_tryShift 校验后才生效）
+var UNIT_R = 0.45;
+
+function _tryShift(u, sx, sz) {
+  var nx = u.x + sx, nz = u.z + sz;
+  var gy = _groundY(Math.floor(nx), Math.floor(nz));
+  if (Math.abs(gy - u.y) > 1.2) return;                       // 落差过大：不推
+  var head = getBlock(Math.floor(nx), Math.floor(u.y) + 1, Math.floor(nz));
+  if (head !== AIR && head !== WATER) return;                 // 推进墙里：不推
+  u.x = nx; u.z = nz;
+  u.y += (gy - u.y) * 0.5;
+}
+
+function resolveUnitCollisions() {
+  var n = combatUnits.length, i, j, a, b, dx, dz, d2, d, min, push;
+  for (i = 0; i < n; i++) {
+    a = combatUnits[i];
+    if (a.state === 'DEAD') continue;
+
+    for (j = i + 1; j < n; j++) {
+      b = combatUnits[j];
+      if (b.state === 'DEAD') continue;
+      dx = b.x - a.x; dz = b.z - a.z;
+      d2 = dx * dx + dz * dz;
+      min = UNIT_R * 2;
+      if (d2 >= min * min) continue;
+      if (d2 < 0.0001) { dx = 0.02 * (i - j); dz = 0.017; d2 = dx * dx + dz * dz; }  // 完全重合：固定方向錯开
+      d = Math.sqrt(d2);
+      push = (min - d) * 0.5;
+      dx /= d; dz /= d;
+      _tryShift(a, -dx * push, -dz * push);
+      _tryShift(b,  dx * push,  dz * push);
+    }
+
+    // 与玩家推挤（单方向：推单位）
+    dx = a.x - player.x; dz = a.z - player.z;
+    d2 = dx * dx + dz * dz;
+    min = UNIT_R + 0.42;
+    if (d2 < min * min && d2 > 0.0001) {
+      d = Math.sqrt(d2);
+      _tryShift(a, (dx / d) * (min - d), (dz / d) * (min - d));
+    }
+  }
+}
+
 // 面向某点（站立攻击时用）
 function faceTo(u, tx, tz, dt) {
   var tyaw = Math.atan2(tx - u.x, tz - u.z);

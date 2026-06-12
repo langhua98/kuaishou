@@ -35,6 +35,11 @@ function _aiUnit(u, dt, now) {
   u.stateT += dt;
   if (u.atkCd > 0) u.atkCd -= dt;
   if (u.actT > 0)  u.actT -= dt;
+  // 胜利欢呼限时，结束后恢复跟随（否则永远站在原地）
+  if (u.cheering) {
+    u.cheerT -= dt;
+    if (u.cheerT <= 0) { u.cheering = false; if (u.side === 0) u.state = 'FOLLOW'; }
+  }
 
   // 死亡：动画播完保留尸体几秒后移除
   if (u.state === 'DEAD') {
@@ -132,8 +137,11 @@ function _aiUnit(u, dt, now) {
       break;
 
     case 'HOLD':
-      // 驻守：不移动，打进入射程的敌人
-      if (!tgt || _distTo(u, tgt) > (t.ranged ? BTL.rangedFar : t.range * 1.2)) {
+      // 驻守：不移动，打进入射程的敌人（索敌走 0.2s 决策节流，不每帧扫）
+      if (tgt && _distTo(u, tgt) > (t.ranged ? BTL.rangedFar : t.range * 1.2)) {
+        u.target = null; tgt = null;
+      }
+      if (!tgt && now >= u.nextDecide - BTL.decideIv * 0.5) {
         u.target = _pickTarget(u);
         tgt = u.target;
       }
@@ -166,15 +174,20 @@ function _aiUnit(u, dt, now) {
 function combatUpdate(dt, now) {
   battleProgress();   // 胜负判定先行（即使单位清空也要能收尾，combat_cmd.js）
   if (!combatUnits.length) return;
+  _playerProxy();     // 刷新玩家伪单位坐标（敌方把它当持久目标，防坐标过期）
   var i, u;
+  // 第一段：AI 决策与移动（可能更新 x/z）
   for (i = combatUnits.length - 1; i >= 0; i--) {
+    _aiUnit(combatUnits[i], dt, now);
+  }
+  // 第二段：硬碰撞解算（单位↔单位、单位↔玩家，combat_steer.js）
+  resolveUnitCollisions();
+  // 第三段：同步渲染（碰撞修正后的最终位置）
+  for (i = 0; i < combatUnits.length; i++) {
     u = combatUnits[i];
-    _aiUnit(u, dt, now);
-    // 同步渲染
     u.group.position.set(u.x, u.y, u.z);
     u.group.rotation.y = u.yaw;
     u.mixer.update(dt);
-    if (u.hpBar) u.hpBar.quaternion.copy(camera.quaternion);
   }
   updateArrows(dt);
 }

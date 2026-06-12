@@ -92,7 +92,7 @@ function spawnUnit(kind, side, x, z) {
     hp: t.hp, atkCd: 0, actT: 0,
     state: side === 0 ? 'FOLLOW' : 'SEEK',
     stateT: 0, target: null, nextDecide: 0,
-    deadT: 0, cheering: false,
+    deadT: 0, cheering: false, cheerT: 0,
     group: group, model: model, mixer: mixer, anims: anims, curAnim: '',
     hpBar: null,
   };
@@ -134,8 +134,8 @@ function damageUnit(u, dmg, fromUnit) {
     playAnim(u, ANIM.hit, 0.08, true);
     u.actT = 0.45;
   }
-  // 被打必还手：空闲或在追别人时转火
-  if (fromUnit && !fromUnit.isPlayer && u.target !== fromUnit) u.target = fromUnit;
+  // 被打必还手：转火攻击者（玩家伪单位为持久对象，可直接作为目标）
+  if (fromUnit && u.target !== fromUnit) u.target = fromUnit;
 }
 
 function killUnit(u) {
