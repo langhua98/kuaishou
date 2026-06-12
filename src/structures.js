@@ -86,9 +86,12 @@ function placeStructure(s, ox, baseY, oz) {
   for (k in dirty) { cd = dirty[k]; rebuildChunk(cd[0], cd[1]); }
 }
 
-// ── 简易城堡 ──────────────────────────────────────────────────────────────────
-// 20×20 脚印，城墙 COBBLE 1 块厚 6 高；四角塔 3×3×8；南门 2 宽 4 高开口；
-// 内部铺 GRAY_BRICK；北部石砌城主楼；正中放 1 块领地石设结界。
+// ── 简易城堡（美化版）────────────────────────────────────────────────────────
+// 22×22 脚印，COBBLE/GRAY_BRICK/WHITE_STONE/RED_PILLAR 混用；
+// 城墙 6 高，带交替垛口；四角瞭望塔 3×3×9，顶放 GRAY_ROOF 尖顶；
+// 南门 3 宽 5 高，两侧 RED_PILLAR 门柱；内部铺灰砖，正中白石路；
+// 北侧石砌主楼 10×7，双层，GRAY_ROOF 尖顶；广场中有 WHITE_STONE 水井圈；
+// 城堡正中放领地石激活 R=25 结界。
 function placeSimpleCastle(ox, oz) {
   var BY = SEA + 2;
   var dirty = {};
@@ -112,32 +115,61 @@ function placeSimpleCastle(ox, oz) {
     if (lz === CHUNK_D-1) { ec(cx,cz+1); dirty[ckey(cx,cz+1)] = [cx,cz+1]; }
   }
 
-  var x, z, y, W = 20, WALL_H = 6, TOWER_H = 8;
+  var x, z, y;
+  var W = 22, WALL_H = 6, TOWER_H = 9;
 
-  // 庭院地面（灰砖铺地，城墙内侧 1 格起）
+  // ── 庭院地面 ──────────────────────────────────────────────────────────────
   for (x = 1; x < W-1; x++) {
     for (z = 1; z < W-1; z++) {
       raw(ox+x, BY, oz+z, GRAY_BRICK);
     }
   }
+  // 中央白石路（南北向，城门 → 主楼门口）
+  for (z = 2; z < W-3; z++) {
+    raw(ox+10, BY, oz+z, WHITE_STONE);
+    raw(ox+11, BY, oz+z, WHITE_STONE);
+  }
 
-  // 四面城墙（外围一圈，高 6）；南墙中央留 2 格宽 4 格高的城门
+  // ── 四面城墙（6 高 + 交替垛口）──────────────────────────────────────────
   for (y = 0; y < WALL_H; y++) {
     for (x = 0; x < W; x++) {
-      raw(ox+x, BY+y, oz,     COBBLE);   // 北墙
-      if (y < 4 && (x === 9 || x === 10)) {
-        // 城门开口，不放块
+      raw(ox+x, BY+y, oz,     COBBLE);  // 北墙
+      // 南墙：城门开口（x=9,10,11，高度 0-4）
+      if (y < 5 && (x === 9 || x === 10 || x === 11)) {
+        // 门洞，不放
       } else {
-        raw(ox+x, BY+y, oz+W-1, COBBLE); // 南墙
+        raw(ox+x, BY+y, oz+W-1, COBBLE);
       }
     }
     for (z = 1; z < W-1; z++) {
-      raw(ox,     BY+y, oz+z, COBBLE);   // 西墙
-      raw(ox+W-1, BY+y, oz+z, COBBLE);   // 东墙
+      raw(ox,     BY+y, oz+z, COBBLE);  // 西墙
+      raw(ox+W-1, BY+y, oz+z, COBBLE);  // 东墙
     }
   }
+  // 城墙顶部垛口（交替凸凹，偶数格放方块）
+  for (x = 0; x < W; x++) {
+    if (x % 2 === 0) {
+      raw(ox+x, BY+WALL_H, oz,     COBBLE);
+      raw(ox+x, BY+WALL_H, oz+W-1, COBBLE);
+    }
+  }
+  for (z = 1; z < W-1; z++) {
+    if (z % 2 === 0) {
+      raw(ox,     BY+WALL_H, oz+z, COBBLE);
+      raw(ox+W-1, BY+WALL_H, oz+z, COBBLE);
+    }
+  }
+  // 城门两侧 RED_PILLAR 门柱（全高）
+  for (y = 0; y < WALL_H + 1; y++) {
+    raw(ox+8,  BY+y, oz+W-1, RED_PILLAR);
+    raw(ox+12, BY+y, oz+W-1, RED_PILLAR);
+  }
+  // 城门横梁（WHITE_STONE 门楣）
+  raw(ox+9,  BY+5, oz+W-1, WHITE_STONE);
+  raw(ox+10, BY+5, oz+W-1, WHITE_STONE);
+  raw(ox+11, BY+5, oz+W-1, WHITE_STONE);
 
-  // 四角瞭望塔（3×3，8 高）
+  // ── 四角瞭望塔（3×3，9 高，顶放 GRAY_ROOF）──────────────────────────────
   var corners = [[0,0],[W-3,0],[0,W-3],[W-3,W-3]];
   var ti;
   for (ti = 0; ti < corners.length; ti++) {
@@ -145,45 +177,79 @@ function placeSimpleCastle(ox, oz) {
     for (y = 0; y < TOWER_H; y++) {
       for (x = 0; x < 3; x++) {
         for (z = 0; z < 3; z++) {
-          raw(ox+tx+x, BY+y, oz+tz+z, COBBLE);
+          raw(ox+tx+x, BY+y, oz+tz+z, y < 6 ? COBBLE : GRAY_BRICK);
         }
       }
     }
-    // 塔顶垛口（四角各 1 块）
-    raw(ox+tx,   BY+TOWER_H, oz+tz,   COBBLE);
-    raw(ox+tx+2, BY+TOWER_H, oz+tz,   COBBLE);
-    raw(ox+tx,   BY+TOWER_H, oz+tz+2, COBBLE);
-    raw(ox+tx+2, BY+TOWER_H, oz+tz+2, COBBLE);
+    // 塔顶：GRAY_ROOF 尖顶 + 四角小垛口
+    raw(ox+tx+1, BY+TOWER_H,   oz+tz+1, GRAY_ROOF);  // 中心尖顶
+    raw(ox+tx,   BY+TOWER_H,   oz+tz,   COBBLE);
+    raw(ox+tx+2, BY+TOWER_H,   oz+tz,   COBBLE);
+    raw(ox+tx,   BY+TOWER_H,   oz+tz+2, COBBLE);
+    raw(ox+tx+2, BY+TOWER_H,   oz+tz+2, COBBLE);
   }
 
-  // 北侧城主楼（8×5 脚印，STONE 外墙 + PLANKS 地板，8 高）
+  // ── 北侧主楼（10×7，双层，白石上层，灰屋顶尖）────────────────────────────
   var kox = ox+6, koz = oz+2;
-  for (y = 0; y < 8; y++) {
-    for (x = 0; x < 8; x++) {
-      for (z = 0; z < 5; z++) {
-        if (x === 0 || x === 7 || z === 0 || z === 4) {
-          raw(kox+x, BY+y, koz+z, STONE);
-        }
+  // 下层（STONE 外墙 + PLANKS 地板），高 5
+  for (y = 0; y < 5; y++) {
+    for (x = 0; x < 10; x++) {
+      for (z = 0; z < 7; z++) {
+        if (x === 0 || x === 9 || z === 0 || z === 6) raw(kox+x, BY+y, koz+z, STONE);
       }
     }
   }
-  for (x = 1; x < 7; x++) {
-    for (z = 1; z < 4; z++) {
-      raw(kox+x, BY, koz+z, PLANKS);
+  for (x = 1; x < 9; x++) {
+    for (z = 1; z < 6; z++) raw(kox+x, BY, koz+z, PLANKS);
+  }
+  // 上层（WHITE_STONE 外墙），高 3
+  for (y = 5; y < 8; y++) {
+    for (x = 0; x < 10; x++) {
+      for (z = 0; z < 7; z++) {
+        if (x === 0 || x === 9 || z === 0 || z === 6) raw(kox+x, BY+y, koz+z, WHITE_STONE);
+      }
     }
   }
-  // 主楼门洞（南面正中，2 宽 3 高）
-  for (y = 0; y < 3; y++) {
-    raw(kox+3, BY+y, koz+4, AIR);
-    raw(kox+4, BY+y, koz+4, AIR);
+  // 楼顶 GRAY_BRICK 封顶 + 中央 GRAY_ROOF 尖顶两块
+  for (x = 0; x < 10; x++) {
+    for (z = 0; z < 7; z++) raw(kox+x, BY+8, koz+z, GRAY_BRICK);
+  }
+  raw(kox+4, BY+9, koz+3, GRAY_ROOF);
+  raw(kox+5, BY+9, koz+3, GRAY_ROOF);
+  // 主楼南面门洞（3 宽 4 高，面向广场）
+  for (y = 0; y < 4; y++) {
+    raw(kox+4, BY+y, koz+6, AIR);
+    raw(kox+5, BY+y, koz+6, AIR);
+    raw(kox+6, BY+y, koz+6, AIR);
+  }
+  // 门口两侧 RED_PILLAR 柱
+  for (y = 0; y < 5; y++) {
+    raw(kox+3, BY+y, koz+6, RED_PILLAR);
+    raw(kox+7, BY+y, koz+6, RED_PILLAR);
   }
 
-  // 城堡广场中心（城门内侧中央，供招兵系统使用）
-  _castleCourtyard = { x: ox + 10, z: oz + 13 };
+  // ── 广场中心水井（5×5 WHITE_STONE 圈，高 1）──────────────────────────────
+  for (x = 8; x <= 13; x++) {
+    raw(ox+x, BY+1, oz+14, WHITE_STONE);
+    raw(ox+x, BY+1, oz+18, WHITE_STONE);
+  }
+  for (z = 15; z <= 17; z++) {
+    raw(ox+8,  BY+1, oz+z, WHITE_STONE);
+    raw(ox+13, BY+1, oz+z, WHITE_STONE);
+  }
 
-  // 领地石放置于广场正中（地面 +1，可见），激活结界
-  raw(ox+10, BY+1, oz+10, TERRITORY_STONE);
-  if (typeof _addTerritory === 'function') _addTerritory(ox+10, BY+1, oz+10);
+  // ── 广场四盏石柱路灯（城门内侧两侧 + 主楼门口两侧）────────────────────────
+  raw(ox+7,  BY+1, oz+W-3, RED_PILLAR);
+  raw(ox+14, BY+1, oz+W-3, RED_PILLAR);
+  raw(ox+7,  BY+1, oz+9,   RED_PILLAR);
+  raw(ox+14, BY+1, oz+9,   RED_PILLAR);
+
+  // ── 城堡广场中心（供招兵系统使用）────────────────────────────────────────
+  _castleCourtyard = { x: ox + 11, z: oz + 15 };
+
+  // 领地石放于广场中心，激活 R=25 结界
+  raw(ox+11, BY+1, oz+11, TERRITORY_STONE);
+  if (typeof _addTerritory === 'function') _addTerritory(ox+11, BY+1, oz+11);
 
   var k, cd;
   for (k in dirty) { cd = dirty[k]; rebuildChunk(cd[0], cd[1]); }

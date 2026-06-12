@@ -153,6 +153,11 @@ function playAnim(u, name, fade, once) {
 
 // ── 伤害与死亡 ────────────────────────────────────────────────────────────────
 function damageUnit(u, dmg, fromUnit) {
+  if (u.isTower) {
+    if (typeof damageTower === 'function' && u.towerRef && !u.towerRef.dead)
+      damageTower(u.towerRef, dmg, fromUnit);
+    return;
+  }
   if (u.state === 'DEAD') return;
   // 盾牌格挡：持盾兵种 30% 概率减半伤害（自己攻击动作中举不起盾）
   var blocked = false;

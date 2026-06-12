@@ -37,6 +37,7 @@ const SRC_FILES = [
   'src/combat_fx.js',   // ④ 表现：箭矢/血条/音效/玩家HUD（combat_ai 调用其函数）
   'src/combat_ai.js',   // ⑤ 决策：FSM + combatUpdate 入口
   'src/combat_cmd.js',  // ⑥ 指挥：开战/命令按钮/波次胜负
+  'src/combat_tower.js',// ⑦ 塔防：魔法塔/魔法弹/敌方攻塔（需在 combat_cmd 之后：placeTower 被 cmd 调用）
   'src/structures.js',  // 开源中式建筑数据 + placeStructures()（需在 game.js 之前）
   'src/game.js',
 ]

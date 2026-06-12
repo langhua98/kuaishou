@@ -116,6 +116,7 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
 
 <script src="three.min.js"></script>
 <script src="GLTFLoader.js"></script>
+<script src="https://unpkg.com/partykals@1.0.2/dist/partykals.js"></script>
 
 <!-- Diagnostic: runs before the game bundle -->
 <script>
@@ -1864,6 +1865,11 @@ function playAnim(u, name, fade, once) {
 
 // ── 伤害与死亡 ────────────────────────────────────────────────────────────────
 function damageUnit(u, dmg, fromUnit) {
+  if (u.isTower) {
+    if (typeof damageTower === 'function' && u.towerRef && !u.towerRef.dead)
+      damageTower(u.towerRef, dmg, fromUnit);
+    return;
+  }
   if (u.state === 'DEAD') return;
   // 盾牌格挡：持盾兵种 30% 概率减半伤害（自己攻击动作中举不起盾）
   var blocked = false;
@@ -1931,22 +1937,31 @@ function countAlive(side) {
 // 上下坡：跟随地形列高度，差 ≤1 格直接走上（体素世界天然台阶）。
 
 // ── 领地结界系统 ──────────────────────────────────────────────────────────────
-// 每块领地石在放置时创建半径 12m 的保护圈；敌方无法进入该范围。
-// 用紫色线框 BoxHelper 标注边界（高度 10m，视觉提示）。
+// 每块领地石放置时创建 R=25m 保护圈；敌方无法进入。
+// 双层紫色线框（内层实线 + 外层虚框）+ 脉冲透明度动画。
 
-var _territoryList = [];   // [{cx,cz,r,mesh}]
+var _territoryList = [];   // [{cx,cz,r,mesh,meshOut,_t}]
+var _territoryTime = 0;    // 动画时间（updateTerritoryFx 累加）
 
 function _addTerritory(bx, by, bz) {
-  var R = 12;
-  var H = 10;
+  var R = 25, H = 18;
   var cx = bx + 0.5, cz = bz + 0.5;
-  var geo = new THREE.BoxGeometry(R * 2, H, R * 2);
-  var edges = new THREE.EdgesGeometry(geo);
-  var mat = new THREE.LineBasicMaterial({ color: 0x9333ea, transparent: true, opacity: 0.85 });
-  var mesh = new THREE.LineSegments(edges, mat);
-  mesh.position.set(cx, by + H / 2, cz);
-  scene.add(mesh);
-  _territoryList.push({ cx: cx, cz: cz, r: R, mesh: mesh });
+
+  // 内层：主边框（亮紫色）
+  var geo1 = new THREE.BoxGeometry(R * 2, H, R * 2);
+  var mat1 = new THREE.LineBasicMaterial({ color: 0x9333ea, transparent: true, opacity: 0.9 });
+  var mesh1 = new THREE.LineSegments(new THREE.EdgesGeometry(geo1), mat1);
+  mesh1.position.set(cx, by + H / 2, cz);
+  scene.add(mesh1);
+
+  // 外层：略大虚框（淡紫色，稍慢反向旋转）
+  var geo2 = new THREE.BoxGeometry(R * 2.08, H * 1.12, R * 2.08);
+  var mat2 = new THREE.LineBasicMaterial({ color: 0xc084fc, transparent: true, opacity: 0.3 });
+  var mesh2 = new THREE.LineSegments(new THREE.EdgesGeometry(geo2), mat2);
+  mesh2.position.set(cx, by + H / 2, cz);
+  scene.add(mesh2);
+
+  _territoryList.push({ cx: cx, cz: cz, r: R, mesh: mesh1, meshOut: mesh2 });
 }
 
 function _removeTerritory(bx, by, bz) {
@@ -1954,15 +1969,29 @@ function _removeTerritory(bx, by, bz) {
   for (i = _territoryList.length - 1; i >= 0; i--) {
     var t = _territoryList[i];
     if (Math.abs(t.cx - cx) < 0.5 && Math.abs(t.cz - cz) < 0.5) {
-      scene.remove(t.mesh);
-      t.mesh.material.dispose();
+      scene.remove(t.mesh); t.mesh.material.dispose();
+      scene.remove(t.meshOut); t.meshOut.material.dispose();
       _territoryList.splice(i, 1);
       return;
     }
   }
 }
 
-// 判断 (x,z) 是否在任意领地保护范围内
+// 每帧动画（combat_ai.js combatUpdate 调用）
+function updateTerritoryFx(dt) {
+  _territoryTime += dt;
+  var i, t, pulse;
+  for (i = 0; i < _territoryList.length; i++) {
+    t = _territoryList[i];
+    pulse = 0.55 + 0.38 * Math.sin(_territoryTime * 2.2 + i * 1.3);
+    t.mesh.material.opacity = pulse;
+    t.meshOut.material.opacity = pulse * 0.35;
+    t.mesh.rotation.y    += dt * 0.04;
+    t.meshOut.rotation.y -= dt * 0.025;
+  }
+}
+
+// 判断 (x,z) 是否在任意领地保护范围内（R=25 AABB）
 function _inTerritory(x, z) {
   var i, t;
   for (i = 0; i < _territoryList.length; i++) {
@@ -2287,10 +2316,30 @@ function battleToast(msg) {
 
 var playerOrder = 'follow';
 
-// 敌我目标选择：最近的存活敌对单位；敌方还会考虑玩家本体
-// anyRange=true（冲锋命令）时不限索敌距离——否则敌人超过 28m 冲锋令毫无反应
+// 敌我目标选择。玩家完全免伤——敌方永不索敌玩家。
+// 敌方（side=1）优先攻击防御塔（_towers 由 combat_tower.js 提供）。
 function _pickTarget(u, anyRange) {
-  var best = null, bd = anyRange ? Infinity : BTL.detectR * BTL.detectR, i, o, dx, dz, d;
+  var i, o, dx, dz, d;
+  var detectR2 = anyRange ? Infinity : BTL.detectR * BTL.detectR;
+
+  // 敌方：优先选最近的防御塔
+  if (u.side === 1 && typeof _towers !== 'undefined' && _towers.length > 0) {
+    var bestTw = null, btd = detectR2 * 1.5;   // 塔感知范围稍大
+    for (i = 0; i < _towers.length; i++) {
+      var tw = _towers[i];
+      if (tw.dead) continue;
+      dx = tw.x - u.x; dz = tw.z - u.z; d = dx*dx + dz*dz;
+      if (d < btd) { btd = d; bestTw = tw; }
+    }
+    if (bestTw) {
+      return { isTower:true, towerRef:bestTw, side:0,
+        x:bestTw.x, y:bestTw.y, z:bestTw.z,
+        t:{ h:4, hp:bestTw.maxHp, range:2.2, ranged:false },
+        state:'HOLD', hp:bestTw.hp, kind:'tower' };
+    }
+  }
+
+  var best = null, bd = detectR2;
   for (i = 0; i < combatUnits.length; i++) {
     o = combatUnits[i];
     if (o.side === u.side || o.state === 'DEAD') continue;
@@ -2304,22 +2353,75 @@ function _pickTarget(u, anyRange) {
   return best;
 }
 
+// 集火：全军攻当前血量百分比最低的敌方单位
+function _getFocusTarget() {
+  var best = null, bestRatio = Infinity, i, o, r;
+  for (i = 0; i < combatUnits.length; i++) {
+    o = combatUnits[i];
+    if (o.side === 0 || o.state === 'DEAD') continue;
+    r = o.hp / o.t.hp;
+    if (r < bestRatio) { bestRatio = r; best = o; }
+  }
+  return best;
+}
+
+// 包围：分配给每个盟友一个围绕敌方重心的角度位置
+function _getSurroundPos(u) {
+  var ex = 0, ez = 0, en = 0, i, o;
+  for (i = 0; i < combatUnits.length; i++) {
+    o = combatUnits[i];
+    if (o.side === 0 || o.state === 'DEAD') continue;
+    ex += o.x; ez += o.z; en++;
+  }
+  if (en === 0) return null;
+  ex /= en; ez /= en;
+  var allies = [], rank = 0, total;
+  for (i = 0; i < combatUnits.length; i++) {
+    o = combatUnits[i];
+    if (o.side === 0 && o.state !== 'DEAD') allies.push(o.id);
+  }
+  allies.sort(function (a, b) { return a - b; });
+  rank = allies.indexOf(u.id);
+  total = Math.max(1, allies.length);
+  var angle = (rank / total) * Math.PI * 2;
+  var radius = 4 + total * 0.25;
+  return { x: ex + Math.sin(angle) * radius, z: ez + Math.cos(angle) * radius,
+           tx: ex, tz: ez };
+}
+
+// 命中朝向判定：攻击者必须面向目标 ±70°，被碰撞推得转了身就挥空
+function _facingTo(u, t) {
+  var dy = Math.atan2(t.x - u.x, t.z - u.z) - u.yaw;
+  while (dy > Math.PI)  dy -= Math.PI * 2;
+  while (dy < -Math.PI) dy += Math.PI * 2;
+  return Math.abs(dy) < 1.22;
+}
+
 function _distTo(u, t) {
   var dx = t.x - u.x, dz = t.z - u.z;
   return Math.sqrt(dx * dx + dz * dz);
 }
 
 // 方队跟随：所有待命盟友按矩形方阵站位（玩家身后），各有专属格子不扎堆。
-// 站定后面向玩家，整齐待命。
+// rangedFront 命令时，远程单位排在前排（较小 row），近战排后排。
 function _followFormation(u, dt) {
-  // 统计当前跟随/待命我方单位，按 id 排序取该单位的名次
   var allies = [], i, o;
   for (i = 0; i < combatUnits.length; i++) {
     o = combatUnits[i];
-    if (o.side === 0 && o.state !== 'DEAD') allies.push(o.id);
+    if (o.side === 0 && o.state !== 'DEAD') allies.push(o);
   }
-  allies.sort(function (a, b) { return a - b; });
-  var rank = allies.indexOf(u.id), total = allies.length;
+  // 弓手前移：远程单位先排（前排），近战后排
+  if (playerOrder === 'rangedFront') {
+    allies.sort(function (a, b) {
+      var ar = a.t.ranged ? 0 : 1, br = b.t.ranged ? 0 : 1;
+      return ar !== br ? ar - br : a.id - b.id;
+    });
+  } else {
+    allies.sort(function (a, b) { return a.id - b.id; });
+  }
+  var ids = [];
+  for (i = 0; i < allies.length; i++) ids.push(allies[i].id);
+  var rank = ids.indexOf(u.id), total = allies.length;
 
   var cols = Math.max(1, Math.ceil(Math.sqrt(total)));
   var col  = rank % cols;
@@ -2482,11 +2584,22 @@ function _aiCavalry(u, dt, now) {
       }
     }
 
-    // 我方命令（hold/retreat 强制覆盖任何战斗状态；follow/charge 需先解除 HOLD）
+    // 我方命令（骑兵版）
     if (u.side === 0) {
-      if (playerOrder === 'hold')         { if (u.state !== 'HOLD') { u.state = 'HOLD'; u.target = null; } }
-      else if (playerOrder === 'retreat') { u.state = 'FOLLOW'; u.target = null; }
-      else {
+      if (playerOrder === 'hold') {
+        if (u.state !== 'HOLD') { u.state = 'HOLD'; u.target = null; }
+      } else if (playerOrder === 'retreat') {
+        u.state = 'FOLLOW'; u.target = null;
+      } else if (playerOrder === 'rally') {
+        u.target = null; tgt = null;
+        if (u.state !== 'FOLLOW') u.state = 'FOLLOW';
+      } else if (playerOrder === 'focus') {
+        if (u.state === 'HOLD') { u.state = 'FOLLOW'; u.target = null; }
+        var ftc = _getFocusTarget();
+        if (ftc) { u.target = ftc; tgt = ftc; }
+        if (u.target && (u.state === 'FOLLOW' || u.state === 'IDLE')) u.state = 'SCAN';
+        else if (!u.target && (u.state === 'SCAN' || u.state === 'POSITION')) u.state = 'FOLLOW';
+      } else {
         if (u.state === 'HOLD') { u.state = 'FOLLOW'; u.target = null; }
         if (!u.target) { u.target = _pickBestTarget(u, playerOrder === 'charge'); tgt = u.target; }
         if (u.target && (u.state === 'FOLLOW' || u.state === 'IDLE')) u.state = 'SCAN';
@@ -2680,13 +2793,22 @@ function _aiUnit(u, dt, now) {
     if (u.target && !u.target.isPlayer && u.target.state === 'DEAD') u.target = null;
 
     if (u.side === 0) {
-      // 我方按命令行事（hold/retreat 强制覆盖；follow/charge 需先解除 HOLD——
-      // 否则按过驻守后单位永远卡在 HOLD 不听后续命令）
-      if (playerOrder === 'hold')         { if (u.state !== 'HOLD') { u.state = 'HOLD'; u.target = null; } }
-      else if (playerOrder === 'retreat') { u.state = 'FOLLOW'; u.target = null; }
-      else {
+      if (playerOrder === 'hold') {
+        if (u.state !== 'HOLD') { u.state = 'HOLD'; u.target = null; }
+      } else if (playerOrder === 'retreat') {
+        u.state = 'FOLLOW'; u.target = null;
+      } else if (playerOrder === 'rally') {
+        u.target = null;
+        if (u.state !== 'FOLLOW' && u.state !== 'IDLE') u.state = 'FOLLOW';
+      } else if (playerOrder === 'focus') {
         if (u.state === 'HOLD') { u.state = 'FOLLOW'; u.target = null; }
-        // 跟随中遇敌就近反击（跟随≠挨打）；冲锋不限索敌距离
+        var ft = _getFocusTarget();
+        if (ft) u.target = ft;
+        if (u.target) { if (u.state === 'FOLLOW' || u.state === 'IDLE') u.state = 'SEEK'; }
+        else if (u.state === 'SEEK' || u.state === 'FIGHT') u.state = 'FOLLOW';
+      } else {
+        // follow / charge / surround / rangedFront 使用同一决策逻辑，行为层区分
+        if (u.state === 'HOLD') { u.state = 'FOLLOW'; u.target = null; }
         if (!u.target) u.target = _pickTarget(u, playerOrder === 'charge');
         if (u.target) { if (u.state === 'FOLLOW' || u.state === 'IDLE') u.state = 'SEEK'; }
         else if (u.state === 'SEEK' || u.state === 'FIGHT') u.state = 'FOLLOW';
@@ -2702,11 +2824,55 @@ function _aiUnit(u, dt, now) {
   switch (u.state) {
 
     case 'FOLLOW':
+      // 包围命令：移动到围绕敌军重心的分配角度位置
+      if (playerOrder === 'surround' && u.side === 0) {
+        var sp = _getSurroundPos(u);
+        if (sp) {
+          var sdx = sp.x - u.x, sdz = sp.z - u.z, sdd = Math.sqrt(sdx*sdx+sdz*sdz);
+          if (sdd > 2) {
+            steerMove(u, sp.x, sp.z, u.t.spd, dt);
+            if (u.actT <= 0) playAnim(u, sdd > 5 ? ANIM.run : ANIM.walk, 0.2);
+          } else {
+            faceTo(u, sp.tx, sp.tz, dt);
+            if (!tgt) { u.target = _pickTarget(u, true); tgt = u.target; }
+            if (tgt) u.state = 'SEEK';
+            else if (u.actT <= 0) playAnim(u, ANIM.idle, 0.2);
+          }
+          break;
+        }
+      }
       _followFormation(u, dt);
       break;
 
     case 'SEEK':
+      // 敌方：优先趋向防御塔
+      if (u.side === 1 && typeof _towers !== 'undefined' && _towers.length > 0) {
+        var ntw = null, ntd = BTL.detectR * BTL.detectR * 1.5;
+        var ti, twObj, tdx, tdz, td;
+        for (ti = 0; ti < _towers.length; ti++) {
+          twObj = _towers[ti]; if (twObj.dead) continue;
+          tdx = twObj.x - u.x; tdz = twObj.z - u.z; td = tdx*tdx+tdz*tdz;
+          if (td < ntd) { ntd = td; ntw = twObj; }
+        }
+        if (ntw) {
+          var twd = Math.sqrt((ntw.x-u.x)*(ntw.x-u.x)+(ntw.z-u.z)*(ntw.z-u.z));
+          if (twd > 2.2) {
+            steerMove(u, ntw.x, ntw.z, t.spd, dt);
+            if (u.actT <= 0) playAnim(u, ANIM.run, 0.2);
+          } else {
+            faceTo(u, ntw.x, ntw.z, dt);
+            if (u.atkCd <= 0 && u.actT <= 0) {
+              playAnim(u, Math.random() < 0.5 ? ANIM.atk1 : ANIM.atk2, 0.08, true);
+              u.actT = 0.9; u.atkCd = t.atkCd;
+              battleSfx('atk_clang');
+            } else if (u.actT <= 0) { playAnim(u, ANIM.idle, 0.2); }
+          }
+          break;
+        }
+      }
       if (!tgt) { u.state = u.side === 0 ? 'FOLLOW' : 'IDLE'; break; }
+      // 塔代理目标：如目标是塔且已死，清除目标
+      if (tgt.isTower && tgt.towerRef && tgt.towerRef.dead) { u.target = null; u.state = 'IDLE'; break; }
       d = _distTo(u, tgt);
       if (t.ranged) {
         // 弓手：保持距离带，太近后撤、太远逼近，带内射击
@@ -2782,7 +2948,10 @@ function _aiUnit(u, dt, now) {
 
 // ── 总入口 ────────────────────────────────────────────────────────────────────
 function combatUpdate(dt, now) {
-  battleProgress();   // 胜负判定先行（即使单位清空也要能收尾，combat_cmd.js）
+  updateTerritoryFx(dt);  // 结界动画（combat_steer.js）
+  if (typeof updateTowers === 'function') updateTowers(dt);  // 塔防（combat_tower.js）
+  battleProgress();   // 胜负判定
+  updateFloats(dt);   // 伤害飘字
   if (!combatUnits.length) return;
   _playerProxy();     // 刷新玩家伪单位坐标（敌方把它当持久目标，防坐标过期）
   var i, u;
@@ -2809,8 +2978,8 @@ function combatUpdate(dt, now) {
 // 指挥层：两个折叠面板（招兵 + 军令）+ 胜负判定。
 //
 // 左侧两个图标按钮：⚔️ 招兵、📋 军令，点击展开/收起对应面板。
-// 招兵面板：7 个兵种按钮（我方4红色+敌方3蓝色），不设上限，点一下刷一个。
-// 军令面板：跟随/冲锋/驻守/撤退，当前命令高亮。
+// 招兵面板：8 个兵种按钮 + 1 个魔法塔，点一下招 6 个同类兵。
+// 军令面板：8 条命令，当前命令高亮。
 
 var _cmdWrap = null;
 var _recruitPanel = null, _orderPanel = null;
@@ -2826,16 +2995,16 @@ var _RECRUIT = [
   ['💀', 'skel_war'],
   ['☠️', 'skel_min'],
   ['🎯', 'skel_rog'],
+  ['🗼', 'tower'],   // 魔法塔（非战斗单位，调用 placeTower）
 ];
 
 function buildBattleUI() {
   var ui = document.getElementById('ui');
   if (!ui || _cmdWrap) return;
 
-  // 两个折叠触发按钮（左侧纵列）
   _cmdWrap = document.createElement('div');
   _cmdWrap.style.cssText = 'position:absolute;left:8px;top:60px;display:flex;' +
-    'flex-direction:column;gap:8px;z-index:112';
+    'flex-direction:column;gap:6px;z-index:112';
   ui.appendChild(_cmdWrap);
 
   var recToggle = _mkIconBtn('⚔️', '招兵', function () {
@@ -2851,37 +3020,47 @@ function buildBattleUI() {
   _cmdWrap.appendChild(recToggle);
   _cmdWrap.appendChild(ordToggle);
 
-  // 招兵面板（触发按钮右侧弹出）
+  // 招兵面板（触发按钮右侧弹出，2列排布防止高度溢出）
   _recruitPanel = document.createElement('div');
-  _recruitPanel.style.cssText = 'position:absolute;left:74px;top:60px;display:none;' +
-    'flex-direction:column;gap:6px;z-index:112;' +
-    'background:rgba(0,0,0,.55);padding:6px 8px;border-radius:10px';
+  _recruitPanel.style.cssText = 'position:absolute;left:68px;top:60px;display:none;' +
+    'flex-direction:row;flex-wrap:wrap;gap:4px;width:88px;z-index:112;' +
+    'background:rgba(0,0,0,.6);padding:5px 6px;border-radius:10px';
   ui.appendChild(_recruitPanel);
   var i;
   for (i = 0; i < _RECRUIT.length; i++) {
     (function (r) {
+      var isTower = r[1] === 'tower';
       var ally = r[1].indexOf('skel_') !== 0;
-      var b = _mkSmallBtn(r[0], UNIT_TYPES[r[1]].name, function () {
-        spawnKind(r[1]);
-        // 点完自动关闭面板（快速操作后收起）
+      var label = isTower ? '魔法塔' : UNIT_TYPES[r[1]].name;
+      var b = _mkSmallBtn(r[0], label, function () {
+        if (isTower) {
+          spawnTower();
+        } else {
+          spawnKind(r[1], 6);
+        }
         _recruitOpen = false; _recruitPanel.style.display = 'none';
       });
-      b.style.borderColor = ally ? 'rgba(74,222,128,.5)' : 'rgba(239,68,68,.5)';
+      b.style.borderColor = isTower ? 'rgba(168,85,247,.7)' :
+        ally ? 'rgba(74,222,128,.5)' : 'rgba(239,68,68,.5)';
       _recruitPanel.appendChild(b);
     }(_RECRUIT[i]));
   }
 
-  // 军令面板（触发按钮右侧弹出，触发按钮在 recToggle 下方）
+  // 军令面板（2列，避免高度溢出）
   _orderPanel = document.createElement('div');
-  _orderPanel.style.cssText = 'position:absolute;left:74px;top:128px;display:none;' +
-    'flex-direction:column;gap:6px;z-index:112;' +
-    'background:rgba(0,0,0,.55);padding:6px 8px;border-radius:10px';
+  _orderPanel.style.cssText = 'position:absolute;left:68px;top:116px;display:none;' +
+    'flex-direction:row;flex-wrap:wrap;gap:4px;width:88px;z-index:112;' +
+    'background:rgba(0,0,0,.6);padding:5px 6px;border-radius:10px';
   ui.appendChild(_orderPanel);
   var orders = [
-    ['🏃', '跟随', 'follow'],
-    ['🗡️', '冲锋', 'charge'],
-    ['🛡️', '驻守', 'hold'],
-    ['🚩', '撤退', 'retreat'],
+    ['🏃', '跟随',   'follow'],
+    ['🗡️', '冲锋',   'charge'],
+    ['🛡️', '驻守',   'hold'],
+    ['🚩', '撤退',   'retreat'],
+    ['🎯', '集火',   'focus'],
+    ['⭕', '包围',   'surround'],
+    ['📣', '整队',   'rally'],
+    ['🏹', '弓前',   'rangedFront'],
   ];
   for (i = 0; i < orders.length; i++) {
     (function (o) {
@@ -2900,8 +3079,8 @@ function buildBattleUI() {
 function _mkIconBtn(ic, label, onTap) {
   var b = document.createElement('button');
   b.className = 'btn';
-  b.style.cssText = 'width:58px;height:58px;font-size:9px';
-  b.innerHTML = '<span style="font-size:22px;display:block">' + ic + '</span>' + label;
+  b.style.cssText = 'width:52px;height:52px;font-size:8px';
+  b.innerHTML = '<span style="font-size:20px;display:block">' + ic + '</span>' + label;
   b.addEventListener('touchstart', function (e) { e.preventDefault(); onTap(); }, { passive: false });
   b.addEventListener('click', function () { onTap(); });
   return b;
@@ -2910,30 +3089,33 @@ function _mkIconBtn(ic, label, onTap) {
 function _mkSmallBtn(ic, label, onTap) {
   var b = document.createElement('button');
   b.className = 'btn';
-  b.style.cssText = 'width:54px;height:54px;font-size:9px;border-radius:8px;' +
-    'background:rgba(0,0,0,.6);border:1.5px solid rgba(255,255,255,.25)';
-  b.innerHTML = '<span style="font-size:20px;display:block">' + ic + '</span>' + label;
+  b.style.cssText = 'width:40px;height:40px;font-size:7px;border-radius:7px;' +
+    'background:rgba(0,0,0,.65);border:1.5px solid rgba(255,255,255,.25)';
+  b.innerHTML = '<span style="font-size:15px;display:block">' + ic + '</span>' + label;
   b.addEventListener('touchstart', function (e) { e.preventDefault(); onTap(); }, { passive: false });
   b.addEventListener('click', function () { onTap(); });
   return b;
 }
 
 function _hiliteOrder() {
-  var ids = ['follow', 'charge', 'hold', 'retreat'], i, el;
+  var ids = ['follow','charge','hold','retreat','focus','surround','rally','rangedFront'];
+  var i, el;
   for (i = 0; i < ids.length; i++) {
     el = document.getElementById('cmd-' + ids[i]);
-    if (el) el.style.borderColor = playerOrder === ids[i] ? 'rgba(250,204,21,.9)' : 'rgba(255,255,255,.25)';
+    if (el) el.style.borderColor = playerOrder === ids[i] ?
+      'rgba(250,204,21,.9)' : 'rgba(255,255,255,.25)';
   }
 }
 
-// ── 刷兵（无数量上限）──────────────────────────────────────────────────────────
-function spawnKind(kind) {
+// ── 招兵（每次召唤 count 个，默认 6）──────────────────────────────────────────
+function spawnKind(kind, count) {
+  count = count || 1;
   if (!_armyLoaded) {
     var tog = _cmdWrap ? _cmdWrap.firstChild : null;
     if (tog) { tog.disabled = true; tog.lastChild.textContent = '…'; }
     loadArmyModels(function () {
       if (tog) { tog.disabled = false; tog.lastChild.textContent = '招兵'; }
-      spawnKind(kind);
+      spawnKind(kind, count);
     }, function (done, total) {
       if (tog) tog.lastChild.textContent = done + '/' + total;
     });
@@ -2942,33 +3124,43 @@ function spawnKind(kind) {
 
   var t = UNIT_TYPES[kind];
   var side = kind.indexOf('skel_') === 0 ? 1 : 0;
+  var spawned = 0, n, a, r, x, z, u;
 
-  if (!_respawn) _respawn = [player.x, player.y, player.z];
-  updatePlayerHud();
-
-  var a, r, x, z;
-  if (side === 0) {
-    // 在领地内且有城堡广场 → 刷在广场附近
-    if (_castleCourtyard && _inTerritory(player.x, player.z)) {
-      a = Math.random() * Math.PI * 2;
-      r = 1.5 + Math.random() * 3;
-      x = _castleCourtyard.x + Math.sin(a) * r;
-      z = _castleCourtyard.z + Math.cos(a) * r;
+  for (n = 0; n < count; n++) {
+    if (side === 0) {
+      if (_castleCourtyard && _inTerritory(player.x, player.z)) {
+        a = Math.random() * Math.PI * 2;
+        r = 1.5 + Math.random() * 4;
+        x = _castleCourtyard.x + Math.sin(a) * r;
+        z = _castleCourtyard.z + Math.cos(a) * r;
+      } else {
+        a = Math.random() * Math.PI * 2;
+        r = 2 + Math.random() * 2.5;
+        x = player.x + Math.sin(a) * r;
+        z = player.z + Math.cos(a) * r;
+      }
     } else {
-      a = Math.random() * Math.PI * 2;
-      r = 2.5 + Math.random() * 1.5;
-      x = player.x + Math.sin(a) * r;
-      z = player.z + Math.cos(a) * r;
+      a = player.yaw + (Math.random() - 0.5) * 1.2;
+      r = 9 + Math.random() * 6;
+      x = player.x - Math.sin(a) * r;
+      z = player.z - Math.cos(a) * r;
     }
-  } else {
-    a = player.yaw + (Math.random() - 0.5) * 0.9;
-    r = 9 + Math.random() * 5;
-    x = player.x - Math.sin(a) * r;
-    z = player.z - Math.cos(a) * r;
+    u = spawnUnit(kind, side, x, z);
+    if (u) spawned++;
   }
+  if (spawned > 0) battleToast((side === 0 ? '我方 ' : '敌方 ') +
+    t.name + (spawned > 1 ? ' ×' + spawned : '') + ' 入场');
+}
 
-  var u = spawnUnit(kind, side, x, z);
-  if (u) battleToast((side === 0 ? '我方 ' : '敌方 ') + t.name + ' 入场');
+// ── 放置魔法塔（在玩家前方）──────────────────────────────────────────────────
+function spawnTower() {
+  var tx = player.x + Math.sin(player.yaw) * 4;
+  var tz = player.z + Math.cos(player.yaw) * 4;
+  if (typeof placeTower === 'function') {
+    placeTower(tx, tz);
+  } else {
+    battleToast('⚠️ 塔防模块未就绪');
+  }
 }
 
 // 每帧胜负检查（combat_ai.js combatUpdate 调用）
@@ -2986,6 +3178,250 @@ function battleProgress() {
   }
   battleSfx('atk_clang');
   battleToast('🎉 敌人已肃清！');
+}
+
+
+// ═══ src/combat_tower.js ═══
+// ─── combat_tower.js ──────────────────────────────────────────────────────────
+// 塔防系统：领地内可放置魔法塔。
+// 敌方优先向塔移动并攻击；塔自动射出魔法弹伤害范围内敌人；塔有 HP 可被摧毁。
+
+var _towers = [];          // 活动防御塔列表 [{x,y,z,hp,maxHp,atkCd,group,dead,...}]
+var _towerGltf = null;     // magic_tower.glb 缓存（异步加载）
+var _towerLoaded = false;
+var _towerOrbs = [];       // 飞行中的魔法弹
+
+// 塔配置
+var TOWER_CFG = {
+  hp:      150,
+  range:   16,      // 攻击半径（米）
+  dmg:     6,
+  atkCd:   2.0,     // 攻击间隔（秒）
+  orbSpd:  14,      // 魔法弹速度
+  h:       4.5,     // 显示高度（HP 条用）
+  scale:   3.8,     // GLB 模型整体缩放（根据模型大小微调）
+};
+
+// ── 加载魔法塔 GLB ─────────────────────────────────────────────────────────────
+function _loadTowerGltf(cb) {
+  if (_towerLoaded) { cb(); return; }
+  gltfLoader.load('assets/models/army/magic_tower.glb', function (g) {
+    _towerGltf = g;
+    _towerLoaded = true;
+    cb();
+  }, undefined, function () {
+    // 加载失败：标记为已加载（使用程序化备用模型）
+    _towerLoaded = true;
+    cb();
+  });
+}
+
+// ── 程序化备用塔（GLB 失败时）────────────────────────────────────────────────
+function _makeProcTower() {
+  var grp = new THREE.Group();
+  // 底座圆柱
+  var base = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.9, 1.2, 3.2, 8),
+    new THREE.MeshLambertMaterial({ color: 0x3d2b1f })
+  );
+  base.position.y = 1.6;
+  grp.add(base);
+  // 中段细柱
+  var mid = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.5, 0.9, 1.0, 8),
+    new THREE.MeshLambertMaterial({ color: 0x5a3e2c })
+  );
+  mid.position.y = 3.7;
+  grp.add(mid);
+  // 顶部魔法水晶（发光紫色八面体）
+  var crystal = new THREE.Mesh(
+    new THREE.OctahedronGeometry(0.65, 0),
+    new THREE.MeshBasicMaterial({ color: 0x9333ea })
+  );
+  crystal.position.y = 4.5;
+  grp.add(crystal);
+  // 顶部光环
+  var ring = new THREE.Mesh(
+    new THREE.TorusGeometry(0.85, 0.07, 6, 16),
+    new THREE.MeshBasicMaterial({ color: 0xc084fc })
+  );
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = 4.0;
+  grp.add(ring);
+  return grp;
+}
+
+// ── 放置防御塔 ────────────────────────────────────────────────────────────────
+function placeTower(tx, tz) {
+  _loadTowerGltf(function () {
+    var grp = new THREE.Group();
+
+    if (_towerGltf) {
+      var model = _towerGltf.scene.clone(true);
+      // 自动适配缩放
+      var box = new THREE.Box3().setFromObject(model);
+      var sz = box.getSize(new THREE.Vector3());
+      var scl = TOWER_CFG.scale / Math.max(sz.x, sz.y, sz.z);
+      model.scale.setScalar(scl);
+      // 对齐底部到地面
+      box.setFromObject(model);
+      model.position.y = -box.min.y;
+      grp.add(model);
+    } else {
+      grp.add(_makeProcTower());
+    }
+
+    var gy = _groundY(Math.floor(tx), Math.floor(tz));
+    grp.position.set(tx, gy, tz);
+    scene.add(grp);
+
+    var tower = {
+      x: tx, y: gy, z: tz,
+      hp: TOWER_CFG.hp, maxHp: TOWER_CFG.hp,
+      atkCd: Math.random() * TOWER_CFG.atkCd,  // 随机偏移防止同帧齐射
+      group: grp, dead: false,
+      hpBar: null, _hpCv: null, _hpTex: null,
+    };
+    _makeTowerHpBar(tower);
+    _towers.push(tower);
+    battleToast('⚗️ 魔法塔已建立！');
+  });
+}
+
+// ── 塔血条（与单位血条相同风格，紫色）──────────────────────────────────────────
+function _makeTowerHpBar(tower) {
+  var cv = document.createElement('canvas');
+  cv.width = 64; cv.height = 8;
+  var tex = new THREE.CanvasTexture(cv);
+  var spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
+  spr.scale.set(1.4, 0.18, 1);
+  spr.position.y = TOWER_CFG.h + 0.6;
+  spr.renderOrder = 10;
+  tower.group.add(spr);
+  tower.hpBar = spr;
+  tower._hpCv = cv; tower._hpTex = tex;
+  _updateTowerHpBar(tower);
+}
+
+function _updateTowerHpBar(tower) {
+  if (!tower.hpBar) return;
+  var ctx = tower._hpCv.getContext('2d');
+  var w = 64, h = 8, r = Math.max(0, tower.hp / tower.maxHp);
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#a855f7';
+  ctx.fillRect(1, 1, (w - 2) * r, h - 2);
+  tower._hpTex.needsUpdate = true;
+}
+
+// ── 魔法弹 ────────────────────────────────────────────────────────────────────
+function _shootOrb(tower, tgt) {
+  battleSfx('atk_bow');
+  var geo = new THREE.SphereGeometry(0.22, 8, 8);
+  var mat = new THREE.MeshBasicMaterial({ color: 0x9333ea });
+  var mesh = new THREE.Mesh(geo, mat);
+  var sx = tower.x, sy = tower.y + TOWER_CFG.h * 0.88, sz = tower.z;
+  var ex = tgt.x, ey = tgt.y + (tgt.t ? tgt.t.h * 0.5 : 1), ez = tgt.z;
+  var dx = ex - sx, dy = ey - sy, dz = ez - sz;
+  var dist = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
+  var spd = TOWER_CFG.orbSpd;
+  mesh.position.set(sx, sy, sz);
+  scene.add(mesh);
+  _towerOrbs.push({
+    mesh: mesh, x: sx, y: sy, z: sz,
+    vx: (dx/dist)*spd, vy: (dy/dist)*spd, vz: (dz/dist)*spd,
+    t: 0, life: dist/spd + 0.6, dmg: TOWER_CFG.dmg, tgt: tgt,
+  });
+}
+
+// ── 塔受伤 ────────────────────────────────────────────────────────────────────
+function damageTower(tower, dmg) {
+  if (tower.dead) return;
+  tower.hp -= dmg;
+  _updateTowerHpBar(tower);
+  dmgFloat({ x: tower.x, y: tower.y, z: tower.z, t: { h: TOWER_CFG.h } }, dmg, false, false);
+  battleSfx('atk_hit');
+  if (tower.hp <= 0) {
+    tower.dead = true;
+    scene.remove(tower.group);
+    var i = _towers.indexOf(tower);
+    if (i >= 0) _towers.splice(i, 1);
+    battleToast('🏚️ 魔法塔被摧毁！');
+  }
+}
+
+// ── 每帧更新（combat_ai.js combatUpdate 调用）────────────────────────────────
+function updateTowers(dt) {
+  var i, j, tower, u, dx, dz, d2, d, best, bd, orb;
+
+  // 每座塔：扫描范围内敌人 → 射出魔法弹
+  for (i = 0; i < _towers.length; i++) {
+    tower = _towers[i];
+    if (tower.dead) continue;
+    tower.atkCd -= dt;
+    if (tower.atkCd <= 0) {
+      best = null; bd = TOWER_CFG.range * TOWER_CFG.range;
+      for (j = 0; j < combatUnits.length; j++) {
+        u = combatUnits[j];
+        if (u.side !== 1 || u.state === 'DEAD') continue;
+        dx = u.x - tower.x; dz = u.z - tower.z;
+        d2 = dx*dx + dz*dz;
+        if (d2 < bd) { bd = d2; best = u; }
+      }
+      if (best) { _shootOrb(tower, best); tower.atkCd = TOWER_CFG.atkCd; }
+    }
+  }
+
+  // 敌方近战打塔（接触判定，不走单位 FSM）
+  for (j = 0; j < combatUnits.length; j++) {
+    u = combatUnits[j];
+    if (u.side !== 1 || u.state === 'DEAD') continue;
+    if ((u._towerAtkCd || 0) > 0) { u._towerAtkCd -= dt; continue; }
+    for (i = 0; i < _towers.length; i++) {
+      tower = _towers[i]; if (tower.dead) continue;
+      dx = tower.x - u.x; dz = tower.z - u.z;
+      if (dx*dx + dz*dz < 5.0) {   // 接触范围 ~2.2m
+        damageTower(tower, u.t.dmg);
+        u._towerAtkCd = u.t.atkCd * 0.9;
+        // 触发攻击动画（不影响对单位的 atkCd）
+        if (u.actT <= 0) {
+          playAnim(u, Math.random() < 0.5 ? ANIM.atk1 : ANIM.atk2, 0.1, true);
+          u.actT = 0.8;
+          battleSfx('atk_clang');
+        }
+        break;
+      }
+    }
+  }
+
+  // 更新魔法弹飞行
+  for (i = _towerOrbs.length - 1; i >= 0; i--) {
+    orb = _towerOrbs[i];
+    orb.t += dt;
+    orb.x += orb.vx * dt; orb.y += orb.vy * dt; orb.z += orb.vz * dt;
+    orb.mesh.position.set(orb.x, orb.y, orb.z);
+    orb.mesh.rotation.y += dt * 4;
+
+    var hit = false;
+    if (orb.tgt && orb.tgt.state !== 'DEAD') {
+      var ex = orb.tgt.x - orb.x;
+      var ey = (orb.tgt.y + (orb.tgt.t ? orb.tgt.t.h * 0.5 : 1)) - orb.y;
+      var ez = orb.tgt.z - orb.z;
+      if (ex*ex + ey*ey + ez*ez < 0.9) {
+        damageUnit(orb.tgt, orb.dmg, null);
+        hit = true;
+      }
+    } else if (!orb.tgt || orb.tgt.state === 'DEAD') {
+      hit = true;
+    }
+
+    if (hit || orb.t > orb.life || orb.y < -5) {
+      scene.remove(orb.mesh);
+      orb.mesh.geometry.dispose(); orb.mesh.material.dispose();
+      _towerOrbs.splice(i, 1);
+    }
+  }
 }
 
 
@@ -3078,9 +3514,12 @@ function placeStructure(s, ox, baseY, oz) {
   for (k in dirty) { cd = dirty[k]; rebuildChunk(cd[0], cd[1]); }
 }
 
-// ── 简易城堡 ──────────────────────────────────────────────────────────────────
-// 20×20 脚印，城墙 COBBLE 1 块厚 6 高；四角塔 3×3×8；南门 2 宽 4 高开口；
-// 内部铺 GRAY_BRICK；北部石砌城主楼；正中放 1 块领地石设结界。
+// ── 简易城堡（美化版）────────────────────────────────────────────────────────
+// 22×22 脚印，COBBLE/GRAY_BRICK/WHITE_STONE/RED_PILLAR 混用；
+// 城墙 6 高，带交替垛口；四角瞭望塔 3×3×9，顶放 GRAY_ROOF 尖顶；
+// 南门 3 宽 5 高，两侧 RED_PILLAR 门柱；内部铺灰砖，正中白石路；
+// 北侧石砌主楼 10×7，双层，GRAY_ROOF 尖顶；广场中有 WHITE_STONE 水井圈；
+// 城堡正中放领地石激活 R=25 结界。
 function placeSimpleCastle(ox, oz) {
   var BY = SEA + 2;
   var dirty = {};
@@ -3104,32 +3543,61 @@ function placeSimpleCastle(ox, oz) {
     if (lz === CHUNK_D-1) { ec(cx,cz+1); dirty[ckey(cx,cz+1)] = [cx,cz+1]; }
   }
 
-  var x, z, y, W = 20, WALL_H = 6, TOWER_H = 8;
+  var x, z, y;
+  var W = 22, WALL_H = 6, TOWER_H = 9;
 
-  // 庭院地面（灰砖铺地，城墙内侧 1 格起）
+  // ── 庭院地面 ──────────────────────────────────────────────────────────────
   for (x = 1; x < W-1; x++) {
     for (z = 1; z < W-1; z++) {
       raw(ox+x, BY, oz+z, GRAY_BRICK);
     }
   }
+  // 中央白石路（南北向，城门 → 主楼门口）
+  for (z = 2; z < W-3; z++) {
+    raw(ox+10, BY, oz+z, WHITE_STONE);
+    raw(ox+11, BY, oz+z, WHITE_STONE);
+  }
 
-  // 四面城墙（外围一圈，高 6）；南墙中央留 2 格宽 4 格高的城门
+  // ── 四面城墙（6 高 + 交替垛口）──────────────────────────────────────────
   for (y = 0; y < WALL_H; y++) {
     for (x = 0; x < W; x++) {
-      raw(ox+x, BY+y, oz,     COBBLE);   // 北墙
-      if (y < 4 && (x === 9 || x === 10)) {
-        // 城门开口，不放块
+      raw(ox+x, BY+y, oz,     COBBLE);  // 北墙
+      // 南墙：城门开口（x=9,10,11，高度 0-4）
+      if (y < 5 && (x === 9 || x === 10 || x === 11)) {
+        // 门洞，不放
       } else {
-        raw(ox+x, BY+y, oz+W-1, COBBLE); // 南墙
+        raw(ox+x, BY+y, oz+W-1, COBBLE);
       }
     }
     for (z = 1; z < W-1; z++) {
-      raw(ox,     BY+y, oz+z, COBBLE);   // 西墙
-      raw(ox+W-1, BY+y, oz+z, COBBLE);   // 东墙
+      raw(ox,     BY+y, oz+z, COBBLE);  // 西墙
+      raw(ox+W-1, BY+y, oz+z, COBBLE);  // 东墙
     }
   }
+  // 城墙顶部垛口（交替凸凹，偶数格放方块）
+  for (x = 0; x < W; x++) {
+    if (x % 2 === 0) {
+      raw(ox+x, BY+WALL_H, oz,     COBBLE);
+      raw(ox+x, BY+WALL_H, oz+W-1, COBBLE);
+    }
+  }
+  for (z = 1; z < W-1; z++) {
+    if (z % 2 === 0) {
+      raw(ox,     BY+WALL_H, oz+z, COBBLE);
+      raw(ox+W-1, BY+WALL_H, oz+z, COBBLE);
+    }
+  }
+  // 城门两侧 RED_PILLAR 门柱（全高）
+  for (y = 0; y < WALL_H + 1; y++) {
+    raw(ox+8,  BY+y, oz+W-1, RED_PILLAR);
+    raw(ox+12, BY+y, oz+W-1, RED_PILLAR);
+  }
+  // 城门横梁（WHITE_STONE 门楣）
+  raw(ox+9,  BY+5, oz+W-1, WHITE_STONE);
+  raw(ox+10, BY+5, oz+W-1, WHITE_STONE);
+  raw(ox+11, BY+5, oz+W-1, WHITE_STONE);
 
-  // 四角瞭望塔（3×3，8 高）
+  // ── 四角瞭望塔（3×3，9 高，顶放 GRAY_ROOF）──────────────────────────────
   var corners = [[0,0],[W-3,0],[0,W-3],[W-3,W-3]];
   var ti;
   for (ti = 0; ti < corners.length; ti++) {
@@ -3137,45 +3605,79 @@ function placeSimpleCastle(ox, oz) {
     for (y = 0; y < TOWER_H; y++) {
       for (x = 0; x < 3; x++) {
         for (z = 0; z < 3; z++) {
-          raw(ox+tx+x, BY+y, oz+tz+z, COBBLE);
+          raw(ox+tx+x, BY+y, oz+tz+z, y < 6 ? COBBLE : GRAY_BRICK);
         }
       }
     }
-    // 塔顶垛口（四角各 1 块）
-    raw(ox+tx,   BY+TOWER_H, oz+tz,   COBBLE);
-    raw(ox+tx+2, BY+TOWER_H, oz+tz,   COBBLE);
-    raw(ox+tx,   BY+TOWER_H, oz+tz+2, COBBLE);
-    raw(ox+tx+2, BY+TOWER_H, oz+tz+2, COBBLE);
+    // 塔顶：GRAY_ROOF 尖顶 + 四角小垛口
+    raw(ox+tx+1, BY+TOWER_H,   oz+tz+1, GRAY_ROOF);  // 中心尖顶
+    raw(ox+tx,   BY+TOWER_H,   oz+tz,   COBBLE);
+    raw(ox+tx+2, BY+TOWER_H,   oz+tz,   COBBLE);
+    raw(ox+tx,   BY+TOWER_H,   oz+tz+2, COBBLE);
+    raw(ox+tx+2, BY+TOWER_H,   oz+tz+2, COBBLE);
   }
 
-  // 北侧城主楼（8×5 脚印，STONE 外墙 + PLANKS 地板，8 高）
+  // ── 北侧主楼（10×7，双层，白石上层，灰屋顶尖）────────────────────────────
   var kox = ox+6, koz = oz+2;
-  for (y = 0; y < 8; y++) {
-    for (x = 0; x < 8; x++) {
-      for (z = 0; z < 5; z++) {
-        if (x === 0 || x === 7 || z === 0 || z === 4) {
-          raw(kox+x, BY+y, koz+z, STONE);
-        }
+  // 下层（STONE 外墙 + PLANKS 地板），高 5
+  for (y = 0; y < 5; y++) {
+    for (x = 0; x < 10; x++) {
+      for (z = 0; z < 7; z++) {
+        if (x === 0 || x === 9 || z === 0 || z === 6) raw(kox+x, BY+y, koz+z, STONE);
       }
     }
   }
-  for (x = 1; x < 7; x++) {
-    for (z = 1; z < 4; z++) {
-      raw(kox+x, BY, koz+z, PLANKS);
+  for (x = 1; x < 9; x++) {
+    for (z = 1; z < 6; z++) raw(kox+x, BY, koz+z, PLANKS);
+  }
+  // 上层（WHITE_STONE 外墙），高 3
+  for (y = 5; y < 8; y++) {
+    for (x = 0; x < 10; x++) {
+      for (z = 0; z < 7; z++) {
+        if (x === 0 || x === 9 || z === 0 || z === 6) raw(kox+x, BY+y, koz+z, WHITE_STONE);
+      }
     }
   }
-  // 主楼门洞（南面正中，2 宽 3 高）
-  for (y = 0; y < 3; y++) {
-    raw(kox+3, BY+y, koz+4, AIR);
-    raw(kox+4, BY+y, koz+4, AIR);
+  // 楼顶 GRAY_BRICK 封顶 + 中央 GRAY_ROOF 尖顶两块
+  for (x = 0; x < 10; x++) {
+    for (z = 0; z < 7; z++) raw(kox+x, BY+8, koz+z, GRAY_BRICK);
+  }
+  raw(kox+4, BY+9, koz+3, GRAY_ROOF);
+  raw(kox+5, BY+9, koz+3, GRAY_ROOF);
+  // 主楼南面门洞（3 宽 4 高，面向广场）
+  for (y = 0; y < 4; y++) {
+    raw(kox+4, BY+y, koz+6, AIR);
+    raw(kox+5, BY+y, koz+6, AIR);
+    raw(kox+6, BY+y, koz+6, AIR);
+  }
+  // 门口两侧 RED_PILLAR 柱
+  for (y = 0; y < 5; y++) {
+    raw(kox+3, BY+y, koz+6, RED_PILLAR);
+    raw(kox+7, BY+y, koz+6, RED_PILLAR);
   }
 
-  // 城堡广场中心（城门内侧中央，供招兵系统使用）
-  _castleCourtyard = { x: ox + 10, z: oz + 13 };
+  // ── 广场中心水井（5×5 WHITE_STONE 圈，高 1）──────────────────────────────
+  for (x = 8; x <= 13; x++) {
+    raw(ox+x, BY+1, oz+14, WHITE_STONE);
+    raw(ox+x, BY+1, oz+18, WHITE_STONE);
+  }
+  for (z = 15; z <= 17; z++) {
+    raw(ox+8,  BY+1, oz+z, WHITE_STONE);
+    raw(ox+13, BY+1, oz+z, WHITE_STONE);
+  }
 
-  // 领地石放置于广场正中（地面 +1，可见），激活结界
-  raw(ox+10, BY+1, oz+10, TERRITORY_STONE);
-  if (typeof _addTerritory === 'function') _addTerritory(ox+10, BY+1, oz+10);
+  // ── 广场四盏石柱路灯（城门内侧两侧 + 主楼门口两侧）────────────────────────
+  raw(ox+7,  BY+1, oz+W-3, RED_PILLAR);
+  raw(ox+14, BY+1, oz+W-3, RED_PILLAR);
+  raw(ox+7,  BY+1, oz+9,   RED_PILLAR);
+  raw(ox+14, BY+1, oz+9,   RED_PILLAR);
+
+  // ── 城堡广场中心（供招兵系统使用）────────────────────────────────────────
+  _castleCourtyard = { x: ox + 11, z: oz + 15 };
+
+  // 领地石放于广场中心，激活 R=25 结界
+  raw(ox+11, BY+1, oz+11, TERRITORY_STONE);
+  if (typeof _addTerritory === 'function') _addTerritory(ox+11, BY+1, oz+11);
 
   var k, cd;
   for (k in dirty) { cd = dirty[k]; rebuildChunk(cd[0], cd[1]); }
@@ -3854,7 +4356,7 @@ function bootNext() {
     } else if (bootStep === 9) {
       setProgress(94, '放置建筑...');
       placeStructures();
-      placeSimpleCastle(-10, -32);   // 城堡在出生点正北约 32 格
+      placeSimpleCastle(-10, -80);   // 城堡在寺庙正北，避免与现有建筑重叠
       bootStep = 10; requestAnimationFrame(bootNext);
 
     } else {
