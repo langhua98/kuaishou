@@ -33,7 +33,13 @@ var _SFX = {
   step_stone: ['step_stone1', 'step_stone2', 'step_stone3'],
   step_wood:  ['step_wood1', 'step_wood2'],
   step_sand:  ['step_sand1', 'step_sand2'],
-  splash:     ['random_splash']
+  splash:     ['random_splash'],
+  // 战斗音效（combat_fx.js battleSfx 使用）
+  atk_swing:  ['atk_swing1', 'atk_swing2'],
+  atk_clang:  ['atk_clang1', 'atk_clang2'],
+  atk_hit:    ['atk_hit1', 'atk_hit2'],
+  atk_bow:    ['atk_bow'],
+  atk_draw:   ['atk_draw']
 };
 
 // 方块 ID → 材质名（dig_/step_ 前缀拼接）

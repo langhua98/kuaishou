@@ -1287,7 +1287,13 @@ var _SFX = {
   step_stone: ['step_stone1', 'step_stone2', 'step_stone3'],
   step_wood:  ['step_wood1', 'step_wood2'],
   step_sand:  ['step_sand1', 'step_sand2'],
-  splash:     ['random_splash']
+  splash:     ['random_splash'],
+  // 战斗音效（combat_fx.js battleSfx 使用）
+  atk_swing:  ['atk_swing1', 'atk_swing2'],
+  atk_clang:  ['atk_clang1', 'atk_clang2'],
+  atk_hit:    ['atk_hit1', 'atk_hit2'],
+  atk_bow:    ['atk_bow'],
+  atk_draw:   ['atk_draw']
 };
 
 // 方块 ID → 材质名（dig_/step_ 前缀拼接）
@@ -1622,6 +1628,831 @@ function updateNPCs(dt) {
     // 前进约定 -Z → (-sin(yaw), -cos(yaw))，解得 yaw = π - ang
     n.group.rotation.y = Math.PI - n.ang;
     if (n.mixer) n.mixer.update(dt);
+  }
+}
+
+
+// ═══ src/combat_data.js ═══
+// ─── combat_data.js ───────────────────────────────────────────────────────────
+// 战斗系统配置层（纯数据，无逻辑）。架构见 docs/battle-architecture.md。
+// P1：步兵/弓手。骑兵（cavalry）配置预留，P2 启用。
+
+// 兵种表：model = assets/models/army/<model>.glb
+//   hp 血量 / dmg 伤害 / range 攻击距离 / spd 移速 / atkCd 攻击冷却秒 / ranged 远程
+var UNIT_TYPES = {
+  // 我方
+  knight:    { model: 'Knight',           h: 1.80, hp: 14, dmg: 4, range: 1.9, spd: 4.2, atkCd: 1.1, ranged: false,
+               wpnR: 'sword_1handed', wpnL: 'shield_round', name: '骑士' },
+  barbarian: { model: 'Barbarian',        h: 1.85, hp: 16, dmg: 5, range: 2.0, spd: 4.0, atkCd: 1.3, ranged: false,
+               wpnR: 'sword_1handed', wpnL: null,           name: '蛮兵' },
+  ranger:    { model: 'Rogue',            h: 1.75, hp: 9,  dmg: 3, range: 13,  spd: 4.4, atkCd: 2.2, ranged: true,
+               wpnR: 'crossbow_2handed', wpnL: null,        name: '游侠' },
+  // 敌方（骷髅军）
+  skel_war:  { model: 'Skeleton_Warrior', h: 1.75, hp: 12, dmg: 4, range: 1.9, spd: 3.8, atkCd: 1.2, ranged: false,
+               wpnR: 'Skeleton_Blade', wpnL: 'Skeleton_Shield_Small_A', name: '骷髅战士' },
+  skel_min:  { model: 'Skeleton_Minion',  h: 1.60, hp: 7,  dmg: 2, range: 1.7, spd: 4.2, atkCd: 1.0, ranged: false,
+               wpnR: 'Skeleton_Blade', wpnL: null,          name: '骷髅杂兵' },
+  skel_rog:  { model: 'Skeleton_Rogue',   h: 1.70, hp: 8,  dmg: 3, range: 12,  spd: 3.6, atkCd: 2.5, ranged: true,
+               wpnR: 'Skeleton_Crossbow', wpnL: null,       name: '骷髅弩手' },
+};
+
+// 战斗调参（需求文档 §2 节流 + P1 步兵参数）
+var BTL = {
+  decideIv: 0.2,        // 决策更新间隔（秒）
+  detectR: 28,          // 索敌半径
+  followNear: 3,        // FOLLOW 距离带
+  followFar: 9,
+  rangedNear: 6,        // 弓手保持距离带
+  rangedFar: 12,
+  sepR: 1.2,            // 单位间分离半径
+  meleeDmgDelay: 0.45,  // 挥砍动画起手到伤害判定的延迟
+  arrowSpd: 22,         // 箭矢初速
+  playerHp: 20,
+  playerDmg: 4,         // 玩家挥剑伤害
+  playerReach: 2.8,     // 玩家攻击距离
+  maxEnemies: 12,       // 同屏敌人上限（性能预算）
+  corpseT: 3,           // 尸体保留秒数
+};
+
+// 我方编制 / 敌方波次
+var SQUAD = ['knight', 'knight', 'knight', 'barbarian', 'ranger', 'ranger'];
+function waveComp(n) {     // 第 n 波（1 起）敌人构成
+  var c = ['skel_war', 'skel_war', 'skel_min', 'skel_rog'];
+  var extra = Math.min(n - 1, 4), i;
+  for (i = 0; i < extra; i++) c.push(i % 2 ? 'skel_min' : 'skel_war');
+  if (n >= 3) c.push('skel_rog');
+  return c.slice(0, BTL.maxEnemies);
+}
+
+// 动画名（KayKit 全系角色通用）
+var ANIM = {
+  idle: 'Idle', walk: 'Walking_A', run: 'Running_A',
+  atk1: '1H_Melee_Attack_Slice_Horizontal', atk2: '1H_Melee_Attack_Chop',
+  aim: '2H_Ranged_Aiming', shoot: '2H_Ranged_Shoot',
+  hit: 'Hit_A', death: 'Death_A', cheer: 'Cheer', block: 'Block',
+};
+
+
+// ═══ src/combat_core.js ═══
+// ─── combat_core.js ───────────────────────────────────────────────────────────
+// 战斗单位层：模型加载、骨骼网格克隆、单位生成/动画/伤害/生死。
+//
+// 骨骼网格不能 mesh.clone()（骨骼引用会指向原骨架）——cloneSkinned() 为
+// SkeletonUtils.clone 的精简实现：克隆节点树后按映射重绑骨架。
+// 武器为静态 GLB，挂到 KayKit 骨架的 handslot.r / handslot.l 空节点上。
+
+var combatUnits = [];        // 全部活动单位（含尸体，DEAD 超时后移除）
+var _armyGltf = {};          // model 名 → gltf（含动画）
+var _armyLoaded = false;
+var _unitSeq = 1;
+
+// ── 模型加载（首次开战时调用，含武器）─────────────────────────────────────────
+function loadArmyModels(onDone, onProgress) {
+  var models = {};
+  var seen = {};
+  var names = [], k, t;
+  for (k in UNIT_TYPES) {
+    t = UNIT_TYPES[k];
+    if (!seen[t.model]) { seen[t.model] = 1; names.push(t.model); }
+    if (t.wpnR && !seen[t.wpnR]) { seen[t.wpnR] = 1; names.push(t.wpnR); }
+    if (t.wpnL && !seen[t.wpnL]) { seen[t.wpnL] = 1; names.push(t.wpnL); }
+  }
+  if (!seen['arrow']) names.push('arrow');
+  var done = 0, total = names.length;
+  names.forEach(function (n) {
+    gltfLoader.load('assets/models/army/' + n + '.glb', function (g) {
+      _armyGltf[n] = g;
+      if (++done === total) { _armyLoaded = true; onDone(); }
+      else if (onProgress) onProgress(done, total);
+    }, undefined, function () {
+      if (++done === total) { _armyLoaded = true; onDone(); }
+    });
+  });
+}
+
+// ── SkeletonUtils.clone 精简版 ────────────────────────────────────────────────
+function _parallelTraverse(a, b, cb) {
+  cb(a, b);
+  for (var i = 0; i < a.children.length; i++) _parallelTraverse(a.children[i], b.children[i], cb);
+}
+function cloneSkinned(source) {
+  var srcOf = new Map(), cloneOf = new Map();
+  var clone = source.clone(true);
+  _parallelTraverse(source, clone, function (s, c) { srcOf.set(c, s); cloneOf.set(s, c); });
+  clone.traverse(function (node) {
+    if (!node.isSkinnedMesh) return;
+    var sm = srcOf.get(node);
+    node.skeleton = sm.skeleton.clone();
+    node.bindMatrix.copy(sm.bindMatrix);
+    node.skeleton.bones = sm.skeleton.bones.map(function (b) { return cloneOf.get(b); });
+    node.bind(node.skeleton, node.bindMatrix);
+  });
+  return clone;
+}
+
+// ── 单位生成 ──────────────────────────────────────────────────────────────────
+function _attachWeapon(model, wpnName, slotName) {
+  var g = _armyGltf[wpnName];
+  if (!g) return;
+  var slot = model.getObjectByName(slotName);
+  if (!slot) return;
+  slot.add(g.scene.clone(true));
+}
+
+function spawnUnit(kind, side, x, z) {
+  var t = UNIT_TYPES[kind];
+  var g = _armyGltf[t.model];
+  if (!g) return null;
+
+  var model = cloneSkinned(g.scene);
+  _prepModel(model, t.h);                       // models.js：归一化身高+阴影
+  _attachWeapon(model, t.wpnR, 'handslot.r');
+  if (t.wpnL) _attachWeapon(model, t.wpnL, 'handslot.l');
+
+  var group = new THREE.Group();
+  group.add(model);
+  var gy = _groundY(Math.floor(x), Math.floor(z));
+  group.position.set(x, gy, z);
+  scene.add(group);
+
+  var mixer = new THREE.AnimationMixer(model);
+  var anims = {}, i, c;
+  for (i = 0; i < g.animations.length; i++) {
+    c = g.animations[i];
+    anims[c.name] = mixer.clipAction(c);
+  }
+
+  var u = {
+    id: _unitSeq++, side: side, kind: kind, t: t,
+    x: x, y: gy, z: z, yaw: 0,
+    hp: t.hp, atkCd: 0, actT: 0,
+    state: side === 0 ? 'FOLLOW' : 'SEEK',
+    stateT: 0, target: null, nextDecide: 0,
+    deadT: 0, cheering: false,
+    group: group, model: model, mixer: mixer, anims: anims, curAnim: '',
+    hpBar: null,
+  };
+  playAnim(u, ANIM.idle, 0);
+  makeHpBar(u);
+  combatUnits.push(u);
+  return u;
+}
+
+// ── 动画切换（同名去重 + crossFade；once=true 播完即停留末帧）──────────────────
+function playAnim(u, name, fade, once) {
+  if (u.curAnim === name) return;
+  var next = u.anims[name];
+  if (!next) return;
+  var prev = u.anims[u.curAnim];
+  u.curAnim = name;
+  next.reset();
+  if (once) {
+    next.setLoop(THREE.LoopOnce, 1);
+    next.clampWhenFinished = true;
+  } else {
+    next.setLoop(THREE.LoopRepeat, Infinity);
+  }
+  if (prev && fade) {
+    next.crossFadeFrom(prev, fade, false);
+  }
+  next.play();
+}
+
+// ── 伤害与死亡 ────────────────────────────────────────────────────────────────
+function damageUnit(u, dmg, fromUnit) {
+  if (u.state === 'DEAD') return;
+  u.hp -= dmg;
+  battleSfx(u.t.ranged ? 'atk_hit' : 'atk_clang');
+  updateHpBar(u);
+  if (u.hp <= 0) { killUnit(u); return; }
+  // 受击硬直（攻击动作中不打断）
+  if (u.actT <= 0) {
+    playAnim(u, ANIM.hit, 0.08, true);
+    u.actT = 0.45;
+  }
+  // 被打必还手：空闲或在追别人时转火
+  if (fromUnit && !fromUnit.isPlayer && u.target !== fromUnit) u.target = fromUnit;
+}
+
+function killUnit(u) {
+  u.state = 'DEAD';
+  u.deadT = 0;
+  u.target = null;
+  playAnim(u, ANIM.death, 0.12, true);
+  if (u.hpBar) { u.group.remove(u.hpBar); u.hpBar = null; }
+  battleSfx('atk_hit');
+}
+
+function _removeUnit(u) {
+  scene.remove(u.group);
+  u.model.traverse(function (n) {
+    if (n.geometry && n.isSkinnedMesh) { /* 几何体共享自 gltf，不 dispose */ }
+  });
+  var i = combatUnits.indexOf(u);
+  if (i >= 0) combatUnits.splice(i, 1);
+}
+
+// 阵营存活统计
+function countAlive(side) {
+  var n = 0, i;
+  for (i = 0; i < combatUnits.length; i++) {
+    if (combatUnits[i].side === side && combatUnits[i].state !== 'DEAD') n++;
+  }
+  return n;
+}
+
+
+// ═══ src/combat_steer.js ═══
+// ─── combat_steer.js ──────────────────────────────────────────────────────────
+// 转向层：朝目标移动 + 体素避障 + 单位分离（防互相堵塞，需求文档 §5/§8）。
+//
+// 避障：候选方向（目标向 + ±35°/±75°）逐个测试，取第一个 2.5m 内无实心方块的；
+//   全堵则原方向减速蹭行。每个候选 5 次 getBlock 查表，开销可忽略。
+// 上下坡：跟随地形列高度，差 ≤1 格直接走上（体素世界天然台阶）。
+
+function _dirClear(x, y, z, dx, dz) {
+  var i, cx, cz;
+  for (i = 1; i <= 5; i++) {
+    cx = Math.floor(x + dx * i * 0.5);
+    cz = Math.floor(z + dz * i * 0.5);
+    var head = getBlock(cx, Math.floor(y) + 1, cz);   // 头高一格必须空
+    if (head !== AIR && head !== WATER) return false;
+  }
+  return true;
+}
+
+// 朝 (tx,tz) 移动；返回实际是否在移动
+function steerMove(u, tx, tz, spd, dt) {
+  var dx = tx - u.x, dz = tz - u.z;
+  var d = Math.sqrt(dx * dx + dz * dz);
+  if (d < 0.05) return false;
+  dx /= d; dz /= d;
+
+  // 分离力：邻近同阵营单位排斥（平方反比近似）
+  var i, o, ox, oz, od;
+  for (i = 0; i < combatUnits.length; i++) {
+    o = combatUnits[i];
+    if (o === u || o.state === 'DEAD') continue;
+    ox = u.x - o.x; oz = u.z - o.z;
+    od = ox * ox + oz * oz;
+    if (od < BTL.sepR * BTL.sepR && od > 0.0001) {
+      od = Math.sqrt(od);
+      dx += (ox / od) * (1 - od / BTL.sepR) * 1.4;
+      dz += (oz / od) * (1 - od / BTL.sepR) * 1.4;
+    }
+  }
+  var dl = Math.sqrt(dx * dx + dz * dz);
+  dx /= dl; dz /= dl;
+
+  // 避障：原方向 → ±35° → ±75°
+  var ANG = [0, 0.61, -0.61, 1.31, -1.31];
+  var best = null, a, ca, sa, ndx, ndz;
+  for (i = 0; i < ANG.length; i++) {
+    a = ANG[i]; ca = Math.cos(a); sa = Math.sin(a);
+    ndx = dx * ca - dz * sa; ndz = dx * sa + dz * ca;
+    if (_dirClear(u.x, u.y, u.z, ndx, ndz)) { best = [ndx, ndz]; break; }
+  }
+  var slow = 1;
+  if (!best) { best = [dx, dz]; slow = 0.3; }   // 全堵：原方向慢速蹭
+
+  var mv = Math.min(spd * slow * dt, d);
+  var nx = u.x + best[0] * mv, nz = u.z + best[1] * mv;
+
+  // 地形跟随：目标列地面高度差 ≤1.2 格可走，悬崖/高墙不走
+  var gy = _groundY(Math.floor(nx), Math.floor(nz));
+  if (gy - u.y <= 1.2 && u.y - gy <= 4) {
+    u.x = nx; u.z = nz;
+    u.y += (gy - u.y) * Math.min(1, 10 * dt);
+  }
+
+  // 朝向平滑转向移动方向
+  var tyaw = Math.atan2(best[0], best[1]);
+  var dy = tyaw - u.yaw;
+  while (dy > Math.PI)  dy -= Math.PI * 2;
+  while (dy < -Math.PI) dy += Math.PI * 2;
+  u.yaw += dy * Math.min(1, 10 * dt);
+  return true;
+}
+
+// 面向某点（站立攻击时用）
+function faceTo(u, tx, tz, dt) {
+  var tyaw = Math.atan2(tx - u.x, tz - u.z);
+  var dy = tyaw - u.yaw;
+  while (dy > Math.PI)  dy -= Math.PI * 2;
+  while (dy < -Math.PI) dy += Math.PI * 2;
+  u.yaw += dy * Math.min(1, 12 * dt);
+}
+
+
+// ═══ src/combat_fx.js ═══
+// ─── combat_fx.js ─────────────────────────────────────────────────────────────
+// 表现层：箭矢抛物线、血条 sprite、战斗音效、玩家血量 HUD。
+
+// ── 战斗音效（复用 audio.js 的 _playSfx 管线，组名在 audio.js _SFX 注册）──────
+function battleSfx(group) {
+  if (typeof _playSfx === 'function') _playSfx(group, 0.55, 0.9, 1.1);
+}
+
+// ── 血条（canvas sprite，仅血量变化时重绘）────────────────────────────────────
+function makeHpBar(u) {
+  var cv = document.createElement('canvas');
+  cv.width = 64; cv.height = 8;
+  var tex = new THREE.CanvasTexture(cv);
+  var spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
+  spr.scale.set(1.1, 0.14, 1);
+  spr.position.y = u.t.h + 0.35;
+  spr.renderOrder = 10;
+  u.group.add(spr);
+  u.hpBar = spr;
+  u._hpCv = cv; u._hpTex = tex;
+  updateHpBar(u);
+}
+
+function updateHpBar(u) {
+  if (!u.hpBar) return;
+  var ctx = u._hpCv.getContext('2d');
+  var w = 64, h = 8, r = Math.max(0, u.hp / u.t.hp);
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = u.side === 0 ? '#4ade80' : '#ef4444';
+  ctx.fillRect(1, 1, (w - 2) * r, h - 2);
+  u._hpTex.needsUpdate = true;
+}
+
+// ── 箭矢（对象池 + 重力抛物线，按飞行时间预瞄）─────────────────────────────────
+var _arrows = [];
+function shootArrow(u, tgt) {
+  battleSfx('atk_bow');
+  var g = _armyGltf['arrow'];
+  var mesh;
+  if (g) {
+    mesh = g.scene.clone(true);
+    mesh.scale.setScalar(1.4);
+  } else {
+    mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(0.04, 0.04, 0.7),
+      new THREE.MeshBasicMaterial({ color: 0x8a6a3a })
+    );
+  }
+  var sx = u.x, sy = u.y + u.t.h * 0.75, sz = u.z;
+  var dx = tgt.x - sx, dz = tgt.z - sz;
+  var dist = Math.sqrt(dx * dx + dz * dz);
+  var ft = dist / BTL.arrowSpd;                      // 飞行时间
+  var ty = (tgt.isPlayer ? tgt.y + 1.2 : tgt.y + tgt.t.h * 0.6);
+  var G = 14;
+  var vx = dx / ft, vz = dz / ft;
+  var vy = (ty - sy) / ft + 0.5 * G * ft;            // 抛物线补偿
+  scene.add(mesh);
+  _arrows.push({
+    mesh: mesh, x: sx, y: sy, z: sz, vx: vx, vy: vy, vz: vz,
+    t: 0, life: ft + 0.4, dmg: u.t.dmg, side: u.side, from: u,
+  });
+}
+
+function updateArrows(dt) {
+  var G = 14, i, a, j, o, dx, dy, dz;
+  for (i = _arrows.length - 1; i >= 0; i--) {
+    a = _arrows[i];
+    a.t += dt;
+    a.vy -= G * dt;
+    a.x += a.vx * dt; a.y += a.vy * dt; a.z += a.vz * dt;
+    a.mesh.position.set(a.x, a.y, a.z);
+    a.mesh.lookAt(a.x + a.vx, a.y + a.vy, a.z + a.vz);
+
+    var hit = false;
+    // 命中敌对单位（半径 0.7）
+    for (j = 0; j < combatUnits.length; j++) {
+      o = combatUnits[j];
+      if (o.side === a.side || o.state === 'DEAD') continue;
+      dx = o.x - a.x; dy = (o.y + o.t.h * 0.5) - a.y; dz = o.z - a.z;
+      if (dx * dx + dy * dy + dz * dz < 0.5) { damageUnit(o, a.dmg, a.from); hit = true; break; }
+    }
+    // 命中玩家
+    if (!hit && a.side === 1 && playerAlive()) {
+      dx = player.x - a.x; dy = (player.y + 0.9) - a.y; dz = player.z - a.z;
+      if (dx * dx + dy * dy + dz * dz < 0.6) { damagePlayer(a.dmg); hit = true; }
+    }
+    // 入地/超时
+    if (hit || a.t > a.life || getBlock(Math.floor(a.x), Math.floor(a.y), Math.floor(a.z)) !== AIR) {
+      scene.remove(a.mesh);
+      _arrows.splice(i, 1);
+    }
+  }
+}
+
+// ── 玩家血量与受击表现 ─────────────────────────────────────────────────────────
+var playerHp = BTL.playerHp;
+var _respawn = null;          // 开战时记录的复活点
+var _dmgFlashEl = null, _hpHudEl = null;
+
+function _ensurePlayerHud() {
+  if (_hpHudEl) return;
+  var ui = document.getElementById('ui') || document.body;
+  _hpHudEl = document.createElement('div');
+  _hpHudEl.style.cssText = 'position:absolute;top:10px;left:50%;transform:translateX(-50%);' +
+    'padding:4px 14px;background:rgba(0,0,0,.5);border-radius:8px;color:#f87171;' +
+    'font:bold 15px monospace;z-index:120;display:none';
+  ui.appendChild(_hpHudEl);
+  _dmgFlashEl = document.createElement('div');
+  _dmgFlashEl.style.cssText = 'position:absolute;inset:0;background:radial-gradient(ellipse,transparent 55%,rgba(220,30,30,.45));' +
+    'opacity:0;transition:opacity .4s;pointer-events:none;z-index:119';
+  ui.appendChild(_dmgFlashEl);
+}
+
+function updatePlayerHud() {
+  _ensurePlayerHud();
+  _hpHudEl.style.display = 'block';
+  var hearts = Math.ceil(playerHp / 2), s = '', i;
+  for (i = 0; i < 10; i++) s += i < hearts ? '❤' : '🖤';
+  _hpHudEl.textContent = s;
+}
+
+function playerAlive() { return playerHp > 0; }
+
+function damagePlayer(dmg) {
+  if (!playerAlive()) return;
+  playerHp -= dmg;
+  battleSfx('atk_hit');
+  _ensurePlayerHud();
+  _dmgFlashEl.style.opacity = '1';
+  setTimeout(function () { _dmgFlashEl.style.opacity = '0'; }, 120);
+  if (playerHp <= 0) {
+    playerHp = 0;
+    updatePlayerHud();
+    battleToast('你倒下了……回到复活点');
+    setTimeout(function () {
+      if (_respawn) { player.x = _respawn[0]; player.y = _respawn[1]; player.z = _respawn[2]; }
+      player.vx = player.vy = player.vz = 0;
+      playerHp = BTL.playerHp;
+      updatePlayerHud();
+    }, 1200);
+  } else {
+    updatePlayerHud();
+  }
+}
+
+// ── 玩家挥剑攻击：前方锥形范围内最近敌人（game.js 破坏键调用，命中则不挖方块）──
+function tryPlayerAttack() {
+  if (!combatUnits.length) return false;
+  var fx = -Math.sin(player.yaw), fz = -Math.cos(player.yaw);   // raycast.js 同款前向
+  var best = null, bd = BTL.playerReach, i, u, dx, dz, d, dot;
+  for (i = 0; i < combatUnits.length; i++) {
+    u = combatUnits[i];
+    if (u.side !== 1 || u.state === 'DEAD') continue;
+    dx = u.x - player.x; dz = u.z - player.z;
+    d = Math.sqrt(dx * dx + dz * dz);
+    if (d > bd) continue;
+    dot = (dx * fx + dz * fz) / (d || 1);
+    if (dot < 0.5) continue;                  // ±60° 锥外
+    bd = d; best = u;
+  }
+  if (!best) return false;
+  damageUnit(best, BTL.playerDmg, _playerProxy());
+  battleSfx('atk_swing');
+  return true;
+}
+
+// 玩家伪单位（敌方 AI 与还手逻辑统一接口用）
+var _playerProxyObj = { isPlayer: true, x: 0, y: 0, z: 0 };
+function _playerProxy() {
+  _playerProxyObj.x = player.x; _playerProxyObj.y = player.y; _playerProxyObj.z = player.z;
+  return _playerProxyObj;
+}
+
+// ── 提示浮层 ──────────────────────────────────────────────────────────────────
+var _toastEl = null, _toastTimer = null;
+function battleToast(msg) {
+  if (!_toastEl) {
+    var ui = document.getElementById('ui') || document.body;
+    _toastEl = document.createElement('div');
+    _toastEl.style.cssText = 'position:absolute;top:18%;left:50%;transform:translateX(-50%);' +
+      'padding:10px 24px;background:rgba(0,0,0,.65);border-radius:10px;color:#fde047;' +
+      'font:bold 18px monospace;z-index:130;transition:opacity .5s;pointer-events:none';
+    ui.appendChild(_toastEl);
+  }
+  _toastEl.textContent = msg;
+  _toastEl.style.opacity = '1';
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(function () { _toastEl.style.opacity = '0'; }, 2200);
+}
+
+
+// ═══ src/combat_ai.js ═══
+// ─── combat_ai.js ─────────────────────────────────────────────────────────────
+// 决策层：步兵/弓手 FSM + 总入口 combatUpdate(dt, now)。
+// 状态：IDLE / FOLLOW / SEEK / FIGHT / HOLD / DEAD（P1，骑兵九状态见 P2）。
+// 决策节流 0.2s（需求文档 §2）；移动/动画/攻击判定每帧。
+//
+// 我方命令（combat_cmd.js 写入 playerOrder）：
+//   follow → FOLLOW 跟随玩家   charge → SEEK 自由索敌
+//   hold   → HOLD 原地驻守     retreat → FOLLOW 且脱战（不再选目标）
+
+var playerOrder = 'follow';
+
+// 敌我目标选择：最近的存活敌对单位；敌方还会考虑玩家本体
+function _pickTarget(u) {
+  var best = null, bd = BTL.detectR * BTL.detectR, i, o, dx, dz, d;
+  for (i = 0; i < combatUnits.length; i++) {
+    o = combatUnits[i];
+    if (o.side === u.side || o.state === 'DEAD') continue;
+    dx = o.x - u.x; dz = o.z - u.z; d = dx * dx + dz * dz;
+    if (d < bd) { bd = d; best = o; }
+  }
+  if (u.side === 1) {
+    dx = player.x - u.x; dz = player.z - u.z; d = dx * dx + dz * dz;
+    if (d < bd && playerAlive()) { best = _playerProxy(); bd = d; }
+  }
+  return best;
+}
+
+function _distTo(u, t) {
+  var dx = t.x - u.x, dz = t.z - u.z;
+  return Math.sqrt(dx * dx + dz * dz);
+}
+
+// ── 单位 FSM ─────────────────────────────────────────────────────────────────
+function _aiUnit(u, dt, now) {
+  u.stateT += dt;
+  if (u.atkCd > 0) u.atkCd -= dt;
+  if (u.actT > 0)  u.actT -= dt;
+
+  // 死亡：动画播完保留尸体几秒后移除
+  if (u.state === 'DEAD') {
+    u.deadT += dt;
+    if (u.deadT > BTL.corpseT) _removeUnit(u);
+    return;
+  }
+
+  // 攻击动作中：判定帧结算伤害（_pendHit 由 FIGHT 设置）
+  if (u._pendHit && u.actT <= u._pendHitAt) {
+    var tg = u._pendHit; u._pendHit = null;
+    if (tg.isPlayer) {
+      if (_distTo(u, _playerProxy()) < u.t.range + 0.6) damagePlayer(u.t.dmg);
+    } else if (tg.state !== 'DEAD' && _distTo(u, tg) < u.t.range + 0.6) {
+      damageUnit(tg, u.t.dmg, u);
+    }
+  }
+
+  // 0.2s 决策节流：目标有效性检查 + 状态切换
+  if (now >= u.nextDecide) {
+    u.nextDecide = now + BTL.decideIv;
+    if (u.target && !u.target.isPlayer && u.target.state === 'DEAD') u.target = null;
+
+    if (u.side === 0) {
+      // 我方按命令行事
+      if (playerOrder === 'hold')         { if (u.state !== 'HOLD') { u.state = 'HOLD'; u.target = null; } }
+      else if (playerOrder === 'retreat') { u.state = 'FOLLOW'; u.target = null; }
+      else if (playerOrder === 'charge')  { if (u.state === 'FOLLOW' || u.state === 'IDLE') u.state = 'SEEK'; }
+      else                                { if (u.state === 'SEEK' && !u.target) u.state = 'FOLLOW'; }
+      // 跟随中遇敌就近反击（跟随≠挨打）；撤退命令下不反击
+      if (playerOrder !== 'retreat' && !u.target) u.target = _pickTarget(u);
+      if (u.target && playerOrder !== 'retreat' && u.state !== 'HOLD') u.state = 'SEEK';
+    } else {
+      if (!u.target) u.target = _pickTarget(u);
+      u.state = u.target ? 'SEEK' : 'IDLE';
+    }
+  }
+
+  // 行为执行（每帧）
+  var t = u.t, tgt = u.target, d;
+  switch (u.state) {
+
+    case 'FOLLOW':
+      d = Math.sqrt((player.x - u.x) * (player.x - u.x) + (player.z - u.z) * (player.z - u.z));
+      if (d > BTL.followFar) {
+        steerMove(u, player.x, player.z, t.spd, dt);
+        if (u.actT <= 0) playAnim(u, d > BTL.followFar * 2 ? ANIM.run : ANIM.walk, 0.2);
+      } else if (d < BTL.followNear) {
+        steerMove(u, u.x + (u.x - player.x), u.z + (u.z - player.z), t.spd * 0.5, dt);
+        if (u.actT <= 0) playAnim(u, ANIM.walk, 0.2);
+      } else {
+        if (u.actT <= 0) playAnim(u, u.cheering ? ANIM.cheer : ANIM.idle, 0.2);
+      }
+      break;
+
+    case 'SEEK':
+      if (!tgt) { u.state = u.side === 0 ? 'FOLLOW' : 'IDLE'; break; }
+      d = _distTo(u, tgt);
+      if (t.ranged) {
+        // 弓手：保持距离带，太近后撤、太远逼近，带内射击
+        if (d > BTL.rangedFar)      { steerMove(u, tgt.x, tgt.z, t.spd, dt); if (u.actT <= 0) playAnim(u, ANIM.run, 0.2); }
+        else if (d < BTL.rangedNear){ steerMove(u, u.x * 2 - tgt.x, u.z * 2 - tgt.z, t.spd, dt); if (u.actT <= 0) playAnim(u, ANIM.walk, 0.2); }
+        else {
+          faceTo(u, tgt.x, tgt.z, dt);
+          if (u.actT <= 0) playAnim(u, ANIM.aim, 0.15);
+          if (u.atkCd <= 0 && u.actT <= 0) {
+            playAnim(u, ANIM.shoot, 0.1, true);
+            u.actT = 0.8; u.atkCd = t.atkCd;
+            shootArrow(u, tgt);
+          }
+        }
+      } else {
+        if (d > t.range) {
+          steerMove(u, tgt.x, tgt.z, t.spd, dt);
+          if (u.actT <= 0) playAnim(u, ANIM.run, 0.2);
+        } else {
+          u.state = 'FIGHT';
+        }
+      }
+      break;
+
+    case 'FIGHT':
+      if (!tgt) { u.state = u.side === 0 ? 'FOLLOW' : 'IDLE'; break; }
+      d = _distTo(u, tgt);
+      if (d > t.range * 1.4) { u.state = 'SEEK'; break; }
+      faceTo(u, tgt.x, tgt.z, dt);
+      if (u.atkCd <= 0 && u.actT <= 0) {
+        playAnim(u, Math.random() < 0.5 ? ANIM.atk1 : ANIM.atk2, 0.08, true);
+        u.actT = 0.9; u.atkCd = t.atkCd;
+        u._pendHit = tgt; u._pendHitAt = 0.9 - BTL.meleeDmgDelay;   // 起手 0.45s 后结算
+        battleSfx('atk_swing');
+      } else if (u.actT <= 0) {
+        playAnim(u, ANIM.idle, 0.2);
+      }
+      break;
+
+    case 'HOLD':
+      // 驻守：不移动，打进入射程的敌人
+      if (!tgt || _distTo(u, tgt) > (t.ranged ? BTL.rangedFar : t.range * 1.2)) {
+        u.target = _pickTarget(u);
+        tgt = u.target;
+      }
+      if (tgt) {
+        d = _distTo(u, tgt);
+        faceTo(u, tgt.x, tgt.z, dt);
+        if (t.ranged && d <= BTL.rangedFar && u.atkCd <= 0 && u.actT <= 0) {
+          playAnim(u, ANIM.shoot, 0.1, true);
+          u.actT = 0.8; u.atkCd = t.atkCd;
+          shootArrow(u, tgt);
+        } else if (!t.ranged && d <= t.range && u.atkCd <= 0 && u.actT <= 0) {
+          playAnim(u, Math.random() < 0.5 ? ANIM.atk1 : ANIM.atk2, 0.08, true);
+          u.actT = 0.9; u.atkCd = t.atkCd;
+          u._pendHit = tgt; u._pendHitAt = 0.9 - BTL.meleeDmgDelay;
+          battleSfx('atk_swing');
+        } else if (u.actT <= 0) {
+          playAnim(u, t.ranged ? ANIM.aim : ANIM.idle, 0.2);
+        }
+      } else if (u.actT <= 0) {
+        playAnim(u, ANIM.idle, 0.25);
+      }
+      break;
+
+    default:   // IDLE
+      if (u.actT <= 0) playAnim(u, u.cheering ? ANIM.cheer : ANIM.idle, 0.25);
+  }
+}
+
+// ── 总入口 ────────────────────────────────────────────────────────────────────
+function combatUpdate(dt, now) {
+  battleProgress();   // 胜负判定先行（即使单位清空也要能收尾，combat_cmd.js）
+  if (!combatUnits.length) return;
+  var i, u;
+  for (i = combatUnits.length - 1; i >= 0; i--) {
+    u = combatUnits[i];
+    _aiUnit(u, dt, now);
+    // 同步渲染
+    u.group.position.set(u.x, u.y, u.z);
+    u.group.rotation.y = u.yaw;
+    u.mixer.update(dt);
+    if (u.hpBar) u.hpBar.quaternion.copy(camera.quaternion);
+  }
+  updateArrows(dt);
+}
+
+
+// ═══ src/combat_cmd.js ═══
+// ─── combat_cmd.js ────────────────────────────────────────────────────────────
+// 指挥层：开战按钮 + 四命令按钮（跟随/冲锋/驻守/撤退）+ 波次与胜负流程。
+//
+// 开战流程：首次点击 → 加载军队模型（按钮显示进度）→ 生成我方小队 + 第 1 波敌军。
+// 胜利：敌方全灭 → 我方欢呼 → 按钮变「下一波」。
+// 我方全灭且玩家阵亡不结束战斗（敌人会向玩家复活点推进，可再点撤退重整）。
+
+var _btlWave = 0;          // 当前波次（0=未开战）
+var _btlActive = false;
+var _cmdWrap = null, _btlBtn = null;
+
+function buildBattleUI() {
+  var ui = document.getElementById('ui');
+  if (!ui || _cmdWrap) return;
+
+  _cmdWrap = document.createElement('div');
+  _cmdWrap.style.cssText = 'position:absolute;left:12px;top:60px;display:flex;' +
+    'flex-direction:column;gap:8px;z-index:110';
+  ui.appendChild(_cmdWrap);
+
+  _btlBtn = _mkBtn('⚔️', '开战', function () { startWave(); });
+  _cmdWrap.appendChild(_btlBtn);
+
+  var orders = [
+    ['🏃', '跟随', 'follow'],
+    ['🗡️', '冲锋', 'charge'],
+    ['🛡️', '驻守', 'hold'],
+    ['🚩', '撤退', 'retreat'],
+  ];
+  var i;
+  for (i = 0; i < orders.length; i++) {
+    (function (o) {
+      var b = _mkBtn(o[0], o[1], function () {
+        playerOrder = o[2];
+        _hiliteOrder();
+        battleToast('命令：' + o[1]);
+      });
+      b.id = 'cmd-' + o[2];
+      b.style.display = 'none';            // 开战后才显示
+      _cmdWrap.appendChild(b);
+    }(orders[i]));
+  }
+  _hiliteOrder();
+}
+
+function _mkBtn(ic, label, onTap) {
+  var b = document.createElement('button');
+  b.className = 'btn';
+  b.style.cssText = 'width:58px;height:58px;font-size:10px';
+  b.innerHTML = '<span class="ic" style="font-size:22px">' + ic + '</span><span>' + label + '</span>';
+  b.addEventListener('touchstart', function (e) { e.preventDefault(); onTap(); }, { passive: false });
+  b.addEventListener('click', function () { onTap(); });
+  return b;
+}
+
+function _hiliteOrder() {
+  var ids = ['follow', 'charge', 'hold', 'retreat'], i, el;
+  for (i = 0; i < ids.length; i++) {
+    el = document.getElementById('cmd-' + ids[i]);
+    if (el) el.style.borderColor = playerOrder === ids[i] ? 'rgba(250,204,21,.9)' : 'rgba(255,255,255,.3)';
+  }
+}
+
+function _showOrderBtns() {
+  var ids = ['follow', 'charge', 'hold', 'retreat'], i, el;
+  for (i = 0; i < ids.length; i++) {
+    el = document.getElementById('cmd-' + ids[i]);
+    if (el) el.style.display = 'flex';
+  }
+}
+
+// ── 开战 / 下一波 ─────────────────────────────────────────────────────────────
+function startWave() {
+  if (_btlActive) return;
+  if (!_armyLoaded) {
+    _btlBtn.disabled = true;
+    _btlBtn.lastChild.textContent = '加载…';
+    loadArmyModels(function () {
+      _btlBtn.disabled = false;
+      startWave();
+    }, function (done, total) {
+      _btlBtn.lastChild.textContent = done + '/' + total;
+    });
+    return;
+  }
+
+  _btlWave++;
+  _btlActive = true;
+  _respawn = [player.x, player.y, player.z];
+  updatePlayerHud();
+
+  // 我方小队（首战生成；后续波次补满阵亡空缺）
+  var have = countAlive(0), i, a, r;
+  if (have < SQUAD.length) {
+    for (i = have; i < SQUAD.length; i++) {
+      a = (i / SQUAD.length) * Math.PI * 2;
+      spawnUnit(SQUAD[i], 0, player.x + Math.sin(a) * 4, player.z + Math.cos(a) * 4);
+    }
+  }
+  // 我方解除欢呼
+  for (i = 0; i < combatUnits.length; i++) combatUnits[i].cheering = false;
+
+  // 敌军：玩家前方扇区 30~38m 散布
+  var comp = waveComp(_btlWave);
+  var baseA = player.yaw + (Math.random() - 0.5);
+  for (i = 0; i < comp.length; i++) {
+    a = baseA + (Math.random() - 0.5) * 1.2;
+    r = 30 + Math.random() * 8;
+    spawnUnit(comp[i], 1, player.x + Math.sin(a) * r, player.z + Math.cos(a) * r);
+  }
+
+  battleSfx('atk_draw');
+  battleToast('第 ' + _btlWave + ' 波：骷髅军 ' + comp.length + ' 人来袭！');
+  _btlBtn.style.display = 'none';
+  _showOrderBtns();
+}
+
+// 每帧胜负检查（combat_ai.js 的 combatUpdate 末尾调用）
+function battleProgress() {
+  if (!_btlActive) return;
+  if (countAlive(1) === 0) {
+    _btlActive = false;
+    var i, u;
+    for (i = 0; i < combatUnits.length; i++) {
+      u = combatUnits[i];
+      if (u.side === 0 && u.state !== 'DEAD') { u.cheering = true; u.target = null; u.state = 'IDLE'; }
+    }
+    battleSfx('atk_clang');
+    battleToast('🎉 第 ' + _btlWave + ' 波击退！');
+    _btlBtn.style.display = 'flex';
+    _btlBtn.lastChild.textContent = '下一波';
   }
 }
 
@@ -2040,11 +2871,15 @@ function tick(now) {
   if (player.breakQ || (breakHeld && nowS - _lastBreak > BREAK_CD)) {
     player.breakQ = false;
     if (_swingT <= 0) _swingT = SWING_DUR;   // 第一人称挥镐动画
-    var hitB = raycast(6);
-    if (hitB) {
-      digSound(getBlock(hitB.x, hitB.y, hitB.z));   // 先取 ID 再清除
-      setBlock(hitB.x, hitB.y, hitB.z, AIR);
+    if (tryPlayerAttack()) {                 // 前方有敌人：挥剑，不挖方块
       _lastBreak = nowS;
+    } else {
+      var hitB = raycast(6);
+      if (hitB) {
+        digSound(getBlock(hitB.x, hitB.y, hitB.z));   // 先取 ID 再清除
+        setBlock(hitB.x, hitB.y, hitB.z, AIR);
+        _lastBreak = nowS;
+      }
     }
   }
 
@@ -2299,7 +3134,8 @@ function tick(now) {
     camera.updateProjectionMatrix();
   }
 
-  updateSky(dt);   // 昼夜循环 + 天气（太阳/云/雨/光照/雾）
+  updateSky(dt);             // 昼夜循环 + 天气（太阳/云/雨/光照/雾）
+  combatUpdate(dt, nowS);    // 军队战斗（单位 AI/箭矢/胜负）
 
   renderer.render(scene, camera);
 }
@@ -2317,6 +3153,7 @@ window.startGame = function () {
   if (menuEl) menuEl.style.display = 'none';
   if (uiEl)   uiEl.style.display   = 'block';
   buildHotbar();
+  buildBattleUI();   // 开战 + 指挥按钮（combat_cmd.js）
   lastT = performance.now();
   requestAnimationFrame(tick);
 };

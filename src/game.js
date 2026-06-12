@@ -308,11 +308,15 @@ function tick(now) {
   if (player.breakQ || (breakHeld && nowS - _lastBreak > BREAK_CD)) {
     player.breakQ = false;
     if (_swingT <= 0) _swingT = SWING_DUR;   // 第一人称挥镐动画
-    var hitB = raycast(6);
-    if (hitB) {
-      digSound(getBlock(hitB.x, hitB.y, hitB.z));   // 先取 ID 再清除
-      setBlock(hitB.x, hitB.y, hitB.z, AIR);
+    if (tryPlayerAttack()) {                 // 前方有敌人：挥剑，不挖方块
       _lastBreak = nowS;
+    } else {
+      var hitB = raycast(6);
+      if (hitB) {
+        digSound(getBlock(hitB.x, hitB.y, hitB.z));   // 先取 ID 再清除
+        setBlock(hitB.x, hitB.y, hitB.z, AIR);
+        _lastBreak = nowS;
+      }
     }
   }
 
@@ -567,7 +571,8 @@ function tick(now) {
     camera.updateProjectionMatrix();
   }
 
-  updateSky(dt);   // 昼夜循环 + 天气（太阳/云/雨/光照/雾）
+  updateSky(dt);             // 昼夜循环 + 天气（太阳/云/雨/光照/雾）
+  combatUpdate(dt, nowS);    // 军队战斗（单位 AI/箭矢/胜负）
 
   renderer.render(scene, camera);
 }
@@ -585,6 +590,7 @@ window.startGame = function () {
   if (menuEl) menuEl.style.display = 'none';
   if (uiEl)   uiEl.style.display   = 'block';
   buildHotbar();
+  buildBattleUI();   // 开战 + 指挥按钮（combat_cmd.js）
   lastT = performance.now();
   requestAnimationFrame(tick);
 };

@@ -30,6 +30,13 @@ const SRC_FILES = [
   'src/ui.js',
   'src/audio.js',    // 音乐 + 音效（需在 game.js 之前：game.js 调用其函数）
   'src/models.js',      // GLTF 玩家模型 + NPC（需在 game.js 之前）
+  // ── 军队战斗系统（依赖单向 ①→⑥，见 docs/battle-architecture.md）──
+  'src/combat_data.js', // ① 配置：兵种表/调参/动画名
+  'src/combat_core.js', // ② 单位：克隆/生成/动画/伤害（依赖 models.js 的 gltfLoader/_prepModel/_groundY）
+  'src/combat_steer.js',// ③ 转向：避障/分离/地形跟随
+  'src/combat_fx.js',   // ④ 表现：箭矢/血条/音效/玩家HUD（combat_ai 调用其函数）
+  'src/combat_ai.js',   // ⑤ 决策：FSM + combatUpdate 入口
+  'src/combat_cmd.js',  // ⑥ 指挥：开战/命令按钮/波次胜负
   'src/structures.js',  // 开源中式建筑数据 + placeStructures()（需在 game.js 之前）
   'src/game.js',
 ]
