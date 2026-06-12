@@ -1719,9 +1719,9 @@ function tick(now) {
     // 准星命中 → 重置 idleT
     _place.idleT = 0;
   } else {
-    // 准星未命中 → 计时；超过 3 秒清除方向记忆
+    // 准星未命中 → 计时；超过 7 秒清除方向记忆
     _place.idleT += dt;
-    if (_place.idleT > 3) {
+    if (_place.idleT > 7) {
       _place.lastPos = null;
       _place.lastDir = null;
       _place.idleT   = 0;
@@ -1734,14 +1734,19 @@ function tick(now) {
       var _nz = _place.lastPos.z + _place.lastDir.z;
       // ny 下界保护：不能预测到地面以下
       if (_ny >= 0) {
-        var _tx = _nx + 0.5 - camera.position.x;
-        var _ty = _ny + 0.5 - camera.position.y;
-        var _tz = _nz + 0.5 - camera.position.z;
+        // FOV 门控基准：玩家眼睛位置（非摄像机——第三人称摄像机在身后 4 m，
+        // 用 camera.position 会让 Y/X 方向预测块超出 8 格而被误杀）
+        var _eyeX = player.x + (viewFP ? 0 : Math.cos(player.yaw) * CAM_SHOULDER);
+        var _eyeY = player.y + PH * 0.85;
+        var _eyeZ = player.z + (viewFP ? 0 : -Math.sin(player.yaw) * CAM_SHOULDER);
+        var _tx = _nx + 0.5 - _eyeX;
+        var _ty = _ny + 0.5 - _eyeY;
+        var _tz = _nz + 0.5 - _eyeZ;
         var _tlen = Math.sqrt(_tx * _tx + _ty * _ty + _tz * _tz);
-        // FOV 门控：点积 > cos(45°) ≈ 0.707，且距离 ≤ 8 格
+        // FOV 门控：点积 > cos(45°) ≈ 0.707，且距离 ≤ 6 格（与 raycast 一致）
         if (_tlen > 0 &&
             (_tx * _fwx + _ty * _fwy + _tz * _fwz) / _tlen > 0.707 &&
-            _tlen <= 8) {
+            _tlen <= 6) {
           _place.pos = { x: _nx, y: _ny, z: _nz };
         }
       }
