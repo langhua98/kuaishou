@@ -235,6 +235,7 @@ var RED_PILLAR  = 13;  // 朱红立柱（陶瓦纹+朱红 tint）
 var PLANKS      = 14;  // 木板（橡木板原色）
 var COBBLE      = 15;  // 卵石（圆石原色）
 var MUD_BRICK   = 16;  // 土砖（砂岩纹+土黄 tint）
+var TERRITORY_STONE = 17;  // 领地石（紫色结界，敌人无法进入 12m 范围）
 
 // 每种方块三组颜色：[顶面 RGB, 底面 RGB, 侧面 RGB]（0.0–1.0）
 var BCOL = [
@@ -254,13 +255,14 @@ var BCOL = [
   [0.690,0.260,0.160, 0.690,0.260,0.160, 0.690,0.260,0.160],      // RED_PILLAR
   [0.710,0.580,0.360, 0.710,0.580,0.360, 0.710,0.580,0.360],      // PLANKS
   [0.470,0.470,0.470, 0.470,0.470,0.470, 0.470,0.470,0.470],      // COBBLE
-  [0.730,0.620,0.430, 0.730,0.620,0.430, 0.730,0.620,0.430]       // MUD_BRICK
+  [0.730,0.620,0.430, 0.730,0.620,0.430, 0.730,0.620,0.430],      // MUD_BRICK
+  [0.576,0.180,0.918, 0.576,0.180,0.918, 0.576,0.180,0.918]       // TERRITORY_STONE 紫
 ];
 
 // 方块中文名称（热键栏显示用）
 var BNAMES = ['', '草地', '泥土', '石头', '沙子', '木头', '树叶', '水',
               '朱墙', '金瓦', '白玉', '青砖',
-              '灰瓦', '红柱', '木板', '卵石', '土砖'];
+              '灰瓦', '红柱', '木板', '卵石', '土砖', '领地石'];
 
 // ── 面定义 ────────────────────────────────────────────────────────────────────
 // FACES[f] = [dx, dy, dz,  顶点偏移数组(4顶点×3坐标=12个数),  BCOL 颜色偏移]
@@ -717,6 +719,7 @@ var BTEX = [
   [15, 15, 15],   // PLANKS      木板
   [16, 16, 16],   // COBBLE      卵石
   [17, 17, 17],   // MUD_BRICK   土砖
+  [18, 18, 18],   // TERRITORY_STONE 领地石
 ];
 
 var atlasTexture = null;
@@ -743,6 +746,7 @@ var _TILES = [
   { file: 'oak_planks' },                       // 15 木板   wood
   { file: 'cobblestone' },                      // 16 卵石   gravel_stone
   { file: 'mud_brick' },                        // 17 土砖   stone_sand
+  { file: 'white_stone', tint: '#9333ea' },     // 18 领地石  紫色结界
 ];
 
 // 单格处理：染色（multiply 保留 alpha）后画入贴图集
@@ -1783,13 +1787,15 @@ function spawnUnit(kind, side, x, z) {
   var horseMixer = null;
 
   if (t.cavalry) {
-    // 骑兵：马在地面，骑手坐在马背上
+    // 骑兵：马在地面（2.2m 含头），骑手骑于马背（约 1.4m 处）
     _prepModel(model, 1.8);
-    model.position.y = 0.95;    // 抬高至马背高度
+    model.rotation.y = 0;   // KayKit 模型原生朝 +Z，_prepModel 的 π 翻转会倒着走——归零修正
+    model.position.y = 1.4;
     var hg = _armyGltf[t.mount];
     if (hg) {
       var horseModel = hg.scene.clone(true);
-      _prepModel(horseModel, 1.5);
+      _prepModel(horseModel, 2.2);
+      horseModel.rotation.y = 0;
       group.add(horseModel);
       horseMixer = new THREE.AnimationMixer(horseModel);
       if (hg.animations.length > 0) {
@@ -1800,6 +1806,7 @@ function spawnUnit(kind, side, x, z) {
     }
   } else {
     _prepModel(model, t.h);
+    model.rotation.y = 0;   // 同上：_prepModel π 翻转会倒走，归零修正
   }
 
   _attachWeapon(model, t.wpnR, 'handslot.r');
@@ -1858,17 +1865,33 @@ function playAnim(u, name, fade, once) {
 // ── 伤害与死亡 ────────────────────────────────────────────────────────────────
 function damageUnit(u, dmg, fromUnit) {
   if (u.state === 'DEAD') return;
+  // 盾牌格挡：持盾兵种 30% 概率减半伤害（自己攻击动作中举不起盾）
+  var blocked = false;
+  if (u.t.shield && u.actT <= 0 && Math.random() < 0.3) {
+    blocked = true;
+    dmg = Math.max(1, Math.ceil(dmg / 2));
+  }
   u.hp -= dmg;
-  battleSfx(u.t.ranged ? 'atk_hit' : 'atk_clang');
+  battleSfx(blocked || !u.t.ranged ? 'atk_clang' : 'atk_hit');
   updateHpBar(u);
+  dmgFloat(u, dmg, fromUnit && fromUnit.isPlayer, blocked);
   if (u.hp <= 0) { killUnit(u); return; }
-  // 受击硬直（攻击动作中不打断）
-  if (u.actT <= 0) {
+  if (blocked) {
+    playAnim(u, ANIM.block, 0.06, true);
+    u.actT = 0.4;
+  } else if (u.actT <= 0) {
+    // 受击硬直（攻击动作中不打断）
     playAnim(u, ANIM.hit, 0.08, true);
     u.actT = 0.45;
   }
-  // 被打必还手：转火攻击者（玩家伪单位为持久对象，可直接作为目标）
-  if (fromUnit && u.target !== fromUnit) u.target = fromUnit;
+  // 近战命中击退 0.5m（远程不击退；_tryShift 校验，不会推进墙/坠崖）
+  if (fromUnit && !blocked) {
+    var kx = u.x - fromUnit.x, kz = u.z - fromUnit.z;
+    var kd = Math.sqrt(kx * kx + kz * kz);
+    if (kd > 0.01 && kd < 4) _tryShift(u, (kx / kd) * 0.5, (kz / kd) * 0.5);
+  }
+  // 被单位打必还手；玩家免伤——被玩家打不转火（打不到玩家，追了也白追）
+  if (fromUnit && !fromUnit.isPlayer && u.target !== fromUnit) u.target = fromUnit;
 }
 
 function killUnit(u) {
@@ -1906,6 +1929,48 @@ function countAlive(side) {
 // 避障：候选方向（目标向 + ±35°/±75°）逐个测试，取第一个 2.5m 内无实心方块的；
 //   全堵则原方向减速蹭行。每个候选 5 次 getBlock 查表，开销可忽略。
 // 上下坡：跟随地形列高度，差 ≤1 格直接走上（体素世界天然台阶）。
+
+// ── 领地结界系统 ──────────────────────────────────────────────────────────────
+// 每块领地石在放置时创建半径 12m 的保护圈；敌方无法进入该范围。
+// 用紫色线框 BoxHelper 标注边界（高度 10m，视觉提示）。
+
+var _territoryList = [];   // [{cx,cz,r,mesh}]
+
+function _addTerritory(bx, by, bz) {
+  var R = 12;
+  var H = 10;
+  var cx = bx + 0.5, cz = bz + 0.5;
+  var geo = new THREE.BoxGeometry(R * 2, H, R * 2);
+  var edges = new THREE.EdgesGeometry(geo);
+  var mat = new THREE.LineBasicMaterial({ color: 0x9333ea, transparent: true, opacity: 0.85 });
+  var mesh = new THREE.LineSegments(edges, mat);
+  mesh.position.set(cx, by + H / 2, cz);
+  scene.add(mesh);
+  _territoryList.push({ cx: cx, cz: cz, r: R, mesh: mesh });
+}
+
+function _removeTerritory(bx, by, bz) {
+  var cx = bx + 0.5, cz = bz + 0.5, i;
+  for (i = _territoryList.length - 1; i >= 0; i--) {
+    var t = _territoryList[i];
+    if (Math.abs(t.cx - cx) < 0.5 && Math.abs(t.cz - cz) < 0.5) {
+      scene.remove(t.mesh);
+      t.mesh.material.dispose();
+      _territoryList.splice(i, 1);
+      return;
+    }
+  }
+}
+
+// 判断 (x,z) 是否在任意领地保护范围内
+function _inTerritory(x, z) {
+  var i, t;
+  for (i = 0; i < _territoryList.length; i++) {
+    t = _territoryList[i];
+    if (Math.abs(x - t.cx) <= t.r && Math.abs(z - t.cz) <= t.r) return true;
+  }
+  return false;
+}
 
 function _dirClear(x, y, z, dx, dz) {
   var i, cx, cz;
@@ -1954,6 +2019,9 @@ function steerMove(u, tx, tz, spd, dt) {
 
   var mv = Math.min(spd * slow * dt, d);
   var nx = u.x + best[0] * mv, nz = u.z + best[1] * mv;
+
+  // 领地结界：敌方不得进入保护区（直接停住，保持在边界外）
+  if (u.side === 1 && _inTerritory(nx, nz)) return false;
 
   // 地形跟随：目标列地面高度差 ≤1.2 格可走，悬崖/高墙不走
   var gy = _groundY(Math.floor(nx), Math.floor(nz));
@@ -2032,7 +2100,8 @@ function faceTo(u, tx, tz, dt) {
 
 // ═══ src/combat_fx.js ═══
 // ─── combat_fx.js ─────────────────────────────────────────────────────────────
-// 表现层：箭矢抛物线、血条 sprite、战斗音效、玩家血量 HUD。
+// 表现层：箭矢抛物线、血条 sprite、伤害飘字、战斗音效。
+// 玩家完全免伤（指挥官模式）：敌方不索敌玩家、箭矢穿过玩家、无玩家 HP。
 
 // ── 战斗音效（复用 audio.js 的 _playSfx 管线，组名在 audio.js _SFX 注册）──────
 function battleSfx(group) {
@@ -2107,17 +2176,12 @@ function updateArrows(dt) {
     a.mesh.lookAt(a.x + a.vx, a.y + a.vy, a.z + a.vz);
 
     var hit = false;
-    // 命中敌对单位（半径 0.7）
+    // 命中敌对单位（半径 0.7）。玩家免伤：箭矢直接穿过玩家
     for (j = 0; j < combatUnits.length; j++) {
       o = combatUnits[j];
       if (o.side === a.side || o.state === 'DEAD') continue;
       dx = o.x - a.x; dy = (o.y + o.t.h * 0.5) - a.y; dz = o.z - a.z;
       if (dx * dx + dy * dy + dz * dz < 0.5) { damageUnit(o, a.dmg, a.from); hit = true; break; }
-    }
-    // 命中玩家
-    if (!hit && a.side === 1 && playerAlive()) {
-      dx = player.x - a.x; dy = (player.y + 0.9) - a.y; dz = player.z - a.z;
-      if (dx * dx + dy * dy + dz * dz < 0.6) { damagePlayer(a.dmg); hit = true; }
     }
     // 入地/超时
     if (hit || a.t > a.life || getBlock(Math.floor(a.x), Math.floor(a.y), Math.floor(a.z)) !== AIR) {
@@ -2127,71 +2191,58 @@ function updateArrows(dt) {
   }
 }
 
-// ── 玩家血量与受击表现 ─────────────────────────────────────────────────────────
-var playerHp = BTL.playerHp;
-var _respawn = null;          // 开战时记录的复活点
-var _dmgFlashEl = null, _hpHudEl = null;
-
-function _ensurePlayerHud() {
-  if (_hpHudEl) return;
-  var ui = document.getElementById('ui') || document.body;
-  _hpHudEl = document.createElement('div');
-  _hpHudEl.style.cssText = 'position:absolute;top:10px;left:50%;transform:translateX(-50%);' +
-    'padding:4px 14px;background:rgba(0,0,0,.5);border-radius:8px;color:#f87171;' +
-    'font:bold 15px monospace;z-index:120;display:none';
-  ui.appendChild(_hpHudEl);
-  _dmgFlashEl = document.createElement('div');
-  _dmgFlashEl.style.cssText = 'position:absolute;inset:0;background:radial-gradient(ellipse,transparent 55%,rgba(220,30,30,.45));' +
-    'opacity:0;transition:opacity .4s;pointer-events:none;z-index:119';
-  ui.appendChild(_dmgFlashEl);
+// ── 伤害飘字（canvas sprite，命中点上方升起渐隐）──────────────────────────────
+var _floats = [];
+function dmgFloat(u, dmg, byPlayer, blocked) {
+  var cv = document.createElement('canvas');
+  cv.width = 96; cv.height = 40;
+  var ctx = cv.getContext('2d');
+  ctx.font = 'bold 28px monospace';
+  ctx.textAlign = 'center';
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = 'rgba(0,0,0,.85)';
+  ctx.fillStyle = blocked ? '#c4b5fd' : '#ef4444';   // 格挡淡紫，普通伤害红色（LoL 风格）
+  var txt = (blocked ? '⊡' : '') + dmg;
+  ctx.strokeText(txt, 48, 30);
+  ctx.fillText(txt, 48, 30);
+  var spr = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: new THREE.CanvasTexture(cv), depthTest: false, transparent: true,
+  }));
+  spr.scale.set(1.2, 0.5, 1);
+  spr.position.set(u.x, u.y + u.t.h + 0.6, u.z);
+  spr.renderOrder = 11;
+  scene.add(spr);
+  _floats.push({ spr: spr, t: 0 });
 }
 
-function updatePlayerHud() {
-  _ensurePlayerHud();
-  _hpHudEl.style.display = 'block';
-  var hearts = Math.ceil(playerHp / 2), s = '', i;
-  for (i = 0; i < 10; i++) s += i < hearts ? '❤' : '🖤';
-  _hpHudEl.textContent = s;
-}
-
-function playerAlive() { return playerHp > 0; }
-
-function damagePlayer(dmg) {
-  if (!playerAlive()) return;
-  playerHp -= dmg;
-  battleSfx('atk_hit');
-  _ensurePlayerHud();
-  _dmgFlashEl.style.opacity = '1';
-  setTimeout(function () { _dmgFlashEl.style.opacity = '0'; }, 120);
-  if (playerHp <= 0) {
-    playerHp = 0;
-    updatePlayerHud();
-    battleToast('你倒下了……回到复活点');
-    setTimeout(function () {
-      if (_respawn) { player.x = _respawn[0]; player.y = _respawn[1]; player.z = _respawn[2]; }
-      player.vx = player.vy = player.vz = 0;
-      playerHp = BTL.playerHp;
-      updatePlayerHud();
-    }, 1200);
-  } else {
-    updatePlayerHud();
+function updateFloats(dt) {
+  var i, f;
+  for (i = _floats.length - 1; i >= 0; i--) {
+    f = _floats[i];
+    f.t += dt;
+    f.spr.position.y += dt * 1.2;
+    f.spr.material.opacity = 1 - f.t / 0.8;
+    if (f.t > 0.8) {
+      scene.remove(f.spr);
+      f.spr.material.map.dispose();
+      f.spr.material.dispose();
+      _floats.splice(i, 1);
+    }
   }
 }
 
-// ── 玩家挥剑攻击：前方锥形范围内最近敌人（game.js 破坏键调用，命中则不挖方块）──
+// ── 玩家挥剑攻击：范围内最近敌人（game.js 破坏键调用，命中则不挖方块）──────
+// 不做朝向限制——只要在 playerReach 半径内即可命中，手机操作不精准需要宽容度。
+// side !== 1 保证绝对不会打中友军。
 function tryPlayerAttack() {
   if (!combatUnits.length) return false;
-  var fx = -Math.sin(player.yaw), fz = -Math.cos(player.yaw);   // raycast.js 同款前向
-  var best = null, bd = BTL.playerReach, i, u, dx, dz, d, dot;
+  var best = null, bd = BTL.playerReach, i, u, dx, dz, d;
   for (i = 0; i < combatUnits.length; i++) {
     u = combatUnits[i];
-    if (u.side !== 1 || u.state === 'DEAD') continue;
+    if (u.side !== 1 || u.state === 'DEAD') continue;   // 只打敌方，绝不打友军
     dx = u.x - player.x; dz = u.z - player.z;
     d = Math.sqrt(dx * dx + dz * dz);
-    if (d > bd) continue;
-    dot = (dx * fx + dz * fz) / (d || 1);
-    if (dot < 0.5) continue;                  // ±60° 锥外
-    bd = d; best = u;
+    if (d < bd) { bd = d; best = u; }
   }
   if (!best) return false;
   damageUnit(best, BTL.playerDmg, _playerProxy());
@@ -2258,19 +2309,38 @@ function _distTo(u, t) {
   return Math.sqrt(dx * dx + dz * dz);
 }
 
-// 编队跟随：按黄金角给每人分配玩家身边一个固定槽位（散开站位，不再扎堆罚站）
+// 方队跟随：所有待命盟友按矩形方阵站位（玩家身后），各有专属格子不扎堆。
+// 站定后面向玩家，整齐待命。
 function _followFormation(u, dt) {
-  var t = u.t;
-  var sa = u.id * 2.4;
-  var sr = 2.6 + (u.id % 3) * 1.0 + (t.cavalry ? 1.4 : 0);
-  var fx = player.x + Math.sin(sa) * sr, fz = player.z + Math.cos(sa) * sr;
-  var dx = fx - u.x, dz = fz - u.z;
-  var d = Math.sqrt(dx * dx + dz * dz);
-  if (d > 1.4) {
-    steerMove(u, fx, fz, d > 8 ? t.spd : t.spd * 0.55, dt);
-    if (u.actT <= 0) playAnim(u, d > 8 ? ANIM.run : ANIM.walk, 0.2);
+  // 统计当前跟随/待命我方单位，按 id 排序取该单位的名次
+  var allies = [], i, o;
+  for (i = 0; i < combatUnits.length; i++) {
+    o = combatUnits[i];
+    if (o.side === 0 && o.state !== 'DEAD') allies.push(o.id);
+  }
+  allies.sort(function (a, b) { return a - b; });
+  var rank = allies.indexOf(u.id), total = allies.length;
+
+  var cols = Math.max(1, Math.ceil(Math.sqrt(total)));
+  var col  = rank % cols;
+  var row  = Math.floor(rank / cols);
+  var sep  = u.t.cavalry ? 2.8 : 2.2;   // 骑兵间距更大
+  var localX = (col - (cols - 1) * 0.5) * sep;
+  var localZ = (row + 1) * sep + 2.5;   // 跟在玩家身后
+
+  // 旋转到玩家朝向的"身后"方向
+  var sinY = Math.sin(player.yaw), cosY = Math.cos(player.yaw);
+  // 玩家前向 F = (sinY, cosY)，右向 R = (cosY, -sinY)
+  // 身后偏移 = -localZ * F + localX * R
+  var wx = player.x - localZ * sinY + localX * cosY;
+  var wz = player.z - localZ * cosY - localX * sinY;
+
+  var dx = wx - u.x, dz = wz - u.z, d = Math.sqrt(dx * dx + dz * dz);
+  if (d > 0.9) {
+    steerMove(u, wx, wz, d > 6 ? u.t.spd : u.t.spd * 0.5, dt);
+    if (u.actT <= 0) playAnim(u, d > 6 ? ANIM.run : ANIM.walk, 0.2);
   } else {
-    faceTo(u, player.x, player.z, dt);   // 站定时面向玩家待命
+    faceTo(u, player.x + sinY * 5, player.z + cosY * 5, dt);  // 面朝玩家前方
     if (u.actT <= 0) playAnim(u, u.cheering ? ANIM.cheer : ANIM.idle, 0.2);
   }
 }
@@ -2736,19 +2806,18 @@ function combatUpdate(dt, now) {
 
 // ═══ src/combat_cmd.js ═══
 // ─── combat_cmd.js ────────────────────────────────────────────────────────────
-// 指挥层：招兵面板（按兵种点击刷兵，无需开战）+ 四命令按钮（跟随/冲锋/驻守/撤退）。
+// 指挥层：两个折叠面板（招兵 + 军令）+ 胜负判定。
 //
-// 招兵：点 ➕ 展开兵种面板 → 点兵种按钮刷 1 个该兵种。
-//   我方刷在玩家身边 2~4m；敌方刷在玩家面前 9~14m。
-//   首次点击触发模型加载（按钮显示进度），加载完自动补刷刚才点的兵种。
-// 胜负：敌人从有到无 → 我方欢呼几秒。
+// 左侧两个图标按钮：⚔️ 招兵、📋 军令，点击展开/收起对应面板。
+// 招兵面板：7 个兵种按钮（我方4红色+敌方3蓝色），不设上限，点一下刷一个。
+// 军令面板：跟随/冲锋/驻守/撤退，当前命令高亮。
 
-var _cmdWrap = null, _recruitBtn = null, _recruitPanel = null;
-var _pendingSpawn = null;     // 模型加载期间点的兵种（加载完自动刷出）
+var _cmdWrap = null;
+var _recruitPanel = null, _orderPanel = null;
+var _recruitOpen = false, _orderOpen = false;
 var _hadEnemies = false;
-var ALLY_CAP = 12;            // 我方上限（与 BTL.maxEnemies 共同构成性能预算）
+var _castleCourtyard = null;  // 城堡广场中心，placeSimpleCastle 设定后生效
 
-// 招兵面板兵种（顺序即按钮顺序；skel_ 前缀 = 敌方）
 var _RECRUIT = [
   ['🛡️', 'knight'],
   ['🪓', 'barbarian'],
@@ -2763,57 +2832,87 @@ function buildBattleUI() {
   var ui = document.getElementById('ui');
   if (!ui || _cmdWrap) return;
 
+  // 两个折叠触发按钮（左侧纵列）
   _cmdWrap = document.createElement('div');
-  _cmdWrap.style.cssText = 'position:absolute;left:12px;top:60px;display:flex;' +
-    'flex-direction:column;gap:8px;z-index:110';
+  _cmdWrap.style.cssText = 'position:absolute;left:8px;top:60px;display:flex;' +
+    'flex-direction:column;gap:8px;z-index:112';
   ui.appendChild(_cmdWrap);
 
-  _recruitBtn = _mkBtn('➕', '招兵', function () {
-    _recruitPanel.style.display = _recruitPanel.style.display === 'none' ? 'flex' : 'none';
+  var recToggle = _mkIconBtn('⚔️', '招兵', function () {
+    _recruitOpen = !_recruitOpen;
+    _recruitPanel.style.display = _recruitOpen ? 'flex' : 'none';
+    if (_recruitOpen) { _orderOpen = false; _orderPanel.style.display = 'none'; }
   });
-  _cmdWrap.appendChild(_recruitBtn);
+  var ordToggle = _mkIconBtn('📋', '军令', function () {
+    _orderOpen = !_orderOpen;
+    _orderPanel.style.display = _orderOpen ? 'flex' : 'none';
+    if (_orderOpen) { _recruitOpen = false; _recruitPanel.style.display = 'none'; }
+  });
+  _cmdWrap.appendChild(recToggle);
+  _cmdWrap.appendChild(ordToggle);
 
+  // 招兵面板（触发按钮右侧弹出）
+  _recruitPanel = document.createElement('div');
+  _recruitPanel.style.cssText = 'position:absolute;left:74px;top:60px;display:none;' +
+    'flex-direction:column;gap:6px;z-index:112;' +
+    'background:rgba(0,0,0,.55);padding:6px 8px;border-radius:10px';
+  ui.appendChild(_recruitPanel);
+  var i;
+  for (i = 0; i < _RECRUIT.length; i++) {
+    (function (r) {
+      var ally = r[1].indexOf('skel_') !== 0;
+      var b = _mkSmallBtn(r[0], UNIT_TYPES[r[1]].name, function () {
+        spawnKind(r[1]);
+        // 点完自动关闭面板（快速操作后收起）
+        _recruitOpen = false; _recruitPanel.style.display = 'none';
+      });
+      b.style.borderColor = ally ? 'rgba(74,222,128,.5)' : 'rgba(239,68,68,.5)';
+      _recruitPanel.appendChild(b);
+    }(_RECRUIT[i]));
+  }
+
+  // 军令面板（触发按钮右侧弹出，触发按钮在 recToggle 下方）
+  _orderPanel = document.createElement('div');
+  _orderPanel.style.cssText = 'position:absolute;left:74px;top:128px;display:none;' +
+    'flex-direction:column;gap:6px;z-index:112;' +
+    'background:rgba(0,0,0,.55);padding:6px 8px;border-radius:10px';
+  ui.appendChild(_orderPanel);
   var orders = [
     ['🏃', '跟随', 'follow'],
     ['🗡️', '冲锋', 'charge'],
     ['🛡️', '驻守', 'hold'],
     ['🚩', '撤退', 'retreat'],
   ];
-  var i;
   for (i = 0; i < orders.length; i++) {
     (function (o) {
-      var b = _mkBtn(o[0], o[1], function () {
-        playerOrder = o[2];
-        _hiliteOrder();
+      var b = _mkSmallBtn(o[0], o[1], function () {
+        playerOrder = o[2]; _hiliteOrder();
         battleToast('命令：' + o[1]);
+        _orderOpen = false; _orderPanel.style.display = 'none';
       });
       b.id = 'cmd-' + o[2];
-      _cmdWrap.appendChild(b);
+      _orderPanel.appendChild(b);
     }(orders[i]));
   }
   _hiliteOrder();
-
-  // 兵种面板（招兵按钮右侧展开）
-  _recruitPanel = document.createElement('div');
-  _recruitPanel.style.cssText = 'position:absolute;left:80px;top:60px;display:none;' +
-    'flex-direction:column;gap:6px;z-index:110';
-  ui.appendChild(_recruitPanel);
-  for (i = 0; i < _RECRUIT.length; i++) {
-    (function (r) {
-      var enemy = r[1].indexOf('skel_') === 0;
-      var b = _mkBtn(r[0], UNIT_TYPES[r[1]].name, function () { spawnKind(r[1]); });
-      b.id = 'rec-' + r[1];
-      if (enemy) b.style.borderColor = 'rgba(239,68,68,.6)';
-      _recruitPanel.appendChild(b);
-    }(_RECRUIT[i]));
-  }
 }
 
-function _mkBtn(ic, label, onTap) {
+function _mkIconBtn(ic, label, onTap) {
   var b = document.createElement('button');
   b.className = 'btn';
-  b.style.cssText = 'width:58px;height:58px;font-size:10px';
-  b.innerHTML = '<span class="ic" style="font-size:22px">' + ic + '</span><span>' + label + '</span>';
+  b.style.cssText = 'width:58px;height:58px;font-size:9px';
+  b.innerHTML = '<span style="font-size:22px;display:block">' + ic + '</span>' + label;
+  b.addEventListener('touchstart', function (e) { e.preventDefault(); onTap(); }, { passive: false });
+  b.addEventListener('click', function () { onTap(); });
+  return b;
+}
+
+function _mkSmallBtn(ic, label, onTap) {
+  var b = document.createElement('button');
+  b.className = 'btn';
+  b.style.cssText = 'width:54px;height:54px;font-size:9px;border-radius:8px;' +
+    'background:rgba(0,0,0,.6);border:1.5px solid rgba(255,255,255,.25)';
+  b.innerHTML = '<span style="font-size:20px;display:block">' + ic + '</span>' + label;
   b.addEventListener('touchstart', function (e) { e.preventDefault(); onTap(); }, { passive: false });
   b.addEventListener('click', function () { onTap(); });
   return b;
@@ -2823,52 +2922,56 @@ function _hiliteOrder() {
   var ids = ['follow', 'charge', 'hold', 'retreat'], i, el;
   for (i = 0; i < ids.length; i++) {
     el = document.getElementById('cmd-' + ids[i]);
-    if (el) el.style.borderColor = playerOrder === ids[i] ? 'rgba(250,204,21,.9)' : 'rgba(255,255,255,.3)';
+    if (el) el.style.borderColor = playerOrder === ids[i] ? 'rgba(250,204,21,.9)' : 'rgba(255,255,255,.25)';
   }
 }
 
-// ── 刷兵 ──────────────────────────────────────────────────────────────────────
+// ── 刷兵（无数量上限）──────────────────────────────────────────────────────────
 function spawnKind(kind) {
   if (!_armyLoaded) {
-    _pendingSpawn = kind;
-    if (_recruitBtn.disabled) return;       // 已在加载，更新待刷兵种即可
-    _recruitBtn.disabled = true;
+    var tog = _cmdWrap ? _cmdWrap.firstChild : null;
+    if (tog) { tog.disabled = true; tog.lastChild.textContent = '…'; }
     loadArmyModels(function () {
-      _recruitBtn.disabled = false;
-      _recruitBtn.lastChild.textContent = '招兵';
-      if (_pendingSpawn) { var k = _pendingSpawn; _pendingSpawn = null; spawnKind(k); }
+      if (tog) { tog.disabled = false; tog.lastChild.textContent = '招兵'; }
+      spawnKind(kind);
     }, function (done, total) {
-      _recruitBtn.lastChild.textContent = done + '/' + total;
+      if (tog) tog.lastChild.textContent = done + '/' + total;
     });
     return;
   }
 
   var t = UNIT_TYPES[kind];
   var side = kind.indexOf('skel_') === 0 ? 1 : 0;
-  if (side === 0 && countAlive(0) >= ALLY_CAP)       { battleToast('我方已满编（' + ALLY_CAP + '）'); return; }
-  if (side === 1 && countAlive(1) >= BTL.maxEnemies) { battleToast('敌人已达上限（' + BTL.maxEnemies + '）'); return; }
 
   if (!_respawn) _respawn = [player.x, player.y, player.z];
   updatePlayerHud();
 
   var a, r, x, z;
   if (side === 0) {
-    a = Math.random() * Math.PI * 2;
-    r = 2.5 + Math.random() * 1.5;
-    x = player.x + Math.sin(a) * r;
-    z = player.z + Math.cos(a) * r;
+    // 在领地内且有城堡广场 → 刷在广场附近
+    if (_castleCourtyard && _inTerritory(player.x, player.z)) {
+      a = Math.random() * Math.PI * 2;
+      r = 1.5 + Math.random() * 3;
+      x = _castleCourtyard.x + Math.sin(a) * r;
+      z = _castleCourtyard.z + Math.cos(a) * r;
+    } else {
+      a = Math.random() * Math.PI * 2;
+      r = 2.5 + Math.random() * 1.5;
+      x = player.x + Math.sin(a) * r;
+      z = player.z + Math.cos(a) * r;
+    }
   } else {
-    // 玩家面前扇区（前向 = -sin(yaw), -cos(yaw)，与 raycast.js 一致）
     a = player.yaw + (Math.random() - 0.5) * 0.9;
     r = 9 + Math.random() * 5;
     x = player.x - Math.sin(a) * r;
     z = player.z - Math.cos(a) * r;
   }
+
   var u = spawnUnit(kind, side, x, z);
   if (u) battleToast((side === 0 ? '我方 ' : '敌方 ') + t.name + ' 入场');
 }
 
-// 每帧胜负检查（combat_ai.js 的 combatUpdate 调用）：敌人从有到无 → 欢呼
+// 每帧胜负检查（combat_ai.js combatUpdate 调用）
 function battleProgress() {
   var en = countAlive(1);
   if (en > 0) { _hadEnemies = true; return; }
@@ -2975,6 +3078,109 @@ function placeStructure(s, ox, baseY, oz) {
   for (k in dirty) { cd = dirty[k]; rebuildChunk(cd[0], cd[1]); }
 }
 
+// ── 简易城堡 ──────────────────────────────────────────────────────────────────
+// 20×20 脚印，城墙 COBBLE 1 块厚 6 高；四角塔 3×3×8；南门 2 宽 4 高开口；
+// 内部铺 GRAY_BRICK；北部石砌城主楼；正中放 1 块领地石设结界。
+function placeSimpleCastle(ox, oz) {
+  var BY = SEA + 2;
+  var dirty = {};
+
+  function ec(cx, cz) {
+    var k = ckey(cx, cz);
+    if (!chunks[k]) chunks[k] = { data: genTerrain(cx, cz), mesh: null };
+  }
+  function raw(wx, wy, wz, id) {
+    if (wy < 0 || wy >= CHUNK_H) return;
+    var cx = Math.floor(wx / CHUNK_W), cz = Math.floor(wz / CHUNK_D);
+    ec(cx, cz);
+    var ch = chunks[ckey(cx, cz)];
+    var lx = ((wx % CHUNK_W) + CHUNK_W) % CHUNK_W;
+    var lz = ((wz % CHUNK_D) + CHUNK_D) % CHUNK_D;
+    ch.data[lx + wy * CHUNK_W + lz * CHUNK_W * CHUNK_H] = id;
+    dirty[ckey(cx, cz)] = [cx, cz];
+    if (lx === 0)         { ec(cx-1,cz); dirty[ckey(cx-1,cz)] = [cx-1,cz]; }
+    if (lx === CHUNK_W-1) { ec(cx+1,cz); dirty[ckey(cx+1,cz)] = [cx+1,cz]; }
+    if (lz === 0)         { ec(cx,cz-1); dirty[ckey(cx,cz-1)] = [cx,cz-1]; }
+    if (lz === CHUNK_D-1) { ec(cx,cz+1); dirty[ckey(cx,cz+1)] = [cx,cz+1]; }
+  }
+
+  var x, z, y, W = 20, WALL_H = 6, TOWER_H = 8;
+
+  // 庭院地面（灰砖铺地，城墙内侧 1 格起）
+  for (x = 1; x < W-1; x++) {
+    for (z = 1; z < W-1; z++) {
+      raw(ox+x, BY, oz+z, GRAY_BRICK);
+    }
+  }
+
+  // 四面城墙（外围一圈，高 6）；南墙中央留 2 格宽 4 格高的城门
+  for (y = 0; y < WALL_H; y++) {
+    for (x = 0; x < W; x++) {
+      raw(ox+x, BY+y, oz,     COBBLE);   // 北墙
+      if (y < 4 && (x === 9 || x === 10)) {
+        // 城门开口，不放块
+      } else {
+        raw(ox+x, BY+y, oz+W-1, COBBLE); // 南墙
+      }
+    }
+    for (z = 1; z < W-1; z++) {
+      raw(ox,     BY+y, oz+z, COBBLE);   // 西墙
+      raw(ox+W-1, BY+y, oz+z, COBBLE);   // 东墙
+    }
+  }
+
+  // 四角瞭望塔（3×3，8 高）
+  var corners = [[0,0],[W-3,0],[0,W-3],[W-3,W-3]];
+  var ti;
+  for (ti = 0; ti < corners.length; ti++) {
+    var tx = corners[ti][0], tz = corners[ti][1];
+    for (y = 0; y < TOWER_H; y++) {
+      for (x = 0; x < 3; x++) {
+        for (z = 0; z < 3; z++) {
+          raw(ox+tx+x, BY+y, oz+tz+z, COBBLE);
+        }
+      }
+    }
+    // 塔顶垛口（四角各 1 块）
+    raw(ox+tx,   BY+TOWER_H, oz+tz,   COBBLE);
+    raw(ox+tx+2, BY+TOWER_H, oz+tz,   COBBLE);
+    raw(ox+tx,   BY+TOWER_H, oz+tz+2, COBBLE);
+    raw(ox+tx+2, BY+TOWER_H, oz+tz+2, COBBLE);
+  }
+
+  // 北侧城主楼（8×5 脚印，STONE 外墙 + PLANKS 地板，8 高）
+  var kox = ox+6, koz = oz+2;
+  for (y = 0; y < 8; y++) {
+    for (x = 0; x < 8; x++) {
+      for (z = 0; z < 5; z++) {
+        if (x === 0 || x === 7 || z === 0 || z === 4) {
+          raw(kox+x, BY+y, koz+z, STONE);
+        }
+      }
+    }
+  }
+  for (x = 1; x < 7; x++) {
+    for (z = 1; z < 4; z++) {
+      raw(kox+x, BY, koz+z, PLANKS);
+    }
+  }
+  // 主楼门洞（南面正中，2 宽 3 高）
+  for (y = 0; y < 3; y++) {
+    raw(kox+3, BY+y, koz+4, AIR);
+    raw(kox+4, BY+y, koz+4, AIR);
+  }
+
+  // 城堡广场中心（城门内侧中央，供招兵系统使用）
+  _castleCourtyard = { x: ox + 10, z: oz + 13 };
+
+  // 领地石放置于广场正中（地面 +1，可见），激活结界
+  raw(ox+10, BY+1, oz+10, TERRITORY_STONE);
+  if (typeof _addTerritory === 'function') _addTerritory(ox+10, BY+1, oz+10);
+
+  var k, cd;
+  for (k in dirty) { cd = dirty[k]; rebuildChunk(cd[0], cd[1]); }
+}
+
 // 启动时调用：围绕出生地布置中式建筑村落
 function placeStructures() {
   var BY = SEA + 2;   // 平地地表 = 14
@@ -3015,7 +3221,7 @@ var player = {
   onGround: false, flying: false,
   jumpQ: false, breakQ: false, placeQ: false,
   slot: 0,
-  inv: [GRASS, DIRT, STONE, SAND, WOOD, LEAVES, RED_WALL, GOLD_ROOF, WHITE_STONE, GRAY_BRICK, GRAY_ROOF, RED_PILLAR, PLANKS, COBBLE, MUD_BRICK]
+  inv: [GRASS, DIRT, STONE, SAND, WOOD, LEAVES, RED_WALL, GOLD_ROOF, WHITE_STONE, GRAY_BRICK, GRAY_ROOF, RED_PILLAR, PLANKS, COBBLE, MUD_BRICK, TERRITORY_STONE]
 };
 
 window._step = 4;
@@ -3305,8 +3511,10 @@ function tick(now) {
     } else {
       var hitB = raycast(6);
       if (hitB) {
-        digSound(getBlock(hitB.x, hitB.y, hitB.z));   // 先取 ID 再清除
+        var _brokenId = getBlock(hitB.x, hitB.y, hitB.z);
+        digSound(_brokenId);   // 先取 ID 再清除
         setBlock(hitB.x, hitB.y, hitB.z, AIR);
+        if (_brokenId === TERRITORY_STONE && typeof _removeTerritory === 'function') _removeTerritory(hitB.x, hitB.y, hitB.z);
         _lastBreak = nowS;
       }
     }
@@ -3416,8 +3624,10 @@ function tick(now) {
       var pz0 = Math.floor(player.z - PR), pz1 = Math.floor(player.z + PR);
       var py0 = Math.floor(player.y),      py1 = Math.floor(player.y + PH - 0.01);
       if (pv.x < px0 || pv.x > px1 || pv.y < py0 || pv.y > py1 || pv.z < pz0 || pv.z > pz1) {
-        setBlock(pv.x, pv.y, pv.z, player.inv[player.slot]);
-        digSound(player.inv[player.slot]);
+        var _placedId = player.inv[player.slot];
+        setBlock(pv.x, pv.y, pv.z, _placedId);
+        digSound(_placedId);
+        if (_placedId === TERRITORY_STONE && typeof _addTerritory === 'function') _addTerritory(pv.x, pv.y, pv.z);
         _lastPlace = nowS;
         // 学习放置方向：从第2块起才学（第1块 lastPos 为 null，不触发）
         // 仅准星直接命中时从面法线学方向；方向预测放置时 pv≠selHit.prev，跳过，保持方向不变
@@ -3644,6 +3854,7 @@ function bootNext() {
     } else if (bootStep === 9) {
       setProgress(94, '放置建筑...');
       placeStructures();
+      placeSimpleCastle(-10, -32);   // 城堡在出生点正北约 32 格
       bootStep = 10; requestAnimationFrame(bootNext);
 
     } else {

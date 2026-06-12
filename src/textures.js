@@ -32,6 +32,7 @@ var BTEX = [
   [15, 15, 15],   // PLANKS      木板
   [16, 16, 16],   // COBBLE      卵石
   [17, 17, 17],   // MUD_BRICK   土砖
+  [18, 18, 18],   // TERRITORY_STONE 领地石
 ];
 
 var atlasTexture = null;
@@ -58,6 +59,7 @@ var _TILES = [
   { file: 'oak_planks' },                       // 15 木板   wood
   { file: 'cobblestone' },                      // 16 卵石   gravel_stone
   { file: 'mud_brick' },                        // 17 土砖   stone_sand
+  { file: 'white_stone', tint: '#9333ea' },     // 18 领地石  紫色结界
 ];
 
 // 单格处理：染色（multiply 保留 alpha）后画入贴图集

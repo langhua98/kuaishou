@@ -76,13 +76,15 @@ function spawnUnit(kind, side, x, z) {
   var horseMixer = null;
 
   if (t.cavalry) {
-    // 骑兵：马在地面，骑手坐在马背上
+    // 骑兵：马在地面（2.2m 含头），骑手骑于马背（约 1.4m 处）
     _prepModel(model, 1.8);
-    model.position.y = 0.95;    // 抬高至马背高度
+    model.rotation.y = 0;   // KayKit 模型原生朝 +Z，_prepModel 的 π 翻转会倒着走——归零修正
+    model.position.y = 1.4;
     var hg = _armyGltf[t.mount];
     if (hg) {
       var horseModel = hg.scene.clone(true);
-      _prepModel(horseModel, 1.5);
+      _prepModel(horseModel, 2.2);
+      horseModel.rotation.y = 0;
       group.add(horseModel);
       horseMixer = new THREE.AnimationMixer(horseModel);
       if (hg.animations.length > 0) {
@@ -93,6 +95,7 @@ function spawnUnit(kind, side, x, z) {
     }
   } else {
     _prepModel(model, t.h);
+    model.rotation.y = 0;   // 同上：_prepModel π 翻转会倒走，归零修正
   }
 
   _attachWeapon(model, t.wpnR, 'handslot.r');
@@ -151,17 +154,33 @@ function playAnim(u, name, fade, once) {
 // ── 伤害与死亡 ────────────────────────────────────────────────────────────────
 function damageUnit(u, dmg, fromUnit) {
   if (u.state === 'DEAD') return;
+  // 盾牌格挡：持盾兵种 30% 概率减半伤害（自己攻击动作中举不起盾）
+  var blocked = false;
+  if (u.t.shield && u.actT <= 0 && Math.random() < 0.3) {
+    blocked = true;
+    dmg = Math.max(1, Math.ceil(dmg / 2));
+  }
   u.hp -= dmg;
-  battleSfx(u.t.ranged ? 'atk_hit' : 'atk_clang');
+  battleSfx(blocked || !u.t.ranged ? 'atk_clang' : 'atk_hit');
   updateHpBar(u);
+  dmgFloat(u, dmg, fromUnit && fromUnit.isPlayer, blocked);
   if (u.hp <= 0) { killUnit(u); return; }
-  // 受击硬直（攻击动作中不打断）
-  if (u.actT <= 0) {
+  if (blocked) {
+    playAnim(u, ANIM.block, 0.06, true);
+    u.actT = 0.4;
+  } else if (u.actT <= 0) {
+    // 受击硬直（攻击动作中不打断）
     playAnim(u, ANIM.hit, 0.08, true);
     u.actT = 0.45;
   }
-  // 被打必还手：转火攻击者（玩家伪单位为持久对象，可直接作为目标）
-  if (fromUnit && u.target !== fromUnit) u.target = fromUnit;
+  // 近战命中击退 0.5m（远程不击退；_tryShift 校验，不会推进墙/坠崖）
+  if (fromUnit && !blocked) {
+    var kx = u.x - fromUnit.x, kz = u.z - fromUnit.z;
+    var kd = Math.sqrt(kx * kx + kz * kz);
+    if (kd > 0.01 && kd < 4) _tryShift(u, (kx / kd) * 0.5, (kz / kd) * 0.5);
+  }
+  // 被单位打必还手；玩家免伤——被玩家打不转火（打不到玩家，追了也白追）
+  if (fromUnit && !fromUnit.isPlayer && u.target !== fromUnit) u.target = fromUnit;
 }
 
 function killUnit(u) {

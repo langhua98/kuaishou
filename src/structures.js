@@ -86,6 +86,109 @@ function placeStructure(s, ox, baseY, oz) {
   for (k in dirty) { cd = dirty[k]; rebuildChunk(cd[0], cd[1]); }
 }
 
+// ── 简易城堡 ──────────────────────────────────────────────────────────────────
+// 20×20 脚印，城墙 COBBLE 1 块厚 6 高；四角塔 3×3×8；南门 2 宽 4 高开口；
+// 内部铺 GRAY_BRICK；北部石砌城主楼；正中放 1 块领地石设结界。
+function placeSimpleCastle(ox, oz) {
+  var BY = SEA + 2;
+  var dirty = {};
+
+  function ec(cx, cz) {
+    var k = ckey(cx, cz);
+    if (!chunks[k]) chunks[k] = { data: genTerrain(cx, cz), mesh: null };
+  }
+  function raw(wx, wy, wz, id) {
+    if (wy < 0 || wy >= CHUNK_H) return;
+    var cx = Math.floor(wx / CHUNK_W), cz = Math.floor(wz / CHUNK_D);
+    ec(cx, cz);
+    var ch = chunks[ckey(cx, cz)];
+    var lx = ((wx % CHUNK_W) + CHUNK_W) % CHUNK_W;
+    var lz = ((wz % CHUNK_D) + CHUNK_D) % CHUNK_D;
+    ch.data[lx + wy * CHUNK_W + lz * CHUNK_W * CHUNK_H] = id;
+    dirty[ckey(cx, cz)] = [cx, cz];
+    if (lx === 0)         { ec(cx-1,cz); dirty[ckey(cx-1,cz)] = [cx-1,cz]; }
+    if (lx === CHUNK_W-1) { ec(cx+1,cz); dirty[ckey(cx+1,cz)] = [cx+1,cz]; }
+    if (lz === 0)         { ec(cx,cz-1); dirty[ckey(cx,cz-1)] = [cx,cz-1]; }
+    if (lz === CHUNK_D-1) { ec(cx,cz+1); dirty[ckey(cx,cz+1)] = [cx,cz+1]; }
+  }
+
+  var x, z, y, W = 20, WALL_H = 6, TOWER_H = 8;
+
+  // 庭院地面（灰砖铺地，城墙内侧 1 格起）
+  for (x = 1; x < W-1; x++) {
+    for (z = 1; z < W-1; z++) {
+      raw(ox+x, BY, oz+z, GRAY_BRICK);
+    }
+  }
+
+  // 四面城墙（外围一圈，高 6）；南墙中央留 2 格宽 4 格高的城门
+  for (y = 0; y < WALL_H; y++) {
+    for (x = 0; x < W; x++) {
+      raw(ox+x, BY+y, oz,     COBBLE);   // 北墙
+      if (y < 4 && (x === 9 || x === 10)) {
+        // 城门开口，不放块
+      } else {
+        raw(ox+x, BY+y, oz+W-1, COBBLE); // 南墙
+      }
+    }
+    for (z = 1; z < W-1; z++) {
+      raw(ox,     BY+y, oz+z, COBBLE);   // 西墙
+      raw(ox+W-1, BY+y, oz+z, COBBLE);   // 东墙
+    }
+  }
+
+  // 四角瞭望塔（3×3，8 高）
+  var corners = [[0,0],[W-3,0],[0,W-3],[W-3,W-3]];
+  var ti;
+  for (ti = 0; ti < corners.length; ti++) {
+    var tx = corners[ti][0], tz = corners[ti][1];
+    for (y = 0; y < TOWER_H; y++) {
+      for (x = 0; x < 3; x++) {
+        for (z = 0; z < 3; z++) {
+          raw(ox+tx+x, BY+y, oz+tz+z, COBBLE);
+        }
+      }
+    }
+    // 塔顶垛口（四角各 1 块）
+    raw(ox+tx,   BY+TOWER_H, oz+tz,   COBBLE);
+    raw(ox+tx+2, BY+TOWER_H, oz+tz,   COBBLE);
+    raw(ox+tx,   BY+TOWER_H, oz+tz+2, COBBLE);
+    raw(ox+tx+2, BY+TOWER_H, oz+tz+2, COBBLE);
+  }
+
+  // 北侧城主楼（8×5 脚印，STONE 外墙 + PLANKS 地板，8 高）
+  var kox = ox+6, koz = oz+2;
+  for (y = 0; y < 8; y++) {
+    for (x = 0; x < 8; x++) {
+      for (z = 0; z < 5; z++) {
+        if (x === 0 || x === 7 || z === 0 || z === 4) {
+          raw(kox+x, BY+y, koz+z, STONE);
+        }
+      }
+    }
+  }
+  for (x = 1; x < 7; x++) {
+    for (z = 1; z < 4; z++) {
+      raw(kox+x, BY, koz+z, PLANKS);
+    }
+  }
+  // 主楼门洞（南面正中，2 宽 3 高）
+  for (y = 0; y < 3; y++) {
+    raw(kox+3, BY+y, koz+4, AIR);
+    raw(kox+4, BY+y, koz+4, AIR);
+  }
+
+  // 城堡广场中心（城门内侧中央，供招兵系统使用）
+  _castleCourtyard = { x: ox + 10, z: oz + 13 };
+
+  // 领地石放置于广场正中（地面 +1，可见），激活结界
+  raw(ox+10, BY+1, oz+10, TERRITORY_STONE);
+  if (typeof _addTerritory === 'function') _addTerritory(ox+10, BY+1, oz+10);
+
+  var k, cd;
+  for (k in dirty) { cd = dirty[k]; rebuildChunk(cd[0], cd[1]); }
+}
+
 // 启动时调用：围绕出生地布置中式建筑村落
 function placeStructures() {
   var BY = SEA + 2;   // 平地地表 = 14
