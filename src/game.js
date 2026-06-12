@@ -656,7 +656,7 @@ function bootNext() {
     } else if (bootStep === 9) {
       setProgress(94, '放置建筑...');
       placeStructures();
-      placeSimpleCastle(-10, -32);   // 城堡在出生点正北约 32 格
+      placeSimpleCastle(-10, -80);   // 城堡在寺庙正北，避免与现有建筑重叠
       bootStep = 10; requestAnimationFrame(bootNext);
 
     } else {

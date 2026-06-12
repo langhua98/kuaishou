@@ -9,10 +9,30 @@
 
 var playerOrder = 'follow';
 
-// 敌我目标选择：最近的存活敌对单位。玩家完全免伤——敌方永不索敌玩家本体。
-// anyRange=true（冲锋命令）时不限索敌距离——否则敌人超过 28m 冲锋令毫无反应
+// 敌我目标选择。玩家完全免伤——敌方永不索敌玩家。
+// 敌方（side=1）优先攻击防御塔（_towers 由 combat_tower.js 提供）。
 function _pickTarget(u, anyRange) {
-  var best = null, bd = anyRange ? Infinity : BTL.detectR * BTL.detectR, i, o, dx, dz, d;
+  var i, o, dx, dz, d;
+  var detectR2 = anyRange ? Infinity : BTL.detectR * BTL.detectR;
+
+  // 敌方：优先选最近的防御塔
+  if (u.side === 1 && typeof _towers !== 'undefined' && _towers.length > 0) {
+    var bestTw = null, btd = detectR2 * 1.5;   // 塔感知范围稍大
+    for (i = 0; i < _towers.length; i++) {
+      var tw = _towers[i];
+      if (tw.dead) continue;
+      dx = tw.x - u.x; dz = tw.z - u.z; d = dx*dx + dz*dz;
+      if (d < btd) { btd = d; bestTw = tw; }
+    }
+    if (bestTw) {
+      return { isTower:true, towerRef:bestTw, side:0,
+        x:bestTw.x, y:bestTw.y, z:bestTw.z,
+        t:{ h:4, hp:bestTw.maxHp, range:2.2, ranged:false },
+        state:'HOLD', hp:bestTw.hp, kind:'tower' };
+    }
+  }
+
+  var best = null, bd = detectR2;
   for (i = 0; i < combatUnits.length; i++) {
     o = combatUnits[i];
     if (o.side === u.side || o.state === 'DEAD') continue;
@@ -20,6 +40,42 @@ function _pickTarget(u, anyRange) {
     if (d < bd) { bd = d; best = o; }
   }
   return best;
+}
+
+// 集火：全军攻当前血量百分比最低的敌方单位
+function _getFocusTarget() {
+  var best = null, bestRatio = Infinity, i, o, r;
+  for (i = 0; i < combatUnits.length; i++) {
+    o = combatUnits[i];
+    if (o.side === 0 || o.state === 'DEAD') continue;
+    r = o.hp / o.t.hp;
+    if (r < bestRatio) { bestRatio = r; best = o; }
+  }
+  return best;
+}
+
+// 包围：分配给每个盟友一个围绕敌方重心的角度位置
+function _getSurroundPos(u) {
+  var ex = 0, ez = 0, en = 0, i, o;
+  for (i = 0; i < combatUnits.length; i++) {
+    o = combatUnits[i];
+    if (o.side === 0 || o.state === 'DEAD') continue;
+    ex += o.x; ez += o.z; en++;
+  }
+  if (en === 0) return null;
+  ex /= en; ez /= en;
+  var allies = [], rank = 0, total;
+  for (i = 0; i < combatUnits.length; i++) {
+    o = combatUnits[i];
+    if (o.side === 0 && o.state !== 'DEAD') allies.push(o.id);
+  }
+  allies.sort(function (a, b) { return a - b; });
+  rank = allies.indexOf(u.id);
+  total = Math.max(1, allies.length);
+  var angle = (rank / total) * Math.PI * 2;
+  var radius = 4 + total * 0.25;
+  return { x: ex + Math.sin(angle) * radius, z: ez + Math.cos(angle) * radius,
+           tx: ex, tz: ez };
 }
 
 // 命中朝向判定：攻击者必须面向目标 ±70°，被碰撞推得转了身就挥空
@@ -36,16 +92,25 @@ function _distTo(u, t) {
 }
 
 // 方队跟随：所有待命盟友按矩形方阵站位（玩家身后），各有专属格子不扎堆。
-// 站定后面向玩家，整齐待命。
+// rangedFront 命令时，远程单位排在前排（较小 row），近战排后排。
 function _followFormation(u, dt) {
-  // 统计当前跟随/待命我方单位，按 id 排序取该单位的名次
   var allies = [], i, o;
   for (i = 0; i < combatUnits.length; i++) {
     o = combatUnits[i];
-    if (o.side === 0 && o.state !== 'DEAD') allies.push(o.id);
+    if (o.side === 0 && o.state !== 'DEAD') allies.push(o);
   }
-  allies.sort(function (a, b) { return a - b; });
-  var rank = allies.indexOf(u.id), total = allies.length;
+  // 弓手前移：远程单位先排（前排），近战后排
+  if (playerOrder === 'rangedFront') {
+    allies.sort(function (a, b) {
+      var ar = a.t.ranged ? 0 : 1, br = b.t.ranged ? 0 : 1;
+      return ar !== br ? ar - br : a.id - b.id;
+    });
+  } else {
+    allies.sort(function (a, b) { return a.id - b.id; });
+  }
+  var ids = [];
+  for (i = 0; i < allies.length; i++) ids.push(allies[i].id);
+  var rank = ids.indexOf(u.id), total = allies.length;
 
   var cols = Math.max(1, Math.ceil(Math.sqrt(total)));
   var col  = rank % cols;
@@ -202,11 +267,22 @@ function _aiCavalry(u, dt, now) {
       }
     }
 
-    // 我方命令（hold/retreat 强制覆盖任何战斗状态；follow/charge 需先解除 HOLD）
+    // 我方命令（骑兵版）
     if (u.side === 0) {
-      if (playerOrder === 'hold')         { if (u.state !== 'HOLD') { u.state = 'HOLD'; u.target = null; } }
-      else if (playerOrder === 'retreat') { u.state = 'FOLLOW'; u.target = null; }
-      else {
+      if (playerOrder === 'hold') {
+        if (u.state !== 'HOLD') { u.state = 'HOLD'; u.target = null; }
+      } else if (playerOrder === 'retreat') {
+        u.state = 'FOLLOW'; u.target = null;
+      } else if (playerOrder === 'rally') {
+        u.target = null; tgt = null;
+        if (u.state !== 'FOLLOW') u.state = 'FOLLOW';
+      } else if (playerOrder === 'focus') {
+        if (u.state === 'HOLD') { u.state = 'FOLLOW'; u.target = null; }
+        var ftc = _getFocusTarget();
+        if (ftc) { u.target = ftc; tgt = ftc; }
+        if (u.target && (u.state === 'FOLLOW' || u.state === 'IDLE')) u.state = 'SCAN';
+        else if (!u.target && (u.state === 'SCAN' || u.state === 'POSITION')) u.state = 'FOLLOW';
+      } else {
         if (u.state === 'HOLD') { u.state = 'FOLLOW'; u.target = null; }
         if (!u.target) { u.target = _pickBestTarget(u, playerOrder === 'charge'); tgt = u.target; }
         if (u.target && (u.state === 'FOLLOW' || u.state === 'IDLE')) u.state = 'SCAN';
@@ -408,13 +484,22 @@ function _aiUnit(u, dt, now) {
     if (u.target && !u.target.isPlayer && u.target.state === 'DEAD') u.target = null;
 
     if (u.side === 0) {
-      // 我方按命令行事（hold/retreat 强制覆盖；follow/charge 需先解除 HOLD——
-      // 否则按过驻守后单位永远卡在 HOLD 不听后续命令）
-      if (playerOrder === 'hold')         { if (u.state !== 'HOLD') { u.state = 'HOLD'; u.target = null; } }
-      else if (playerOrder === 'retreat') { u.state = 'FOLLOW'; u.target = null; }
-      else {
+      if (playerOrder === 'hold') {
+        if (u.state !== 'HOLD') { u.state = 'HOLD'; u.target = null; }
+      } else if (playerOrder === 'retreat') {
+        u.state = 'FOLLOW'; u.target = null;
+      } else if (playerOrder === 'rally') {
+        u.target = null;
+        if (u.state !== 'FOLLOW' && u.state !== 'IDLE') u.state = 'FOLLOW';
+      } else if (playerOrder === 'focus') {
         if (u.state === 'HOLD') { u.state = 'FOLLOW'; u.target = null; }
-        // 跟随中遇敌就近反击（跟随≠挨打）；冲锋不限索敌距离
+        var ft = _getFocusTarget();
+        if (ft) u.target = ft;
+        if (u.target) { if (u.state === 'FOLLOW' || u.state === 'IDLE') u.state = 'SEEK'; }
+        else if (u.state === 'SEEK' || u.state === 'FIGHT') u.state = 'FOLLOW';
+      } else {
+        // follow / charge / surround / rangedFront 使用同一决策逻辑，行为层区分
+        if (u.state === 'HOLD') { u.state = 'FOLLOW'; u.target = null; }
         if (!u.target) u.target = _pickTarget(u, playerOrder === 'charge');
         if (u.target) { if (u.state === 'FOLLOW' || u.state === 'IDLE') u.state = 'SEEK'; }
         else if (u.state === 'SEEK' || u.state === 'FIGHT') u.state = 'FOLLOW';
@@ -430,11 +515,55 @@ function _aiUnit(u, dt, now) {
   switch (u.state) {
 
     case 'FOLLOW':
+      // 包围命令：移动到围绕敌军重心的分配角度位置
+      if (playerOrder === 'surround' && u.side === 0) {
+        var sp = _getSurroundPos(u);
+        if (sp) {
+          var sdx = sp.x - u.x, sdz = sp.z - u.z, sdd = Math.sqrt(sdx*sdx+sdz*sdz);
+          if (sdd > 2) {
+            steerMove(u, sp.x, sp.z, u.t.spd, dt);
+            if (u.actT <= 0) playAnim(u, sdd > 5 ? ANIM.run : ANIM.walk, 0.2);
+          } else {
+            faceTo(u, sp.tx, sp.tz, dt);
+            if (!tgt) { u.target = _pickTarget(u, true); tgt = u.target; }
+            if (tgt) u.state = 'SEEK';
+            else if (u.actT <= 0) playAnim(u, ANIM.idle, 0.2);
+          }
+          break;
+        }
+      }
       _followFormation(u, dt);
       break;
 
     case 'SEEK':
+      // 敌方：优先趋向防御塔
+      if (u.side === 1 && typeof _towers !== 'undefined' && _towers.length > 0) {
+        var ntw = null, ntd = BTL.detectR * BTL.detectR * 1.5;
+        var ti, twObj, tdx, tdz, td;
+        for (ti = 0; ti < _towers.length; ti++) {
+          twObj = _towers[ti]; if (twObj.dead) continue;
+          tdx = twObj.x - u.x; tdz = twObj.z - u.z; td = tdx*tdx+tdz*tdz;
+          if (td < ntd) { ntd = td; ntw = twObj; }
+        }
+        if (ntw) {
+          var twd = Math.sqrt((ntw.x-u.x)*(ntw.x-u.x)+(ntw.z-u.z)*(ntw.z-u.z));
+          if (twd > 2.2) {
+            steerMove(u, ntw.x, ntw.z, t.spd, dt);
+            if (u.actT <= 0) playAnim(u, ANIM.run, 0.2);
+          } else {
+            faceTo(u, ntw.x, ntw.z, dt);
+            if (u.atkCd <= 0 && u.actT <= 0) {
+              playAnim(u, Math.random() < 0.5 ? ANIM.atk1 : ANIM.atk2, 0.08, true);
+              u.actT = 0.9; u.atkCd = t.atkCd;
+              battleSfx('atk_clang');
+            } else if (u.actT <= 0) { playAnim(u, ANIM.idle, 0.2); }
+          }
+          break;
+        }
+      }
       if (!tgt) { u.state = u.side === 0 ? 'FOLLOW' : 'IDLE'; break; }
+      // 塔代理目标：如目标是塔且已死，清除目标
+      if (tgt.isTower && tgt.towerRef && tgt.towerRef.dead) { u.target = null; u.state = 'IDLE'; break; }
       d = _distTo(u, tgt);
       if (t.ranged) {
         // 弓手：保持距离带，太近后撤、太远逼近，带内射击
@@ -510,8 +639,10 @@ function _aiUnit(u, dt, now) {
 
 // ── 总入口 ────────────────────────────────────────────────────────────────────
 function combatUpdate(dt, now) {
-  battleProgress();   // 胜负判定先行（即使单位清空也要能收尾，combat_cmd.js）
-  updateFloats(dt);   // 伤害飘字（单位清空后残留的飘字也要播完）
+  updateTerritoryFx(dt);  // 结界动画（combat_steer.js）
+  if (typeof updateTowers === 'function') updateTowers(dt);  // 塔防（combat_tower.js）
+  battleProgress();   // 胜负判定
+  updateFloats(dt);   // 伤害飘字
   if (!combatUnits.length) return;
   var i, u;
   // 第一段：AI 决策与移动（可能更新 x/z）

@@ -6,22 +6,31 @@
 // 上下坡：跟随地形列高度，差 ≤1 格直接走上（体素世界天然台阶）。
 
 // ── 领地结界系统 ──────────────────────────────────────────────────────────────
-// 每块领地石在放置时创建半径 12m 的保护圈；敌方无法进入该范围。
-// 用紫色线框 BoxHelper 标注边界（高度 10m，视觉提示）。
+// 每块领地石放置时创建 R=25m 保护圈；敌方无法进入。
+// 双层紫色线框（内层实线 + 外层虚框）+ 脉冲透明度动画。
 
-var _territoryList = [];   // [{cx,cz,r,mesh}]
+var _territoryList = [];   // [{cx,cz,r,mesh,meshOut,_t}]
+var _territoryTime = 0;    // 动画时间（updateTerritoryFx 累加）
 
 function _addTerritory(bx, by, bz) {
-  var R = 12;
-  var H = 10;
+  var R = 25, H = 18;
   var cx = bx + 0.5, cz = bz + 0.5;
-  var geo = new THREE.BoxGeometry(R * 2, H, R * 2);
-  var edges = new THREE.EdgesGeometry(geo);
-  var mat = new THREE.LineBasicMaterial({ color: 0x9333ea, transparent: true, opacity: 0.85 });
-  var mesh = new THREE.LineSegments(edges, mat);
-  mesh.position.set(cx, by + H / 2, cz);
-  scene.add(mesh);
-  _territoryList.push({ cx: cx, cz: cz, r: R, mesh: mesh });
+
+  // 内层：主边框（亮紫色）
+  var geo1 = new THREE.BoxGeometry(R * 2, H, R * 2);
+  var mat1 = new THREE.LineBasicMaterial({ color: 0x9333ea, transparent: true, opacity: 0.9 });
+  var mesh1 = new THREE.LineSegments(new THREE.EdgesGeometry(geo1), mat1);
+  mesh1.position.set(cx, by + H / 2, cz);
+  scene.add(mesh1);
+
+  // 外层：略大虚框（淡紫色，稍慢反向旋转）
+  var geo2 = new THREE.BoxGeometry(R * 2.08, H * 1.12, R * 2.08);
+  var mat2 = new THREE.LineBasicMaterial({ color: 0xc084fc, transparent: true, opacity: 0.3 });
+  var mesh2 = new THREE.LineSegments(new THREE.EdgesGeometry(geo2), mat2);
+  mesh2.position.set(cx, by + H / 2, cz);
+  scene.add(mesh2);
+
+  _territoryList.push({ cx: cx, cz: cz, r: R, mesh: mesh1, meshOut: mesh2 });
 }
 
 function _removeTerritory(bx, by, bz) {
@@ -29,15 +38,29 @@ function _removeTerritory(bx, by, bz) {
   for (i = _territoryList.length - 1; i >= 0; i--) {
     var t = _territoryList[i];
     if (Math.abs(t.cx - cx) < 0.5 && Math.abs(t.cz - cz) < 0.5) {
-      scene.remove(t.mesh);
-      t.mesh.material.dispose();
+      scene.remove(t.mesh); t.mesh.material.dispose();
+      scene.remove(t.meshOut); t.meshOut.material.dispose();
       _territoryList.splice(i, 1);
       return;
     }
   }
 }
 
-// 判断 (x,z) 是否在任意领地保护范围内
+// 每帧动画（combat_ai.js combatUpdate 调用）
+function updateTerritoryFx(dt) {
+  _territoryTime += dt;
+  var i, t, pulse;
+  for (i = 0; i < _territoryList.length; i++) {
+    t = _territoryList[i];
+    pulse = 0.55 + 0.38 * Math.sin(_territoryTime * 2.2 + i * 1.3);
+    t.mesh.material.opacity = pulse;
+    t.meshOut.material.opacity = pulse * 0.35;
+    t.mesh.rotation.y    += dt * 0.04;
+    t.meshOut.rotation.y -= dt * 0.025;
+  }
+}
+
+// 判断 (x,z) 是否在任意领地保护范围内（R=25 AABB）
 function _inTerritory(x, z) {
   var i, t;
   for (i = 0; i < _territoryList.length; i++) {
