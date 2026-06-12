@@ -23,7 +23,7 @@ var player = {
   onGround: false, flying: false,
   jumpQ: false, breakQ: false, placeQ: false,
   slot: 0,
-  inv: [GRASS, DIRT, STONE, SAND, WOOD, LEAVES, WATER, RED_WALL, GOLD_ROOF, WHITE_STONE, GRAY_BRICK]
+  inv: [GRASS, DIRT, STONE, SAND, WOOD, LEAVES, RED_WALL, GOLD_ROOF, WHITE_STONE, GRAY_BRICK, GRAY_ROOF, RED_PILLAR, PLANKS, COBBLE, MUD_BRICK]
 };
 
 window._step = 4;
@@ -641,8 +641,8 @@ function bootNext() {
       bootStep = 9; requestAnimationFrame(bootNext);
 
     } else if (bootStep === 9) {
-      setProgress(94, '建造故宫...');
-      buildForbiddenCity();
+      setProgress(94, '放置建筑...');
+      placeStructures();
       bootStep = 10; requestAnimationFrame(bootNext);
 
     } else {

@@ -9,16 +9,17 @@
 //     草顶 ×#91BD59（平原绿）、树叶 ×#77AB2F（橡树绿）、水 ×#3F76E4（水蓝）
 //   树叶/水有透明像素 → 先铺不透明底色再叠加，避免方块接缝透视。
 //
-// 贴图格布局（ATLAS_COLS=4, ATLAS_ROWS=4）：
+// 贴图格布局（ATLAS_COLS=4, ATLAS_ROWS=5）：
 //   行0: [0] grass_top  [1] grass_side  [2] dirt       [3] stone
 //   行1: [4] sand       [5] wood_top    [6] wood_side   [7] leaves
 //   行2: [8] water      [9] red_wall   [10] gold_roof  [11] white_stone
-//   行3: [12] gray_brick  （余留空位）
+//   行3: [12] gray_brick [13] gray_roof [14] red_pillar [15] planks
+//   行4: [16] cobble    [17] mud_brick  （余留空位）
 //
 // BTEX[blockId] = [top格, side格, bot格]
 // loadTextures(callback) — 异步加载完成后设置 atlasTexture 并回调
 
-var ATLAS_COLS = 4, ATLAS_ROWS = 4, TILE = 16;
+var ATLAS_COLS = 4, ATLAS_ROWS = 5, TILE = 16;
 
 var BTEX = [
   null,           // AIR
@@ -33,6 +34,11 @@ var BTEX = [
   [10, 10, 10],   // GOLD_ROOF   黄色琉璃瓦
   [11, 11, 11],   // WHITE_STONE 汉白玉台基
   [12, 12, 12],   // GRAY_BRICK  青砖铺地
+  [13, 13, 13],   // GRAY_ROOF   灰瓦屋顶
+  [14, 14, 14],   // RED_PILLAR  朱红立柱
+  [15, 15, 15],   // PLANKS      木板
+  [16, 16, 16],   // COBBLE      卵石
+  [17, 17, 17],   // MUD_BRICK   土砖
 ];
 
 var atlasTexture = null;
@@ -54,6 +60,11 @@ var _TILES = [
   { file: 'sandstone',        tint: '#c8a418' },                       // 10 黄色琉璃瓦
   { file: 'stone_bricks',     tint: '#e0ddd0' },                       // 11 汉白玉台基
   { file: 'stone_bricks' },                                            // 12 青砖铺地
+  { file: 'stone',            tint: '#7a8a99' },                       // 13 灰瓦屋顶
+  { file: 'terracotta',       tint: '#c04830' },                       // 14 朱红立柱
+  { file: 'oak_planks' },                                              // 15 木板
+  { file: 'cobblestone' },                                             // 16 卵石
+  { file: 'sandstone',        tint: '#c2a06a' },                       // 17 土砖
 ];
 
 // 单格处理：染色（multiply 保留 alpha）后画入贴图集
