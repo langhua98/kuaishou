@@ -16,7 +16,12 @@
 //   stepSound(blockId) — 脚步声（按脚下方块材质选 step 组）
 //   splashSound()      — 入水水花
 
-var _actx = null, _sfxBuf = {}, _musicEl = null;
+var _actx = null, _sfxBuf = {}, _musicEl = null, _musicIdx = 0;
+var _MUSIC_TRACKS = [
+  'assets/sounds/music_calm1.mp3',
+  'assets/sounds/music_forest.mp3',
+  'assets/sounds/music_town.mp3',
+];
 
 // 音效组 → 变体文件名（assets/sounds/*.mp3）
 var _SFX = {
@@ -56,17 +61,29 @@ function initAudio() {
     });
   });
 
-  // 背景音乐：流式循环，低音量铺底
-  _musicEl = new Audio('assets/sounds/music_calm1.mp3');
-  _musicEl.loop = true;
-  _musicEl.volume = 0.35;
-  _musicEl.preload = 'auto';
+  // 背景音乐：顺序播放 3 首曲目，循环
+  function _loadTrack(idx) {
+    var el = new Audio(_MUSIC_TRACKS[idx % _MUSIC_TRACKS.length]);
+    el.volume = 0.35;
+    el.preload = 'auto';
+    el.addEventListener('ended', function () {
+      _musicIdx = (idx + 1) % _MUSIC_TRACKS.length;
+      _musicEl = null;
+      _loadTrack(_musicIdx);
+      if (_actx) {
+        var p = _musicEl.play();
+        if (p && p.catch) p.catch(function () {});
+      }
+    });
+    _musicEl = el;
+  }
+  _loadTrack(0);
 }
 
 // 用户手势内调用（iOS 音频解锁）
 function unlockAudio() {
   if (_actx && _actx.state === 'suspended') _actx.resume();
-  if (_musicEl) {
+  if (_musicEl && _musicEl.paused) {
     var p = _musicEl.play();
     if (p && p.catch) p.catch(function () {});  // 自动播放被拒：静默
   }
