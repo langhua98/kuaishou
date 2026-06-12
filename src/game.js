@@ -423,8 +423,9 @@ function tick(now) {
         setBlock(pv.x, pv.y, pv.z, player.inv[player.slot]);
         digSound(player.inv[player.slot]);
         _lastPlace = nowS;
-        // 学习放置方向：从被命中方块到预览格的法线（仅准星直接命中时才学）
-        if (selHit && selHit.prev &&
+        // 学习放置方向：从第2块起才学（第1块 lastPos 为 null，不触发）
+        // 仅准星直接命中时从面法线学方向；方向预测放置时 pv≠selHit.prev，跳过，保持方向不变
+        if (_place.lastPos && selHit && selHit.prev &&
             pv.x === selHit.prev.x && pv.y === selHit.prev.y && pv.z === selHit.prev.z) {
           var _dx = pv.x - selHit.x;
           var _dy = pv.y - selHit.y;
