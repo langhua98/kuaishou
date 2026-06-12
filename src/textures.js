@@ -9,25 +9,30 @@
 //     草顶 ×#91BD59（平原绿）、树叶 ×#77AB2F（橡树绿）、水 ×#3F76E4（水蓝）
 //   树叶/水有透明像素 → 先铺不透明底色再叠加，避免方块接缝透视。
 //
-// 贴图格布局（ATLAS_COLS=4, ATLAS_ROWS=3）：
-//   [0] grass_top  [1] grass_side  [2] dirt      [3] stone
-//   [4] sand       [5] wood_top    [6] wood_side  [7] leaves
-//   [8] water
+// 贴图格布局（ATLAS_COLS=4, ATLAS_ROWS=4）：
+//   行0: [0] grass_top  [1] grass_side  [2] dirt       [3] stone
+//   行1: [4] sand       [5] wood_top    [6] wood_side   [7] leaves
+//   行2: [8] water      [9] red_wall   [10] gold_roof  [11] white_stone
+//   行3: [12] gray_brick  （余留空位）
 //
 // BTEX[blockId] = [top格, side格, bot格]
 // loadTextures(callback) — 异步加载完成后设置 atlasTexture 并回调
 
-var ATLAS_COLS = 4, ATLAS_ROWS = 3, TILE = 16;
+var ATLAS_COLS = 4, ATLAS_ROWS = 4, TILE = 16;
 
 var BTEX = [
-  null,        // AIR
-  [0, 1, 2],   // GRASS
-  [2, 2, 2],   // DIRT
-  [3, 3, 3],   // STONE
-  [4, 4, 4],   // SAND
-  [5, 6, 5],   // WOOD
-  [7, 7, 7],   // LEAVES
-  [8, 8, 8],   // WATER
+  null,           // AIR
+  [0,  1,  2],    // GRASS
+  [2,  2,  2],    // DIRT
+  [3,  3,  3],    // STONE
+  [4,  4,  4],    // SAND
+  [5,  6,  5],    // WOOD
+  [7,  7,  7],    // LEAVES
+  [8,  8,  8],    // WATER
+  [9,  9,  9],    // RED_WALL    朱红宫墙
+  [10, 10, 10],   // GOLD_ROOF   黄色琉璃瓦
+  [11, 11, 11],   // WHITE_STONE 汉白玉台基
+  [12, 12, 12],   // GRAY_BRICK  青砖铺地
 ];
 
 var atlasTexture = null;
@@ -36,15 +41,19 @@ var atlasTexture = null;
 //   tint     — multiply 染色（CSS 颜色），用于原版灰度贴图
 //   backdrop — 先铺的不透明底色（处理透明像素）
 var _TILES = [
-  { file: 'grass_block_top',  tint: '#91bd59' },                       // 0
-  { file: 'grass_block_side' },                                        // 1
-  { file: 'dirt' },                                                    // 2
-  { file: 'stone' },                                                   // 3
-  { file: 'sand' },                                                    // 4
-  { file: 'oak_log_top' },                                             // 5
-  { file: 'oak_log' },                                                 // 6
-  { file: 'oak_leaves',       tint: '#77ab2f', backdrop: '#1a3008' },  // 7
-  { file: 'water_still',      tint: '#3f76e4', backdrop: '#1a3f8f' }   // 8
+  { file: 'grass_block_top',  tint: '#91bd59' },                       // 0  草顶
+  { file: 'grass_block_side' },                                        // 1  草侧
+  { file: 'dirt' },                                                    // 2  泥土
+  { file: 'stone' },                                                   // 3  石头
+  { file: 'sand' },                                                    // 4  沙子
+  { file: 'oak_log_top' },                                             // 5  木顶
+  { file: 'oak_log' },                                                 // 6  木侧
+  { file: 'oak_leaves',       tint: '#77ab2f', backdrop: '#1a3008' },  // 7  树叶
+  { file: 'water_still',      tint: '#3f76e4', backdrop: '#1a3f8f' },  // 8  水
+  { file: 'bricks',           tint: '#c73a2d' },                       // 9  朱红宫墙
+  { file: 'sandstone',        tint: '#c8a418' },                       // 10 黄色琉璃瓦
+  { file: 'stone_bricks',     tint: '#e0ddd0' },                       // 11 汉白玉台基
+  { file: 'stone_bricks' },                                            // 12 青砖铺地
 ];
 
 // 单格处理：染色（multiply 保留 alpha）后画入贴图集

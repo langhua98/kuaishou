@@ -23,7 +23,7 @@ var player = {
   onGround: false, flying: false,
   jumpQ: false, breakQ: false, placeQ: false,
   slot: 0,
-  inv: [GRASS, DIRT, STONE, SAND, WOOD, LEAVES, WATER]
+  inv: [GRASS, DIRT, STONE, SAND, WOOD, LEAVES, WATER, RED_WALL, GOLD_ROOF, WHITE_STONE, GRAY_BRICK]
 };
 
 window._step = 4;
