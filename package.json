@@ -4,5 +4,8 @@
   "private": true,
   "scripts": {
     "build": "node inline.cjs"
+  },
+  "devDependencies": {
+    "sharp": "^0.35.1"
   }
 }
