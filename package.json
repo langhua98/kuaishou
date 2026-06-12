@@ -1,0 +1,14 @@
+{
+  "name": "minecraft-web",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "node inline.cjs"
+  },
+  "devDependencies": {
+    "@gltf-transform/core": "^4.4.0",
+    "@gltf-transform/extensions": "^4.4.0",
+    "@gltf-transform/functions": "^4.4.0",
+    "sharp": "^0.35.1"
+  }
+}

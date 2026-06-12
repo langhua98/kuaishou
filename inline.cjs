@@ -1,39 +1,65 @@
-// Inlines the built JS bundle into index.html as a <script> block at end of body.
-// Inline scripts can't be blocked by content blockers or CORS policies.
-// Must go at end of body (not head) because the bundle accesses DOM elements at module scope.
-const fs = require('fs');
-const path = require('path');
+// Build: concatenate src/*.js files in order → inject into template.html → write index.html.
+// GitHub Pages serves the main branch root directly, so index.html IS the deployed page.
+//
+// File order matters — later files depend on globals declared in earlier ones:
+//   init.js       → window._ok/_step, DOM refs, setProgress
+//   constants.js  → block IDs, BCOL, BNAMES, FACES, FSHADE, game constants
+//   noise.js      → _perm, noise2D
+//   world.js      → chunks, getBlock, setBlock, genTerrain
+//   renderer.js   → renderer, scene, camera
+//   mesh.js       → buildMesh, rebuildChunk, createChunk, removeChunk
+//   physics.js    → resolveAABB
+//   raycast.js    → raycast
+//   controls.js   → joy, touch event handlers
+//   ui.js         → buildHotbar
+//   game.js       → player, tick, startGame, bootNext
+const fs = require('fs')
 
-const assetsDir = 'dist/assets';
-const jsFile = fs.readdirSync(assetsDir).find(f => f.startsWith('index-') && f.endsWith('.js'));
-if (!jsFile) { console.error('No JS file found in dist/assets'); process.exit(1); }
+const SRC_FILES = [
+  'src/init.js',
+  'src/constants.js',
+  'src/noise.js',
+  'src/world.js',
+  'src/renderer.js',
+  'src/sky.js',       // 昼夜+天气系统（需在 renderer.js 之后：用 scene/camera/noise2D）
+  'src/textures.js',  // atlasTexture + BTEX（需在 mesh.js 之前）
+  'src/mesh.js',
+  'src/physics.js',
+  'src/raycast.js',
+  'src/controls.js',
+  'src/ui.js',
+  'src/audio.js',    // 音乐 + 音效（需在 game.js 之前：game.js 调用其函数）
+  'src/models.js',      // GLTF 玩家模型 + NPC（需在 game.js 之前）
+  // ── 军队战斗系统（依赖单向 ①→⑥，见 docs/battle-architecture.md）──
+  'src/combat_data.js', // ① 配置：兵种表/调参/动画名
+  'src/combat_core.js', // ② 单位：克隆/生成/动画/伤害（依赖 models.js 的 gltfLoader/_prepModel/_groundY）
+  'src/combat_steer.js',// ③ 转向：避障/分离/地形跟随
+  'src/combat_fx.js',   // ④ 表现：箭矢/血条/音效/玩家HUD（combat_ai 调用其函数）
+  'src/combat_ai.js',   // ⑤ 决策：FSM + combatUpdate 入口
+  'src/combat_cmd.js',  // ⑥ 指挥：开战/命令按钮/波次胜负
+  'src/structures.js',  // 开源中式建筑数据 + placeStructures()（需在 game.js 之前）
+  'src/game.js',
+]
 
-const jsPath = path.join(assetsDir, jsFile);
-console.log('Inlining:', jsFile, '(' + (fs.statSync(jsPath).size / 1024).toFixed(1) + 'KB)');
+let html = fs.readFileSync('template.html', 'utf8')
 
-let js = fs.readFileSync(jsPath, 'utf8');
-// Escape </script> so the HTML parser doesn't end the script block early
-js = js.replace(/<\/script>/gi, '<\\/script>');
-
-let html = fs.readFileSync('dist/index.html', 'utf8');
-
-// Step 1: Remove the external <script> tag (defer or module, anywhere in document)
-const before = html;
-html = html.replace(/<script[^>]+src="[^"]*assets\/index-[^"]+"[^>]*>\s*<\/script>\s*/g, '');
-
-if (html === before) {
-  console.error('Could not find external script tag to remove in dist/index.html');
-  process.exit(1);
+if (!html.includes('// GAME_JS_PLACEHOLDER')) {
+  console.error('ERROR: placeholder not found in template.html')
+  process.exit(1)
 }
 
-// Step 2: Insert inline bundle just before </body>
-const inlineTag = '<script>\n' + js + '\n</script>\n';
-if (!html.includes('</body>')) {
-  console.error('No </body> found in dist/index.html');
-  process.exit(1);
-}
-html = html.replace('</body>', inlineTag + '</body>');
+let js = SRC_FILES.map(function (f) {
+  return '// ═══ ' + f + ' ═══\n' + fs.readFileSync(f, 'utf8')
+}).join('\n\n')
 
-fs.writeFileSync('dist/index.html', html);
-const finalSize = fs.statSync('dist/index.html').size;
-console.log('Done. Final HTML:', (finalSize / 1024).toFixed(1) + 'KB');
+// Escape closing script tags inside JS content to avoid breaking the HTML script block
+js = js.replace(/<\/script/gi, '<\\/script')
+
+html = html.replace('// GAME_JS_PLACEHOLDER', js)
+
+fs.writeFileSync('index.html', html)
+
+var srcKB   = (Buffer.byteLength(js,               'utf8') / 1024).toFixed(1)
+var totalKB = (fs.statSync('index.html').size       / 1024).toFixed(1)
+console.log('Done. game JS=' + srcKB + 'KB  index.html=' + totalKB + 'KB')
+console.log('Files: ' + SRC_FILES.join(', '))

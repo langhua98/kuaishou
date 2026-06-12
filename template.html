@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>我的世界</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;touch-action:none}
+canvas{position:fixed!important;top:0!important;left:0!important;width:100%!important;height:100%!important;z-index:1!important;display:block!important;touch-action:none}
+
+#loading{position:fixed;inset:0;background:#0e1a2e;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;z-index:999;gap:16px}
+#loading h1{font-size:30px;color:#4ade80;font-family:monospace;letter-spacing:3px;text-shadow:0 0 20px rgba(74,222,128,.5)}
+#loading-bar{width:220px;height:12px;background:#1a2a40;border-radius:6px;overflow:hidden;border:1px solid rgba(74,222,128,.2)}
+#loading-fill{height:100%;background:linear-gradient(90deg,#22c55e,#4ade80);width:0%;transition:width .3s;border-radius:6px}
+#loading-text{color:#7a9ab8;font-size:13px;font-family:monospace;text-align:center;padding:0 20px}
+#ver{position:absolute;bottom:10px;right:12px;color:#334;font-size:10px;font-family:monospace}
+
+#portrait{display:none;position:fixed;inset:0;background:#0e1a2e;align-items:center;justify-content:center;flex-direction:column;gap:16px;z-index:9999;color:#fff;font-family:monospace;text-align:center}
+@media(orientation:portrait){#portrait{display:flex}#loading,#menu,#ui{display:none!important}}
+#portrait p{font-size:18px;color:#4ade80}
+
+#menu{position:fixed;inset:0;background:rgba(0,8,20,.82);display:none;flex-direction:column;align-items:center;justify-content:center;z-index:500;gap:20px;backdrop-filter:blur(4px)}
+#menu h1{font-size:30px;color:#4ade80;font-family:monospace;text-shadow:0 0 20px rgba(74,222,128,.5)}
+#menu .tip{color:#8ab;font-size:12px;line-height:2.4;text-align:center;font-family:monospace;background:rgba(255,255,255,.04);padding:12px 24px;border-radius:10px;border:1px solid rgba(255,255,255,.08)}
+#play-btn{padding:15px 56px;background:linear-gradient(135deg,#22c55e,#4ade80);color:#000;border:none;border-radius:10px;font-size:22px;font-weight:bold;cursor:pointer;font-family:monospace;box-shadow:0 4px 24px rgba(74,222,128,.4)}
+
+#ui{position:fixed;inset:0;display:none;z-index:100}
+
+/* 瞄准点（绿色）：第三人称=小圆点，第一人称(.fp)=十字准星 */
+#xhair{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;width:8px;height:8px;border-radius:50%;background:rgba(0,255,110,.85);box-shadow:0 0 0 2px rgba(0,0,0,.55)}
+#xhair.fp{width:22px;height:22px;background:transparent;box-shadow:none;border-radius:0}
+#xhair.fp::before,#xhair.fp::after{content:'';position:absolute;background:rgba(0,255,110,.9);box-shadow:0 0 3px rgba(0,0,0,.7)}
+#xhair.fp::before{left:50%;top:0;width:2px;height:100%;transform:translateX(-50%)}
+#xhair.fp::after{top:50%;left:0;height:2px;width:100%;transform:translateY(-50%)}
+
+#coords{position:absolute;top:10px;left:10px;color:#e0f0ff;font-size:12px;font-family:monospace;background:rgba(0,0,0,.45);padding:5px 10px;border-radius:6px;line-height:1.9;pointer-events:none;border:1px solid rgba(255,255,255,.08)}
+
+/* 摇杆区占左侧 42%，给右侧更大空间 */
+#joy-zone{position:absolute;left:0;top:0;bottom:72px;width:42%;touch-action:none}
+#joy-base{position:absolute;bottom:20px;left:24px;width:130px;height:130px;border-radius:50%;background:rgba(255,255,255,.08);border:2px solid rgba(255,255,255,.22);pointer-events:none}
+#joy-thumb{position:absolute;top:50%;left:50%;width:58px;height:58px;border-radius:50%;background:rgba(255,255,255,.45);border:2px solid rgba(255,255,255,.6);transform:translate(-50%,-50%);pointer-events:none}
+
+#look-zone{position:absolute;right:0;top:0;bottom:72px;left:42%;touch-action:none}
+
+/* 动作按钮区 — 更大、分组更清晰 */
+#btns{position:absolute;right:12px;bottom:78px;display:flex;flex-direction:column;gap:8px;align-items:flex-end}
+.row{display:flex;gap:8px}
+.btn{width:72px;height:72px;border-radius:50%;border:2.5px solid rgba(255,255,255,.3);background:rgba(0,0,0,.5);color:#fff;font-size:12px;font-family:monospace;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;user-select:none;-webkit-user-select:none;touch-action:manipulation;box-shadow:0 2px 12px rgba(0,0,0,.4)}
+.btn:active{background:rgba(255,255,255,.18);transform:scale(.93)}
+.btn .ic{font-size:28px;line-height:1}
+#b-jump{background:rgba(60,160,255,.4);border-color:rgba(100,200,255,.5)}
+#b-fly{background:rgba(255,210,60,.28);border-color:rgba(255,230,100,.4)}
+#b-fly.on{background:rgba(255,210,60,.7);border-color:#ffd940;box-shadow:0 0 16px rgba(255,210,60,.5)}
+#b-down{display:none;background:rgba(160,120,255,.4);border-color:rgba(190,160,255,.5)}
+#btns.flying #b-down{display:flex}
+#b-brk{background:rgba(255,70,70,.4);border-color:rgba(255,120,120,.5)}
+#b-plc{background:rgba(60,220,100,.38);border-color:rgba(80,255,130,.5)}
+#b-view{background:rgba(60,200,220,.35);border-color:rgba(110,230,250,.5)}
+#b-view.on{background:rgba(60,200,220,.7);border-color:#5ee0f5;box-shadow:0 0 16px rgba(60,200,220,.5)}
+
+/* 热键栏 — 更宽槽位 */
+#hotbar{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);display:flex;gap:5px}
+.slot{width:62px;height:62px;background:rgba(0,0,0,.55);border:2px solid rgba(255,255,255,.18);border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;touch-action:manipulation;cursor:pointer;transition:border-color .1s}
+.slot.on{border-color:#fff;background:rgba(255,255,255,.12);box-shadow:0 0 10px rgba(255,255,255,.2)}
+.slot-ic{width:34px;height:34px;border-radius:4px}
+.slot-lbl{color:#bcd;font-size:9px;font-family:monospace}
+</style>
+</head>
+<body>
+
+<div id="portrait"><span style="font-size:50px">📱</span><p>请横屏游玩</p></div>
+
+<div id="loading">
+  <h1>⛏ 我的世界</h1>
+  <div id="loading-bar"><div id="loading-fill"></div></div>
+  <p id="loading-text">初始化… v19</p>
+  <p id="ver">v19</p>
+</div>
+
+<div id="menu">
+  <h1>⛏ 我的世界</h1>
+  <div class="tip">
+    左摇杆 移动 &nbsp;│&nbsp; 右侧滑动 旋转视角<br>
+    🔨 长按破坏 &nbsp;│&nbsp; 📦 长按放置<br>
+    ⬆ 跳跃 &nbsp;│&nbsp; ✈ 切换飞行模式<br>
+    👁 切换第一/第三人称 &nbsp;│&nbsp; 底部热键栏 选择方块
+  </div>
+  <button id="play-btn" onclick="window.startGame&&window.startGame()">开始游戏</button>
+</div>
+
+<div id="ui">
+  <div id="xhair"></div>
+  <div id="coords">X:0 Y:0 Z:0</div>
+  <div id="joy-zone"><div id="joy-base"><div id="joy-thumb"></div></div></div>
+  <div id="look-zone"></div>
+  <div id="btns">
+    <div class="row">
+      <button class="btn" id="b-view"><span class="ic">👁</span><span>视角</span></button>
+      <button class="btn" id="b-brk"><span class="ic">🔨</span><span>破坏</span></button>
+      <button class="btn" id="b-plc"><span class="ic">📦</span><span>放置</span></button>
+    </div>
+    <div class="row">
+      <button class="btn" id="b-fly"><span class="ic">✈</span><span>飞行</span></button>
+      <button class="btn" id="b-down"><span class="ic">⬇</span><span>下降</span></button>
+      <button class="btn" id="b-jump"><span class="ic">⬆</span><span>跳跃</span></button>
+    </div>
+  </div>
+  <div id="hotbar"></div>
+</div>
+
+<script src="three.min.js"></script>
+<script src="GLTFLoader.js"></script>
+
+<!-- Diagnostic: runs before the game bundle -->
+<script>
+var _lt = document.getElementById('loading-text');
+var _lf = document.getElementById('loading-fill');
+var _errMsg = '';
+
+function _st(s) { if (_lt) _lt.textContent = s; }
+function _sb(p, c) { if (_lf) { _lf.style.width = p + '%'; if (c) _lf.style.background = c; } }
+
+// Capture JS errors (sync)
+window.addEventListener('error', function(e) {
+  var parts = [];
+  // Distinguish resource-load errors from JS errors
+  if (e.target && e.target !== window && e.target.tagName) {
+    parts.push('res:' + e.target.tagName + (e.target.src ? ':' + e.target.src.slice(-40) : ''));
+  } else {
+    parts.push(e.message || '(no msg)');
+    if (e.error && e.error.constructor) parts.push('type:' + e.error.constructor.name);
+    if (e.lineno) parts.push('ln:' + e.lineno + (e.colno ? ':' + e.colno : ''));
+  }
+  parts.push('step:' + (window._step || '0'));
+  _errMsg = parts.join(' | ');
+  _st('错误: ' + _errMsg);
+  _sb(100, '#f44');
+}, true);
+
+// Capture async errors (Promise rejections)
+window.addEventListener('unhandledrejection', function(e) {
+  var msg = e.reason ? (e.reason.message || String(e.reason)) : 'promise rejected';
+  _errMsg = msg;
+  _st('异步错误: ' + msg);
+  _sb(100, '#f44');
+});
+
+// If nothing happened after 10s, show diagnostic state
+setTimeout(function() {
+  if (!window._ok) {
+    if (!_errMsg) {
+      _st('脚本未响应 (v19) — 请截图发给开发者');
+    }
+    _sb(100, '#f44');
+  }
+}, 10000);
+
+// GAME_JS_PLACEHOLDER
+</script>
+</body>
+</html>
