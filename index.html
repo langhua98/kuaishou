@@ -1514,19 +1514,14 @@ function placeStructure(s, ox, baseY, oz) {
 // 启动时调用：围绕出生地布置中式建筑村落
 function placeStructures() {
   var BY = SEA + 2;   // 平地地表 = 14
-  // 北部主群：寺庙 + 宝塔
-  placeStructure(STRUCT_TEMPLE,     -20, BY, -57);   // 正北
-  placeStructure(STRUCT_PAGODA,     -62, BY, -53);   // 西北
-  // 近景建筑
-  placeStructure(STRUCT_HOUSE,       28, BY, -28);   // 东北小屋
-  placeStructure(STRUCT_APOTHECARY, -10, BY,  35);   // 正南药铺
-  // 中景
-  placeStructure(STRUCT_CAMP,        55, BY,  20);   // 东南营地
-  placeStructure(STRUCT_RICEFARM,   -80, BY,  10);   // 西边稻田
-  // 远景
-  placeStructure(STRUCT_TULOU,       30, BY, -90);   // 东北土楼
-  placeStructure(STRUCT_FORT,       -90, BY, -90);   // 西北堡垒
-  placeStructure(STRUCT_TOMB,        10, BY,  90);   // 正南皇陵
+  placeStructure(STRUCT_TEMPLE, -20, BY, -57);   // 寺庙·正北
+  placeStructure(STRUCT_PAGODA, -62, BY, -53);   // 宝塔·西北
+  placeStructure(STRUCT_HOUSE, 28, BY, -28);   // 小屋·东北
+  placeStructure(STRUCT_APOTHECARY, -10, BY, 35);   // 药铺·正南
+  placeStructure(STRUCT_CAMP, 55, BY, 20);   // 营地·东南
+  placeStructure(STRUCT_TULOU, 30, BY, -90);   // 土楼·远东北
+  placeStructure(STRUCT_FORT, -90, BY, -90);   // 堡垒·远西北
+  placeStructure(STRUCT_TOMB, 10, BY, 90);   // 皇陵·远南
 }
 
 
