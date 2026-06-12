@@ -566,6 +566,8 @@ function tick(now) {
     camera.updateProjectionMatrix();
   }
 
+  updateSky(dt);   // 昼夜循环 + 天气（太阳/云/雨/光照/雾）
+
   renderer.render(scene, camera);
 }
 

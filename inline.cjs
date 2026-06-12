@@ -21,6 +21,7 @@ const SRC_FILES = [
   'src/noise.js',
   'src/world.js',
   'src/renderer.js',
+  'src/sky.js',       // 昼夜+天气系统（需在 renderer.js 之后：用 scene/camera/noise2D）
   'src/textures.js',  // atlasTexture + BTEX（需在 mesh.js 之前）
   'src/mesh.js',
   'src/physics.js',
