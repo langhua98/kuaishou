@@ -1,5 +1,6 @@
 // ─── combat_fx.js ─────────────────────────────────────────────────────────────
-// 表现层：箭矢抛物线、血条 sprite、战斗音效、玩家血量 HUD。
+// 表现层：箭矢抛物线、血条 sprite、伤害飘字、战斗音效。
+// 玩家完全免伤（指挥官模式）：敌方不索敌玩家、箭矢穿过玩家、无玩家 HP。
 
 // ── 战斗音效（复用 audio.js 的 _playSfx 管线，组名在 audio.js _SFX 注册）──────
 function battleSfx(group) {
@@ -74,17 +75,12 @@ function updateArrows(dt) {
     a.mesh.lookAt(a.x + a.vx, a.y + a.vy, a.z + a.vz);
 
     var hit = false;
-    // 命中敌对单位（半径 0.7）
+    // 命中敌对单位（半径 0.7）。玩家免伤：箭矢直接穿过玩家
     for (j = 0; j < combatUnits.length; j++) {
       o = combatUnits[j];
       if (o.side === a.side || o.state === 'DEAD') continue;
       dx = o.x - a.x; dy = (o.y + o.t.h * 0.5) - a.y; dz = o.z - a.z;
       if (dx * dx + dy * dy + dz * dz < 0.5) { damageUnit(o, a.dmg, a.from); hit = true; break; }
-    }
-    // 命中玩家
-    if (!hit && a.side === 1 && playerAlive()) {
-      dx = player.x - a.x; dy = (player.y + 0.9) - a.y; dz = player.z - a.z;
-      if (dx * dx + dy * dy + dz * dz < 0.6) { damagePlayer(a.dmg); hit = true; }
     }
     // 入地/超时
     if (hit || a.t > a.life || getBlock(Math.floor(a.x), Math.floor(a.y), Math.floor(a.z)) !== AIR) {
@@ -94,54 +90,43 @@ function updateArrows(dt) {
   }
 }
 
-// ── 玩家血量与受击表现 ─────────────────────────────────────────────────────────
-var playerHp = BTL.playerHp;
-var _respawn = null;          // 开战时记录的复活点
-var _dmgFlashEl = null, _hpHudEl = null;
-
-function _ensurePlayerHud() {
-  if (_hpHudEl) return;
-  var ui = document.getElementById('ui') || document.body;
-  _hpHudEl = document.createElement('div');
-  _hpHudEl.style.cssText = 'position:absolute;top:10px;left:50%;transform:translateX(-50%);' +
-    'padding:4px 14px;background:rgba(0,0,0,.5);border-radius:8px;color:#f87171;' +
-    'font:bold 15px monospace;z-index:120;display:none';
-  ui.appendChild(_hpHudEl);
-  _dmgFlashEl = document.createElement('div');
-  _dmgFlashEl.style.cssText = 'position:absolute;inset:0;background:radial-gradient(ellipse,transparent 55%,rgba(220,30,30,.45));' +
-    'opacity:0;transition:opacity .4s;pointer-events:none;z-index:119';
-  ui.appendChild(_dmgFlashEl);
+// ── 伤害飘字（canvas sprite，命中点上方升起渐隐）──────────────────────────────
+var _floats = [];
+function dmgFloat(u, dmg, byPlayer, blocked) {
+  var cv = document.createElement('canvas');
+  cv.width = 96; cv.height = 40;
+  var ctx = cv.getContext('2d');
+  ctx.font = 'bold 28px monospace';
+  ctx.textAlign = 'center';
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = 'rgba(0,0,0,.85)';
+  ctx.fillStyle = blocked ? '#93c5fd' : (byPlayer ? '#fde047' : '#fff');
+  var txt = (blocked ? '🛡' : '') + '-' + dmg;
+  ctx.strokeText(txt, 48, 30);
+  ctx.fillText(txt, 48, 30);
+  var spr = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: new THREE.CanvasTexture(cv), depthTest: false, transparent: true,
+  }));
+  spr.scale.set(1.2, 0.5, 1);
+  spr.position.set(u.x, u.y + u.t.h + 0.6, u.z);
+  spr.renderOrder = 11;
+  scene.add(spr);
+  _floats.push({ spr: spr, t: 0 });
 }
 
-function updatePlayerHud() {
-  _ensurePlayerHud();
-  _hpHudEl.style.display = 'block';
-  var hearts = Math.ceil(playerHp / 2), s = '', i;
-  for (i = 0; i < 10; i++) s += i < hearts ? '❤' : '🖤';
-  _hpHudEl.textContent = s;
-}
-
-function playerAlive() { return playerHp > 0; }
-
-function damagePlayer(dmg) {
-  if (!playerAlive()) return;
-  playerHp -= dmg;
-  battleSfx('atk_hit');
-  _ensurePlayerHud();
-  _dmgFlashEl.style.opacity = '1';
-  setTimeout(function () { _dmgFlashEl.style.opacity = '0'; }, 120);
-  if (playerHp <= 0) {
-    playerHp = 0;
-    updatePlayerHud();
-    battleToast('你倒下了……回到复活点');
-    setTimeout(function () {
-      if (_respawn) { player.x = _respawn[0]; player.y = _respawn[1]; player.z = _respawn[2]; }
-      player.vx = player.vy = player.vz = 0;
-      playerHp = BTL.playerHp;
-      updatePlayerHud();
-    }, 1200);
-  } else {
-    updatePlayerHud();
+function updateFloats(dt) {
+  var i, f;
+  for (i = _floats.length - 1; i >= 0; i--) {
+    f = _floats[i];
+    f.t += dt;
+    f.spr.position.y += dt * 1.2;
+    f.spr.material.opacity = 1 - f.t / 0.8;
+    if (f.t > 0.8) {
+      scene.remove(f.spr);
+      f.spr.material.map.dispose();
+      f.spr.material.dispose();
+      _floats.splice(i, 1);
+    }
   }
 }
 

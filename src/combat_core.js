@@ -151,17 +151,33 @@ function playAnim(u, name, fade, once) {
 // ── 伤害与死亡 ────────────────────────────────────────────────────────────────
 function damageUnit(u, dmg, fromUnit) {
   if (u.state === 'DEAD') return;
+  // 盾牌格挡：持盾兵种 30% 概率减半伤害（自己攻击动作中举不起盾）
+  var blocked = false;
+  if (u.t.shield && u.actT <= 0 && Math.random() < 0.3) {
+    blocked = true;
+    dmg = Math.max(1, Math.ceil(dmg / 2));
+  }
   u.hp -= dmg;
-  battleSfx(u.t.ranged ? 'atk_hit' : 'atk_clang');
+  battleSfx(blocked || !u.t.ranged ? 'atk_clang' : 'atk_hit');
   updateHpBar(u);
+  dmgFloat(u, dmg, fromUnit && fromUnit.isPlayer, blocked);
   if (u.hp <= 0) { killUnit(u); return; }
-  // 受击硬直（攻击动作中不打断）
-  if (u.actT <= 0) {
+  if (blocked) {
+    playAnim(u, ANIM.block, 0.06, true);
+    u.actT = 0.4;
+  } else if (u.actT <= 0) {
+    // 受击硬直（攻击动作中不打断）
     playAnim(u, ANIM.hit, 0.08, true);
     u.actT = 0.45;
   }
-  // 被打必还手：转火攻击者（玩家伪单位为持久对象，可直接作为目标）
-  if (fromUnit && u.target !== fromUnit) u.target = fromUnit;
+  // 近战命中击退 0.5m（远程不击退；_tryShift 校验，不会推进墙/坠崖）
+  if (fromUnit && !blocked) {
+    var kx = u.x - fromUnit.x, kz = u.z - fromUnit.z;
+    var kd = Math.sqrt(kx * kx + kz * kz);
+    if (kd > 0.01 && kd < 4) _tryShift(u, (kx / kd) * 0.5, (kz / kd) * 0.5);
+  }
+  // 被单位打必还手；玩家免伤——被玩家打不转火（打不到玩家，追了也白追）
+  if (fromUnit && !fromUnit.isPlayer && u.target !== fromUnit) u.target = fromUnit;
 }
 
 function killUnit(u) {

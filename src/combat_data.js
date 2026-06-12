@@ -6,21 +6,21 @@
 //   hp 血量 / dmg 伤害 / range 攻击距离 / spd 移速 / atkCd 攻击冷却秒 / ranged 远程
 var UNIT_TYPES = {
   // 我方
-  knight:    { model: 'Knight',           h: 1.80, hp: 14, dmg: 4, range: 1.9, spd: 4.2, atkCd: 1.1, ranged: false,
-               wpnR: 'sword_1handed', wpnL: 'shield_round', name: '骑士' },
-  barbarian: { model: 'Barbarian',        h: 1.85, hp: 16, dmg: 5, range: 2.0, spd: 4.0, atkCd: 1.3, ranged: false,
+  knight:    { model: 'Knight',           h: 1.80, hp: 28, dmg: 3, range: 1.9, spd: 4.2, atkCd: 1.1, ranged: false,
+               wpnR: 'sword_1handed', wpnL: 'shield_round', shield: true, name: '骑士' },
+  barbarian: { model: 'Barbarian',        h: 1.85, hp: 32, dmg: 4, range: 2.0, spd: 4.0, atkCd: 1.3, ranged: false,
                wpnR: 'sword_1handed', wpnL: null,           name: '蛮兵' },
-  ranger:    { model: 'Rogue',            h: 1.75, hp: 9,  dmg: 3, range: 13,  spd: 4.4, atkCd: 2.2, ranged: true,
+  ranger:    { model: 'Rogue',            h: 1.75, hp: 20, dmg: 2, range: 13,  spd: 4.4, atkCd: 2.2, ranged: true,
                wpnR: 'crossbow_2handed', wpnL: null,        name: '游侠' },
-  cavalry:   { model: 'Knight', mount: 'horse', h: 3.30, hp: 18, dmg: 5, range: 2.2, spd: 8.5,
-               chargeDmg: 12, atkCd: 1.0, ranged: false,
+  cavalry:   { model: 'Knight', mount: 'horse', h: 3.30, hp: 40, dmg: 4, range: 2.2, spd: 8.5,
+               chargeDmg: 8, atkCd: 1.0, ranged: false,
                wpnR: 'sword_1handed', wpnL: null, name: '骑兵', cavalry: true },
   // 敌方（骷髅军）
-  skel_war:  { model: 'Skeleton_Warrior', h: 1.75, hp: 12, dmg: 4, range: 1.9, spd: 3.8, atkCd: 1.2, ranged: false,
-               wpnR: 'Skeleton_Blade', wpnL: 'Skeleton_Shield_Small_A', name: '骷髅战士' },
-  skel_min:  { model: 'Skeleton_Minion',  h: 1.60, hp: 7,  dmg: 2, range: 1.7, spd: 4.2, atkCd: 1.0, ranged: false,
+  skel_war:  { model: 'Skeleton_Warrior', h: 1.75, hp: 26, dmg: 3, range: 1.9, spd: 3.8, atkCd: 1.2, ranged: false,
+               wpnR: 'Skeleton_Blade', wpnL: 'Skeleton_Shield_Small_A', shield: true, name: '骷髅战士' },
+  skel_min:  { model: 'Skeleton_Minion',  h: 1.60, hp: 16, dmg: 1, range: 1.7, spd: 4.2, atkCd: 1.0, ranged: false,
                wpnR: 'Skeleton_Blade', wpnL: null,          name: '骷髅杂兵' },
-  skel_rog:  { model: 'Skeleton_Rogue',   h: 1.70, hp: 8,  dmg: 3, range: 12,  spd: 3.6, atkCd: 2.5, ranged: true,
+  skel_rog:  { model: 'Skeleton_Rogue',   h: 1.70, hp: 18, dmg: 2, range: 12,  spd: 3.6, atkCd: 2.5, ranged: true,
                wpnR: 'Skeleton_Crossbow', wpnL: null,       name: '骷髅弩手' },
 };
 
@@ -53,8 +53,7 @@ var BTL = {
   sepR: 1.2,            // 单位间分离半径
   meleeDmgDelay: 0.45,  // 挥砍动画起手到伤害判定的延迟
   arrowSpd: 22,         // 箭矢初速
-  playerHp: 20,
-  playerDmg: 4,         // 玩家挥剑伤害
+  playerDmg: 4,         // 玩家挥剑伤害（玩家完全免伤，无 HP）
   playerReach: 2.8,     // 玩家攻击距离
   maxEnemies: 12,       // 同屏敌人上限（性能预算）
   corpseT: 3,           // 尸体保留秒数

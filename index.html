@@ -1209,11 +1209,16 @@ tapBtn('b-fly', function () {
 
 // ═══ src/ui.js ═══
 // ─── ui.js ────────────────────────────────────────────────────────────────────
-// 游戏 UI：热键栏渲染、槽位选择。
+// 游戏 UI：热键栏渲染、槽位选择、仓库面板。
 //
-// 热键栏：从 player.inv 动态生成 DOM 元素，
+// 热键栏：只显示 player.inv 前 HOTBAR_N 个，末尾附 📦 仓库开关。
 //   每个槽位显示方块颜色（用 BCOL 顶面色生成内联背景色）和中文名。
 //   点击/触摸切换 player.slot，更新 .on 样式类。
+// 仓库：inv 其余方块收进面板（热键栏上方展开）；
+//   点仓库方块 = 与当前选中的热键槽互换，双向刷新并同步手持模型。
+
+var HOTBAR_N = 8;
+var _bagEl = null;
 
 function buildHotbar() {
   var hbar = document.getElementById('hotbar');
@@ -1221,7 +1226,8 @@ function buildHotbar() {
   hbar.innerHTML = '';
 
   var i, id, slot, cs, r, g, b;
-  for (i = 0; i < player.inv.length; i++) {
+  var n = Math.min(HOTBAR_N, player.inv.length);
+  for (i = 0; i < n; i++) {
     id   = player.inv[i];
     cs   = BCOL[id];
     r    = Math.round(cs[0] * 255);
@@ -1248,6 +1254,63 @@ function buildHotbar() {
 
     hbar.appendChild(slot);
   }
+
+  // 仓库开关
+  var bagBtn = document.createElement('div');
+  bagBtn.className = 'slot';
+  bagBtn.innerHTML =
+    '<div class="slot-ic" style="background:transparent;font-size:26px;line-height:34px;text-align:center">📦</div>' +
+    '<div class="slot-lbl">仓库</div>';
+  bagBtn.addEventListener('touchstart', function (e) { e.preventDefault(); toggleBag(); }, { passive: false });
+  bagBtn.addEventListener('click', function () { toggleBag(); });
+  hbar.appendChild(bagBtn);
+
+  _ensureBag();
+  _renderBag();
+}
+
+function _ensureBag() {
+  if (_bagEl) return;
+  var ui = document.getElementById('ui') || document.body;
+  _bagEl = document.createElement('div');
+  _bagEl.id = 'bag';
+  _bagEl.style.cssText = 'position:absolute;bottom:80px;left:50%;transform:translateX(-50%);' +
+    'display:none;gap:5px;padding:8px;background:rgba(0,0,0,.5);border-radius:10px;z-index:105';
+  ui.appendChild(_bagEl);
+}
+
+function _renderBag() {
+  if (!_bagEl) return;
+  _bagEl.innerHTML = '';
+  var i;
+  for (i = HOTBAR_N; i < player.inv.length; i++) {
+    (function (idx) {
+      var id = player.inv[idx], cs = BCOL[id];
+      var el = document.createElement('div');
+      el.className = 'slot';
+      el.innerHTML =
+        '<div class="slot-ic" style="background:rgb(' +
+        Math.round(cs[0] * 255) + ',' + Math.round(cs[1] * 255) + ',' + Math.round(cs[2] * 255) +
+        ')"></div><div class="slot-lbl">' + BNAMES[id] + '</div>';
+      function pick(e) {
+        if (e && e.preventDefault) e.preventDefault();
+        // 与当前选中的热键槽互换，热键栏与仓库都重渲染
+        var tmp = player.inv[player.slot];
+        player.inv[player.slot] = player.inv[idx];
+        player.inv[idx] = tmp;
+        buildHotbar();
+        if (typeof _updateHeldItem === 'function') _updateHeldItem(player.slot);
+      }
+      el.addEventListener('touchstart', pick, { passive: false });
+      el.addEventListener('click', function () { pick(); });
+      _bagEl.appendChild(el);
+    }(i));
+  }
+}
+
+function toggleBag() {
+  if (!_bagEl) return;
+  _bagEl.style.display = _bagEl.style.display === 'none' ? 'flex' : 'none';
 }
 
 
@@ -1641,21 +1704,21 @@ function updateNPCs(dt) {
 //   hp 血量 / dmg 伤害 / range 攻击距离 / spd 移速 / atkCd 攻击冷却秒 / ranged 远程
 var UNIT_TYPES = {
   // 我方
-  knight:    { model: 'Knight',           h: 1.80, hp: 14, dmg: 4, range: 1.9, spd: 4.2, atkCd: 1.1, ranged: false,
-               wpnR: 'sword_1handed', wpnL: 'shield_round', name: '骑士' },
-  barbarian: { model: 'Barbarian',        h: 1.85, hp: 16, dmg: 5, range: 2.0, spd: 4.0, atkCd: 1.3, ranged: false,
+  knight:    { model: 'Knight',           h: 1.80, hp: 28, dmg: 3, range: 1.9, spd: 4.2, atkCd: 1.1, ranged: false,
+               wpnR: 'sword_1handed', wpnL: 'shield_round', shield: true, name: '骑士' },
+  barbarian: { model: 'Barbarian',        h: 1.85, hp: 32, dmg: 4, range: 2.0, spd: 4.0, atkCd: 1.3, ranged: false,
                wpnR: 'sword_1handed', wpnL: null,           name: '蛮兵' },
-  ranger:    { model: 'Rogue',            h: 1.75, hp: 9,  dmg: 3, range: 13,  spd: 4.4, atkCd: 2.2, ranged: true,
+  ranger:    { model: 'Rogue',            h: 1.75, hp: 20, dmg: 2, range: 13,  spd: 4.4, atkCd: 2.2, ranged: true,
                wpnR: 'crossbow_2handed', wpnL: null,        name: '游侠' },
-  cavalry:   { model: 'Knight', mount: 'horse', h: 3.30, hp: 18, dmg: 5, range: 2.2, spd: 8.5,
-               chargeDmg: 12, atkCd: 1.0, ranged: false,
+  cavalry:   { model: 'Knight', mount: 'horse', h: 3.30, hp: 40, dmg: 4, range: 2.2, spd: 8.5,
+               chargeDmg: 8, atkCd: 1.0, ranged: false,
                wpnR: 'sword_1handed', wpnL: null, name: '骑兵', cavalry: true },
   // 敌方（骷髅军）
-  skel_war:  { model: 'Skeleton_Warrior', h: 1.75, hp: 12, dmg: 4, range: 1.9, spd: 3.8, atkCd: 1.2, ranged: false,
-               wpnR: 'Skeleton_Blade', wpnL: 'Skeleton_Shield_Small_A', name: '骷髅战士' },
-  skel_min:  { model: 'Skeleton_Minion',  h: 1.60, hp: 7,  dmg: 2, range: 1.7, spd: 4.2, atkCd: 1.0, ranged: false,
+  skel_war:  { model: 'Skeleton_Warrior', h: 1.75, hp: 26, dmg: 3, range: 1.9, spd: 3.8, atkCd: 1.2, ranged: false,
+               wpnR: 'Skeleton_Blade', wpnL: 'Skeleton_Shield_Small_A', shield: true, name: '骷髅战士' },
+  skel_min:  { model: 'Skeleton_Minion',  h: 1.60, hp: 16, dmg: 1, range: 1.7, spd: 4.2, atkCd: 1.0, ranged: false,
                wpnR: 'Skeleton_Blade', wpnL: null,          name: '骷髅杂兵' },
-  skel_rog:  { model: 'Skeleton_Rogue',   h: 1.70, hp: 8,  dmg: 3, range: 12,  spd: 3.6, atkCd: 2.5, ranged: true,
+  skel_rog:  { model: 'Skeleton_Rogue',   h: 1.70, hp: 18, dmg: 2, range: 12,  spd: 3.6, atkCd: 2.5, ranged: true,
                wpnR: 'Skeleton_Crossbow', wpnL: null,       name: '骷髅弩手' },
 };
 
@@ -1688,8 +1751,7 @@ var BTL = {
   sepR: 1.2,            // 单位间分离半径
   meleeDmgDelay: 0.45,  // 挥砍动画起手到伤害判定的延迟
   arrowSpd: 22,         // 箭矢初速
-  playerHp: 20,
-  playerDmg: 4,         // 玩家挥剑伤害
+  playerDmg: 4,         // 玩家挥剑伤害（玩家完全免伤，无 HP）
   playerReach: 2.8,     // 玩家攻击距离
   maxEnemies: 12,       // 同屏敌人上限（性能预算）
   corpseT: 3,           // 尸体保留秒数
@@ -1858,17 +1920,33 @@ function playAnim(u, name, fade, once) {
 // ── 伤害与死亡 ────────────────────────────────────────────────────────────────
 function damageUnit(u, dmg, fromUnit) {
   if (u.state === 'DEAD') return;
+  // 盾牌格挡：持盾兵种 30% 概率减半伤害（自己攻击动作中举不起盾）
+  var blocked = false;
+  if (u.t.shield && u.actT <= 0 && Math.random() < 0.3) {
+    blocked = true;
+    dmg = Math.max(1, Math.ceil(dmg / 2));
+  }
   u.hp -= dmg;
-  battleSfx(u.t.ranged ? 'atk_hit' : 'atk_clang');
+  battleSfx(blocked || !u.t.ranged ? 'atk_clang' : 'atk_hit');
   updateHpBar(u);
+  dmgFloat(u, dmg, fromUnit && fromUnit.isPlayer, blocked);
   if (u.hp <= 0) { killUnit(u); return; }
-  // 受击硬直（攻击动作中不打断）
-  if (u.actT <= 0) {
+  if (blocked) {
+    playAnim(u, ANIM.block, 0.06, true);
+    u.actT = 0.4;
+  } else if (u.actT <= 0) {
+    // 受击硬直（攻击动作中不打断）
     playAnim(u, ANIM.hit, 0.08, true);
     u.actT = 0.45;
   }
-  // 被打必还手：转火攻击者（玩家伪单位为持久对象，可直接作为目标）
-  if (fromUnit && u.target !== fromUnit) u.target = fromUnit;
+  // 近战命中击退 0.5m（远程不击退；_tryShift 校验，不会推进墙/坠崖）
+  if (fromUnit && !blocked) {
+    var kx = u.x - fromUnit.x, kz = u.z - fromUnit.z;
+    var kd = Math.sqrt(kx * kx + kz * kz);
+    if (kd > 0.01 && kd < 4) _tryShift(u, (kx / kd) * 0.5, (kz / kd) * 0.5);
+  }
+  // 被单位打必还手；玩家免伤——被玩家打不转火（打不到玩家，追了也白追）
+  if (fromUnit && !fromUnit.isPlayer && u.target !== fromUnit) u.target = fromUnit;
 }
 
 function killUnit(u) {
@@ -2032,7 +2110,8 @@ function faceTo(u, tx, tz, dt) {
 
 // ═══ src/combat_fx.js ═══
 // ─── combat_fx.js ─────────────────────────────────────────────────────────────
-// 表现层：箭矢抛物线、血条 sprite、战斗音效、玩家血量 HUD。
+// 表现层：箭矢抛物线、血条 sprite、伤害飘字、战斗音效。
+// 玩家完全免伤（指挥官模式）：敌方不索敌玩家、箭矢穿过玩家、无玩家 HP。
 
 // ── 战斗音效（复用 audio.js 的 _playSfx 管线，组名在 audio.js _SFX 注册）──────
 function battleSfx(group) {
@@ -2107,17 +2186,12 @@ function updateArrows(dt) {
     a.mesh.lookAt(a.x + a.vx, a.y + a.vy, a.z + a.vz);
 
     var hit = false;
-    // 命中敌对单位（半径 0.7）
+    // 命中敌对单位（半径 0.7）。玩家免伤：箭矢直接穿过玩家
     for (j = 0; j < combatUnits.length; j++) {
       o = combatUnits[j];
       if (o.side === a.side || o.state === 'DEAD') continue;
       dx = o.x - a.x; dy = (o.y + o.t.h * 0.5) - a.y; dz = o.z - a.z;
       if (dx * dx + dy * dy + dz * dz < 0.5) { damageUnit(o, a.dmg, a.from); hit = true; break; }
-    }
-    // 命中玩家
-    if (!hit && a.side === 1 && playerAlive()) {
-      dx = player.x - a.x; dy = (player.y + 0.9) - a.y; dz = player.z - a.z;
-      if (dx * dx + dy * dy + dz * dz < 0.6) { damagePlayer(a.dmg); hit = true; }
     }
     // 入地/超时
     if (hit || a.t > a.life || getBlock(Math.floor(a.x), Math.floor(a.y), Math.floor(a.z)) !== AIR) {
@@ -2127,54 +2201,43 @@ function updateArrows(dt) {
   }
 }
 
-// ── 玩家血量与受击表现 ─────────────────────────────────────────────────────────
-var playerHp = BTL.playerHp;
-var _respawn = null;          // 开战时记录的复活点
-var _dmgFlashEl = null, _hpHudEl = null;
-
-function _ensurePlayerHud() {
-  if (_hpHudEl) return;
-  var ui = document.getElementById('ui') || document.body;
-  _hpHudEl = document.createElement('div');
-  _hpHudEl.style.cssText = 'position:absolute;top:10px;left:50%;transform:translateX(-50%);' +
-    'padding:4px 14px;background:rgba(0,0,0,.5);border-radius:8px;color:#f87171;' +
-    'font:bold 15px monospace;z-index:120;display:none';
-  ui.appendChild(_hpHudEl);
-  _dmgFlashEl = document.createElement('div');
-  _dmgFlashEl.style.cssText = 'position:absolute;inset:0;background:radial-gradient(ellipse,transparent 55%,rgba(220,30,30,.45));' +
-    'opacity:0;transition:opacity .4s;pointer-events:none;z-index:119';
-  ui.appendChild(_dmgFlashEl);
+// ── 伤害飘字（canvas sprite，命中点上方升起渐隐）──────────────────────────────
+var _floats = [];
+function dmgFloat(u, dmg, byPlayer, blocked) {
+  var cv = document.createElement('canvas');
+  cv.width = 96; cv.height = 40;
+  var ctx = cv.getContext('2d');
+  ctx.font = 'bold 28px monospace';
+  ctx.textAlign = 'center';
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = 'rgba(0,0,0,.85)';
+  ctx.fillStyle = blocked ? '#93c5fd' : (byPlayer ? '#fde047' : '#fff');
+  var txt = (blocked ? '🛡' : '') + '-' + dmg;
+  ctx.strokeText(txt, 48, 30);
+  ctx.fillText(txt, 48, 30);
+  var spr = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: new THREE.CanvasTexture(cv), depthTest: false, transparent: true,
+  }));
+  spr.scale.set(1.2, 0.5, 1);
+  spr.position.set(u.x, u.y + u.t.h + 0.6, u.z);
+  spr.renderOrder = 11;
+  scene.add(spr);
+  _floats.push({ spr: spr, t: 0 });
 }
 
-function updatePlayerHud() {
-  _ensurePlayerHud();
-  _hpHudEl.style.display = 'block';
-  var hearts = Math.ceil(playerHp / 2), s = '', i;
-  for (i = 0; i < 10; i++) s += i < hearts ? '❤' : '🖤';
-  _hpHudEl.textContent = s;
-}
-
-function playerAlive() { return playerHp > 0; }
-
-function damagePlayer(dmg) {
-  if (!playerAlive()) return;
-  playerHp -= dmg;
-  battleSfx('atk_hit');
-  _ensurePlayerHud();
-  _dmgFlashEl.style.opacity = '1';
-  setTimeout(function () { _dmgFlashEl.style.opacity = '0'; }, 120);
-  if (playerHp <= 0) {
-    playerHp = 0;
-    updatePlayerHud();
-    battleToast('你倒下了……回到复活点');
-    setTimeout(function () {
-      if (_respawn) { player.x = _respawn[0]; player.y = _respawn[1]; player.z = _respawn[2]; }
-      player.vx = player.vy = player.vz = 0;
-      playerHp = BTL.playerHp;
-      updatePlayerHud();
-    }, 1200);
-  } else {
-    updatePlayerHud();
+function updateFloats(dt) {
+  var i, f;
+  for (i = _floats.length - 1; i >= 0; i--) {
+    f = _floats[i];
+    f.t += dt;
+    f.spr.position.y += dt * 1.2;
+    f.spr.material.opacity = 1 - f.t / 0.8;
+    if (f.t > 0.8) {
+      scene.remove(f.spr);
+      f.spr.material.map.dispose();
+      f.spr.material.dispose();
+      _floats.splice(i, 1);
+    }
   }
 }
 
@@ -2234,7 +2297,7 @@ function battleToast(msg) {
 
 var playerOrder = 'follow';
 
-// 敌我目标选择：最近的存活敌对单位；敌方还会考虑玩家本体
+// 敌我目标选择：最近的存活敌对单位。玩家完全免伤——敌方永不索敌玩家本体。
 // anyRange=true（冲锋命令）时不限索敌距离——否则敌人超过 28m 冲锋令毫无反应
 function _pickTarget(u, anyRange) {
   var best = null, bd = anyRange ? Infinity : BTL.detectR * BTL.detectR, i, o, dx, dz, d;
@@ -2244,11 +2307,15 @@ function _pickTarget(u, anyRange) {
     dx = o.x - u.x; dz = o.z - u.z; d = dx * dx + dz * dz;
     if (d < bd) { bd = d; best = o; }
   }
-  if (u.side === 1) {
-    dx = player.x - u.x; dz = player.z - u.z; d = dx * dx + dz * dz;
-    if (d < bd && playerAlive()) { best = _playerProxy(); bd = d; }
-  }
   return best;
+}
+
+// 命中朝向判定：攻击者必须面向目标 ±70°，被碰撞推得转了身就挥空
+function _facingTo(u, t) {
+  var dy = Math.atan2(t.x - u.x, t.z - u.z) - u.yaw;
+  while (dy > Math.PI)  dy -= Math.PI * 2;
+  while (dy < -Math.PI) dy += Math.PI * 2;
+  return Math.abs(dy) < 1.22;
 }
 
 function _distTo(u, t) {
@@ -2321,12 +2388,6 @@ function _pickBestTarget(u, anyRange) {
     score = _scoreTarget(u, o);
     if (score > bestScore) { bestScore = score; best = o; }
   }
-  if (u.side === 1) {
-    dx = player.x - u.x; dz = player.z - u.z;
-    if (dx * dx + dz * dz <= detectR2 && playerAlive() && 50 > bestScore) {
-      best = _playerProxy();
-    }
-  }
   return best;
 }
 
@@ -2386,9 +2447,9 @@ function _aiCavalry(u, dt, now) {
   // 待结算伤害（同步 MELEE 帧判定）
   if (u._pendHit && u.actT <= u._pendHitAt) {
     var tg = u._pendHit; u._pendHit = null;
-    if (tg.isPlayer) {
-      if (_distTo(u, _playerProxy()) < u.t.range + 0.6) damagePlayer(u.t.dmg);
-    } else if (tg.state !== 'DEAD' && _distTo(u, tg) < u.t.range + 0.6) {
+    // 判定帧三重检查：目标存活、仍在攻击距离内、攻击者面向目标（±70°）
+    if (!tg.isPlayer && tg.state !== 'DEAD' &&
+        _distTo(u, tg) < u.t.range + 0.6 && _facingTo(u, tg)) {
       damageUnit(tg, u.t.dmg, u);
     }
   }
@@ -2472,19 +2533,27 @@ function _aiCavalry(u, dt, now) {
       u.speed = Math.min(t.spd, (u.speed || 0) + t.spd * dt * 3);
       var ctx = tgt.x - u.x, ctz = tgt.z - u.z, cdd = Math.sqrt(ctx * ctx + ctz * ctz);
       if (cdd > 0.01) { u.vx = (ctx / cdd) * u.speed; u.vz = (ctz / cdd) * u.speed; }
-      // 地形跟随移动
+      // 地形跟随移动；撞墙/悬崖累积停滞时间，>0.8s 判冲锋失败（需求文档 §4.4 速度跌破阈值）
       var cnx = u.x + u.vx * dt, cnz = u.z + u.vz * dt;
       var cgy = _groundY(Math.floor(cnx), Math.floor(cnz));
       if (cgy - u.y <= 1.5 && u.y - cgy <= 4) {
         u.x = cnx; u.z = cnz; u.y += (cgy - u.y) * Math.min(1, 10 * dt);
+        u._stallT = 0;
+      } else {
+        u._stallT = (u._stallT || 0) + dt;
+        if (u._stallT > 0.8) {
+          u._stallT = 0; u.vx = 0; u.vz = 0; u.speed = 0;
+          u.state = d < 8 ? 'MELEE' : 'SCAN'; u.stateT = 0;
+          break;
+        }
       }
       faceTo(u, tgt.x, tgt.z, dt);
       if (u.actT <= 0) playAnim(u, ANIM.run, 0.1);
       // 接触：冲锋伤害（速度越高伤害越大）
       if (d < t.range + 1.2) {
-        var chargeDmg = Math.round((t.chargeDmg || t.dmg * 2) * (u.speed / t.spd));
-        if (tgt.isPlayer) { if (playerAlive()) damagePlayer(chargeDmg); }
-        else if (tgt.state !== 'DEAD') { damageUnit(tgt, chargeDmg, u); }
+        if (tgt.state !== 'DEAD') {
+          damageUnit(tgt, Math.round((t.chargeDmg || t.dmg * 2) * (u.speed / t.spd)), u);
+        }
         battleSfx('atk_clang');
         u.state = 'MELEE'; u.stateT = 0;
         u.vx = 0; u.vz = 0; u.speed = 0;
@@ -2595,9 +2664,9 @@ function _aiUnit(u, dt, now) {
   // 攻击动作中：判定帧结算伤害（_pendHit 由 FIGHT 设置）
   if (u._pendHit && u.actT <= u._pendHitAt) {
     var tg = u._pendHit; u._pendHit = null;
-    if (tg.isPlayer) {
-      if (_distTo(u, _playerProxy()) < u.t.range + 0.6) damagePlayer(u.t.dmg);
-    } else if (tg.state !== 'DEAD' && _distTo(u, tg) < u.t.range + 0.6) {
+    // 判定帧三重检查：目标存活、仍在攻击距离内、攻击者面向目标（±70°）
+    if (!tg.isPlayer && tg.state !== 'DEAD' &&
+        _distTo(u, tg) < u.t.range + 0.6 && _facingTo(u, tg)) {
       damageUnit(tg, u.t.dmg, u);
     }
   }
@@ -2711,8 +2780,8 @@ function _aiUnit(u, dt, now) {
 // ── 总入口 ────────────────────────────────────────────────────────────────────
 function combatUpdate(dt, now) {
   battleProgress();   // 胜负判定先行（即使单位清空也要能收尾，combat_cmd.js）
+  updateFloats(dt);   // 伤害飘字（单位清空后残留的飘字也要播完）
   if (!combatUnits.length) return;
-  _playerProxy();     // 刷新玩家伪单位坐标（敌方把它当持久目标，防坐标过期）
   var i, u;
   // 第一段：AI 决策与移动（可能更新 x/z）
   for (i = combatUnits.length - 1; i >= 0; i--) {
@@ -2845,9 +2914,6 @@ function spawnKind(kind) {
   var side = kind.indexOf('skel_') === 0 ? 1 : 0;
   if (side === 0 && countAlive(0) >= ALLY_CAP)       { battleToast('我方已满编（' + ALLY_CAP + '）'); return; }
   if (side === 1 && countAlive(1) >= BTL.maxEnemies) { battleToast('敌人已达上限（' + BTL.maxEnemies + '）'); return; }
-
-  if (!_respawn) _respawn = [player.x, player.y, player.z];
-  updatePlayerHud();
 
   var a, r, x, z;
   if (side === 0) {

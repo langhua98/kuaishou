@@ -111,9 +111,6 @@ function spawnKind(kind) {
   if (side === 0 && countAlive(0) >= ALLY_CAP)       { battleToast('我方已满编（' + ALLY_CAP + '）'); return; }
   if (side === 1 && countAlive(1) >= BTL.maxEnemies) { battleToast('敌人已达上限（' + BTL.maxEnemies + '）'); return; }
 
-  if (!_respawn) _respawn = [player.x, player.y, player.z];
-  updatePlayerHud();
-
   var a, r, x, z;
   if (side === 0) {
     a = Math.random() * Math.PI * 2;

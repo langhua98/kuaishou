@@ -9,7 +9,7 @@
 
 var playerOrder = 'follow';
 
-// 敌我目标选择：最近的存活敌对单位；敌方还会考虑玩家本体
+// 敌我目标选择：最近的存活敌对单位。玩家完全免伤——敌方永不索敌玩家本体。
 // anyRange=true（冲锋命令）时不限索敌距离——否则敌人超过 28m 冲锋令毫无反应
 function _pickTarget(u, anyRange) {
   var best = null, bd = anyRange ? Infinity : BTL.detectR * BTL.detectR, i, o, dx, dz, d;
@@ -19,11 +19,15 @@ function _pickTarget(u, anyRange) {
     dx = o.x - u.x; dz = o.z - u.z; d = dx * dx + dz * dz;
     if (d < bd) { bd = d; best = o; }
   }
-  if (u.side === 1) {
-    dx = player.x - u.x; dz = player.z - u.z; d = dx * dx + dz * dz;
-    if (d < bd && playerAlive()) { best = _playerProxy(); bd = d; }
-  }
   return best;
+}
+
+// 命中朝向判定：攻击者必须面向目标 ±70°，被碰撞推得转了身就挥空
+function _facingTo(u, t) {
+  var dy = Math.atan2(t.x - u.x, t.z - u.z) - u.yaw;
+  while (dy > Math.PI)  dy -= Math.PI * 2;
+  while (dy < -Math.PI) dy += Math.PI * 2;
+  return Math.abs(dy) < 1.22;
 }
 
 function _distTo(u, t) {
@@ -96,12 +100,6 @@ function _pickBestTarget(u, anyRange) {
     score = _scoreTarget(u, o);
     if (score > bestScore) { bestScore = score; best = o; }
   }
-  if (u.side === 1) {
-    dx = player.x - u.x; dz = player.z - u.z;
-    if (dx * dx + dz * dz <= detectR2 && playerAlive() && 50 > bestScore) {
-      best = _playerProxy();
-    }
-  }
   return best;
 }
 
@@ -161,9 +159,9 @@ function _aiCavalry(u, dt, now) {
   // 待结算伤害（同步 MELEE 帧判定）
   if (u._pendHit && u.actT <= u._pendHitAt) {
     var tg = u._pendHit; u._pendHit = null;
-    if (tg.isPlayer) {
-      if (_distTo(u, _playerProxy()) < u.t.range + 0.6) damagePlayer(u.t.dmg);
-    } else if (tg.state !== 'DEAD' && _distTo(u, tg) < u.t.range + 0.6) {
+    // 判定帧三重检查：目标存活、仍在攻击距离内、攻击者面向目标（±70°）
+    if (!tg.isPlayer && tg.state !== 'DEAD' &&
+        _distTo(u, tg) < u.t.range + 0.6 && _facingTo(u, tg)) {
       damageUnit(tg, u.t.dmg, u);
     }
   }
@@ -247,19 +245,27 @@ function _aiCavalry(u, dt, now) {
       u.speed = Math.min(t.spd, (u.speed || 0) + t.spd * dt * 3);
       var ctx = tgt.x - u.x, ctz = tgt.z - u.z, cdd = Math.sqrt(ctx * ctx + ctz * ctz);
       if (cdd > 0.01) { u.vx = (ctx / cdd) * u.speed; u.vz = (ctz / cdd) * u.speed; }
-      // 地形跟随移动
+      // 地形跟随移动；撞墙/悬崖累积停滞时间，>0.8s 判冲锋失败（需求文档 §4.4 速度跌破阈值）
       var cnx = u.x + u.vx * dt, cnz = u.z + u.vz * dt;
       var cgy = _groundY(Math.floor(cnx), Math.floor(cnz));
       if (cgy - u.y <= 1.5 && u.y - cgy <= 4) {
         u.x = cnx; u.z = cnz; u.y += (cgy - u.y) * Math.min(1, 10 * dt);
+        u._stallT = 0;
+      } else {
+        u._stallT = (u._stallT || 0) + dt;
+        if (u._stallT > 0.8) {
+          u._stallT = 0; u.vx = 0; u.vz = 0; u.speed = 0;
+          u.state = d < 8 ? 'MELEE' : 'SCAN'; u.stateT = 0;
+          break;
+        }
       }
       faceTo(u, tgt.x, tgt.z, dt);
       if (u.actT <= 0) playAnim(u, ANIM.run, 0.1);
       // 接触：冲锋伤害（速度越高伤害越大）
       if (d < t.range + 1.2) {
-        var chargeDmg = Math.round((t.chargeDmg || t.dmg * 2) * (u.speed / t.spd));
-        if (tgt.isPlayer) { if (playerAlive()) damagePlayer(chargeDmg); }
-        else if (tgt.state !== 'DEAD') { damageUnit(tgt, chargeDmg, u); }
+        if (tgt.state !== 'DEAD') {
+          damageUnit(tgt, Math.round((t.chargeDmg || t.dmg * 2) * (u.speed / t.spd)), u);
+        }
         battleSfx('atk_clang');
         u.state = 'MELEE'; u.stateT = 0;
         u.vx = 0; u.vz = 0; u.speed = 0;
@@ -370,9 +376,9 @@ function _aiUnit(u, dt, now) {
   // 攻击动作中：判定帧结算伤害（_pendHit 由 FIGHT 设置）
   if (u._pendHit && u.actT <= u._pendHitAt) {
     var tg = u._pendHit; u._pendHit = null;
-    if (tg.isPlayer) {
-      if (_distTo(u, _playerProxy()) < u.t.range + 0.6) damagePlayer(u.t.dmg);
-    } else if (tg.state !== 'DEAD' && _distTo(u, tg) < u.t.range + 0.6) {
+    // 判定帧三重检查：目标存活、仍在攻击距离内、攻击者面向目标（±70°）
+    if (!tg.isPlayer && tg.state !== 'DEAD' &&
+        _distTo(u, tg) < u.t.range + 0.6 && _facingTo(u, tg)) {
       damageUnit(tg, u.t.dmg, u);
     }
   }
@@ -486,8 +492,8 @@ function _aiUnit(u, dt, now) {
 // ── 总入口 ────────────────────────────────────────────────────────────────────
 function combatUpdate(dt, now) {
   battleProgress();   // 胜负判定先行（即使单位清空也要能收尾，combat_cmd.js）
+  updateFloats(dt);   // 伤害飘字（单位清空后残留的飘字也要播完）
   if (!combatUnits.length) return;
-  _playerProxy();     // 刷新玩家伪单位坐标（敌方把它当持久目标，防坐标过期）
   var i, u;
   // 第一段：AI 决策与移动（可能更新 x/z）
   for (i = combatUnits.length - 1; i >= 0; i--) {
