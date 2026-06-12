@@ -23,7 +23,7 @@ var player = {
   onGround: false, flying: false,
   jumpQ: false, breakQ: false, placeQ: false,
   slot: 0,
-  inv: [GRASS, DIRT, STONE, SAND, WOOD, LEAVES, RED_WALL, GOLD_ROOF, WHITE_STONE, GRAY_BRICK, GRAY_ROOF, RED_PILLAR, PLANKS, COBBLE, MUD_BRICK]
+  inv: [GRASS, DIRT, STONE, SAND, WOOD, LEAVES, RED_WALL, GOLD_ROOF, WHITE_STONE, GRAY_BRICK, GRAY_ROOF, RED_PILLAR, PLANKS, COBBLE, MUD_BRICK, TERRITORY_STONE]
 };
 
 window._step = 4;
@@ -313,8 +313,10 @@ function tick(now) {
     } else {
       var hitB = raycast(6);
       if (hitB) {
-        digSound(getBlock(hitB.x, hitB.y, hitB.z));   // 先取 ID 再清除
+        var _brokenId = getBlock(hitB.x, hitB.y, hitB.z);
+        digSound(_brokenId);   // 先取 ID 再清除
         setBlock(hitB.x, hitB.y, hitB.z, AIR);
+        if (_brokenId === TERRITORY_STONE && typeof _removeTerritory === 'function') _removeTerritory(hitB.x, hitB.y, hitB.z);
         _lastBreak = nowS;
       }
     }
@@ -424,8 +426,10 @@ function tick(now) {
       var pz0 = Math.floor(player.z - PR), pz1 = Math.floor(player.z + PR);
       var py0 = Math.floor(player.y),      py1 = Math.floor(player.y + PH - 0.01);
       if (pv.x < px0 || pv.x > px1 || pv.y < py0 || pv.y > py1 || pv.z < pz0 || pv.z > pz1) {
-        setBlock(pv.x, pv.y, pv.z, player.inv[player.slot]);
-        digSound(player.inv[player.slot]);
+        var _placedId = player.inv[player.slot];
+        setBlock(pv.x, pv.y, pv.z, _placedId);
+        digSound(_placedId);
+        if (_placedId === TERRITORY_STONE && typeof _addTerritory === 'function') _addTerritory(pv.x, pv.y, pv.z);
         _lastPlace = nowS;
         // 学习放置方向：从第2块起才学（第1块 lastPos 为 null，不触发）
         // 仅准星直接命中时从面法线学方向；方向预测放置时 pv≠selHit.prev，跳过，保持方向不变
@@ -652,6 +656,7 @@ function bootNext() {
     } else if (bootStep === 9) {
       setProgress(94, '放置建筑...');
       placeStructures();
+      placeSimpleCastle(-10, -32);   // 城堡在出生点正北约 32 格
       bootStep = 10; requestAnimationFrame(bootNext);
 
     } else {

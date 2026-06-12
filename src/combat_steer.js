@@ -5,6 +5,48 @@
 //   全堵则原方向减速蹭行。每个候选 5 次 getBlock 查表，开销可忽略。
 // 上下坡：跟随地形列高度，差 ≤1 格直接走上（体素世界天然台阶）。
 
+// ── 领地结界系统 ──────────────────────────────────────────────────────────────
+// 每块领地石在放置时创建半径 12m 的保护圈；敌方无法进入该范围。
+// 用紫色线框 BoxHelper 标注边界（高度 10m，视觉提示）。
+
+var _territoryList = [];   // [{cx,cz,r,mesh}]
+
+function _addTerritory(bx, by, bz) {
+  var R = 12;
+  var H = 10;
+  var cx = bx + 0.5, cz = bz + 0.5;
+  var geo = new THREE.BoxGeometry(R * 2, H, R * 2);
+  var edges = new THREE.EdgesGeometry(geo);
+  var mat = new THREE.LineBasicMaterial({ color: 0x9333ea, transparent: true, opacity: 0.85 });
+  var mesh = new THREE.LineSegments(edges, mat);
+  mesh.position.set(cx, by + H / 2, cz);
+  scene.add(mesh);
+  _territoryList.push({ cx: cx, cz: cz, r: R, mesh: mesh });
+}
+
+function _removeTerritory(bx, by, bz) {
+  var cx = bx + 0.5, cz = bz + 0.5, i;
+  for (i = _territoryList.length - 1; i >= 0; i--) {
+    var t = _territoryList[i];
+    if (Math.abs(t.cx - cx) < 0.5 && Math.abs(t.cz - cz) < 0.5) {
+      scene.remove(t.mesh);
+      t.mesh.material.dispose();
+      _territoryList.splice(i, 1);
+      return;
+    }
+  }
+}
+
+// 判断 (x,z) 是否在任意领地保护范围内
+function _inTerritory(x, z) {
+  var i, t;
+  for (i = 0; i < _territoryList.length; i++) {
+    t = _territoryList[i];
+    if (Math.abs(x - t.cx) <= t.r && Math.abs(z - t.cz) <= t.r) return true;
+  }
+  return false;
+}
+
 function _dirClear(x, y, z, dx, dz) {
   var i, cx, cz;
   for (i = 1; i <= 5; i++) {
@@ -52,6 +94,9 @@ function steerMove(u, tx, tz, spd, dt) {
 
   var mv = Math.min(spd * slow * dt, d);
   var nx = u.x + best[0] * mv, nz = u.z + best[1] * mv;
+
+  // 领地结界：敌方不得进入保护区（直接停住，保持在边界外）
+  if (u.side === 1 && _inTerritory(nx, nz)) return false;
 
   // 地形跟随：目标列地面高度差 ≤1.2 格可走，悬崖/高墙不走
   var gy = _groundY(Math.floor(nx), Math.floor(nz));

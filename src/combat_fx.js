@@ -100,8 +100,8 @@ function dmgFloat(u, dmg, byPlayer, blocked) {
   ctx.textAlign = 'center';
   ctx.lineWidth = 4;
   ctx.strokeStyle = 'rgba(0,0,0,.85)';
-  ctx.fillStyle = blocked ? '#93c5fd' : (byPlayer ? '#fde047' : '#fff');
-  var txt = (blocked ? '🛡' : '') + '-' + dmg;
+  ctx.fillStyle = blocked ? '#c4b5fd' : '#ef4444';   // 格挡淡紫，普通伤害红色（LoL 风格）
+  var txt = (blocked ? '⊡' : '') + dmg;
   ctx.strokeText(txt, 48, 30);
   ctx.fillText(txt, 48, 30);
   var spr = new THREE.Sprite(new THREE.SpriteMaterial({

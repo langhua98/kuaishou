@@ -35,19 +35,38 @@ function _distTo(u, t) {
   return Math.sqrt(dx * dx + dz * dz);
 }
 
-// 编队跟随：按黄金角给每人分配玩家身边一个固定槽位（散开站位，不再扎堆罚站）
+// 方队跟随：所有待命盟友按矩形方阵站位（玩家身后），各有专属格子不扎堆。
+// 站定后面向玩家，整齐待命。
 function _followFormation(u, dt) {
-  var t = u.t;
-  var sa = u.id * 2.4;
-  var sr = 2.6 + (u.id % 3) * 1.0 + (t.cavalry ? 1.4 : 0);
-  var fx = player.x + Math.sin(sa) * sr, fz = player.z + Math.cos(sa) * sr;
-  var dx = fx - u.x, dz = fz - u.z;
-  var d = Math.sqrt(dx * dx + dz * dz);
-  if (d > 1.4) {
-    steerMove(u, fx, fz, d > 8 ? t.spd : t.spd * 0.55, dt);
-    if (u.actT <= 0) playAnim(u, d > 8 ? ANIM.run : ANIM.walk, 0.2);
+  // 统计当前跟随/待命我方单位，按 id 排序取该单位的名次
+  var allies = [], i, o;
+  for (i = 0; i < combatUnits.length; i++) {
+    o = combatUnits[i];
+    if (o.side === 0 && o.state !== 'DEAD') allies.push(o.id);
+  }
+  allies.sort(function (a, b) { return a - b; });
+  var rank = allies.indexOf(u.id), total = allies.length;
+
+  var cols = Math.max(1, Math.ceil(Math.sqrt(total)));
+  var col  = rank % cols;
+  var row  = Math.floor(rank / cols);
+  var sep  = u.t.cavalry ? 2.8 : 2.2;   // 骑兵间距更大
+  var localX = (col - (cols - 1) * 0.5) * sep;
+  var localZ = (row + 1) * sep + 2.5;   // 跟在玩家身后
+
+  // 旋转到玩家朝向的"身后"方向
+  var sinY = Math.sin(player.yaw), cosY = Math.cos(player.yaw);
+  // 玩家前向 F = (sinY, cosY)，右向 R = (cosY, -sinY)
+  // 身后偏移 = -localZ * F + localX * R
+  var wx = player.x - localZ * sinY + localX * cosY;
+  var wz = player.z - localZ * cosY - localX * sinY;
+
+  var dx = wx - u.x, dz = wz - u.z, d = Math.sqrt(dx * dx + dz * dz);
+  if (d > 0.9) {
+    steerMove(u, wx, wz, d > 6 ? u.t.spd : u.t.spd * 0.5, dt);
+    if (u.actT <= 0) playAnim(u, d > 6 ? ANIM.run : ANIM.walk, 0.2);
   } else {
-    faceTo(u, player.x, player.z, dt);   // 站定时面向玩家待命
+    faceTo(u, player.x + sinY * 5, player.z + cosY * 5, dt);  // 面朝玩家前方
     if (u.actT <= 0) playAnim(u, u.cheering ? ANIM.cheer : ANIM.idle, 0.2);
   }
 }
