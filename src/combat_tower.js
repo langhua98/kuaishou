@@ -45,22 +45,24 @@ function _makeProcTower() {
     grp.add(cr);
   }
 
-  // 双锥菱形水晶（下移 0.5，嵌入顶台）
+  // 双锥菱形水晶：两锥底面对齐在 y=6.30，完全消除交叉穿模
+  // ConeGeometry 底面在本地 y=-h/2，顶在 y=+h/2；基于此推导中心偏移
+  var JUNC = 6.30;                         // 两锥底面交汇高度
   var crystalTop = new THREE.Mesh(new THREE.ConeGeometry(0.38, 0.92, 6), matPurple);
-  crystalTop.position.y = 6.62;
+  crystalTop.position.y = JUNC + 0.46;    // 底面在 JUNC，尖端在 JUNC+0.92
   var crystalBot = new THREE.Mesh(new THREE.ConeGeometry(0.38, 0.92, 6), matLilac);
-  crystalBot.rotation.x = Math.PI;
-  crystalBot.position.y = 5.94;
+  crystalBot.rotation.x = Math.PI;        // 翻转：底面朝上，尖端朝下
+  crystalBot.position.y = JUNC - 0.46;   // 底面在 JUNC，尖端在 JUNC-0.92
   grp.add(crystalTop);
   grp.add(crystalBot);
 
-  // 大水平光环（缩小到雉堞内侧，避免穿模）
+  // 大水平光环（绕水晶中腰旋转，缩小到雉堞内侧）
   var ring = new THREE.Mesh(
     new THREE.TorusGeometry(0.72, 0.10, 8, 48),
     new THREE.MeshBasicMaterial({ color: 0xc084fc })
   );
   ring.rotation.x = Math.PI * 0.5;
-  ring.position.y = 5.88;
+  ring.position.y = JUNC;                 // 水晶腰部
   grp.add(ring);
 
   // 小倾斜光环（进动）
@@ -69,7 +71,7 @@ function _makeProcTower() {
     new THREE.MeshBasicMaterial({ color: 0x9333ea })
   );
   ring2.rotation.z = Math.PI / 3.5;
-  ring2.position.y = 6.28;
+  ring2.position.y = JUNC;
   grp.add(ring2);
 
   // 水晶外发光球（加法混合，避免 BackSide 白雾感）
@@ -78,7 +80,7 @@ function _makeProcTower() {
     new THREE.MeshBasicMaterial({ color: 0xc084fc, transparent: true, opacity: 0.22,
       depthWrite: false, blending: THREE.AdditiveBlending })
   );
-  glowSph.position.y = 6.28;
+  glowSph.position.y = JUNC;
   grp.add(glowSph);
 
   grp.userData.crystal  = crystalTop;

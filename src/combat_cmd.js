@@ -130,9 +130,13 @@ function spawnKind(kind, count) {
   count = count || 1;
   if (!_armyLoaded) {
     var tog = _cmdWrap ? _cmdWrap.firstChild : null;
-    if (tog) { tog.disabled = true; tog.lastChild.textContent = '…'; }
+    function _restoreBtn() { if (tog) { tog.disabled = false; tog.lastChild.textContent = '招兵'; } }
+    if (tog) { tog.disabled = true; tog.lastChild.textContent = '加载…'; }
+    // 20s 超时兜底：网络慢/资源失败时按钮不会永久卡住
+    var _safeTid = setTimeout(_restoreBtn, 20000);
     loadArmyModels(function () {
-      if (tog) { tog.disabled = false; tog.lastChild.textContent = '招兵'; }
+      clearTimeout(_safeTid);
+      _restoreBtn();
       spawnKind(kind, count);
     }, function (done, total) {
       if (tog) tog.lastChild.textContent = done + '/' + total;
