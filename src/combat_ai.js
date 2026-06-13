@@ -362,6 +362,10 @@ function _aiCavalry(u, dt, now) {
           damageUnit(tgt, Math.round((t.chargeDmg || t.dmg * 2) * (u.speed / t.spd)), u);
         }
         battleSfx('atk_clang');
+        // 冲锋撞击火花
+        if (typeof spawnBurst === 'function')
+          spawnBurst(tgt.x, tgt.y + (tgt.t ? tgt.t.h * 0.5 : 1), tgt.z,
+            { count: 22, color: 0xffae42, speed: 6, size: 0.18, life: 0.5, up: 0.5 });
         u.state = 'MELEE'; u.stateT = 0;
         u.vx = 0; u.vz = 0; u.speed = 0;
       }
@@ -641,6 +645,7 @@ function _aiUnit(u, dt, now) {
 function combatUpdate(dt, now) {
   updateTerritoryFx(dt);  // 结界动画（combat_steer.js）
   if (typeof updateTowers === 'function') updateTowers(dt);  // 塔防（combat_tower.js）
+  if (typeof updateParticles === 'function') updateParticles(dt);  // 粒子特效（combat_particles.js）
   battleProgress();   // 胜负判定
   updateFloats(dt);   // 伤害飘字
   if (!combatUnits.length) return;

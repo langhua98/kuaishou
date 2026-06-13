@@ -38,6 +38,7 @@ const SRC_FILES = [
   'src/combat_ai.js',   // ⑤ 决策：FSM + combatUpdate 入口
   'src/combat_cmd.js',  // ⑥ 指挥：开战/命令按钮/波次胜负
   'src/combat_tower.js',// ⑦ 塔防：魔法塔/魔法弹/敌方攻塔（需在 combat_cmd 之后：placeTower 被 cmd 调用）
+  'src/combat_particles.js',// ⑧ 粒子特效：spawnBurst/updateParticles（被 tower/ai 调用）
   'src/structures.js',  // 开源中式建筑数据 + placeStructures()（需在 game.js 之前）
   'src/save.js',        // 本地存档：玩家改动/位置/塔（需在 game.js 之前：loadGame/recordEdit 被 game 调用）
   'src/game.js',

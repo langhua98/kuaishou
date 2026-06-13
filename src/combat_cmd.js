@@ -11,6 +11,7 @@ var _recruitOpen = false, _orderOpen = false;
 var _hadEnemies = false;
 var _castleCourtyard = null;  // 城堡广场中心，placeSimpleCastle 设定后生效
 
+// 魔法塔已移到背包作为可放置道具（TOWER_ITEM），不再在招兵面板。
 var _RECRUIT = [
   ['🛡️', 'knight'],
   ['🪓', 'barbarian'],
@@ -19,7 +20,6 @@ var _RECRUIT = [
   ['💀', 'skel_war'],
   ['☠️', 'skel_min'],
   ['🎯', 'skel_rog'],
-  ['🗼', 'tower'],   // 魔法塔（非战斗单位，调用 placeTower）
 ];
 
 function buildBattleUI() {
@@ -53,19 +53,12 @@ function buildBattleUI() {
   var i;
   for (i = 0; i < _RECRUIT.length; i++) {
     (function (r) {
-      var isTower = r[1] === 'tower';
       var ally = r[1].indexOf('skel_') !== 0;
-      var label = isTower ? '魔法塔' : UNIT_TYPES[r[1]].name;
-      var b = _mkSmallBtn(r[0], label, function () {
-        if (isTower) {
-          spawnTower();
-        } else {
-          spawnKind(r[1], 6);
-        }
+      var b = _mkSmallBtn(r[0], UNIT_TYPES[r[1]].name, function () {
+        spawnKind(r[1], 6);
         _recruitOpen = false; _recruitPanel.style.display = 'none';
       });
-      b.style.borderColor = isTower ? 'rgba(168,85,247,.7)' :
-        ally ? 'rgba(74,222,128,.5)' : 'rgba(239,68,68,.5)';
+      b.style.borderColor = ally ? 'rgba(74,222,128,.5)' : 'rgba(239,68,68,.5)';
       _recruitPanel.appendChild(b);
     }(_RECRUIT[i]));
   }
@@ -174,17 +167,6 @@ function spawnKind(kind, count) {
   }
   if (spawned > 0) battleToast((side === 0 ? '我方 ' : '敌方 ') +
     t.name + (spawned > 1 ? ' ×' + spawned : '') + ' 入场');
-}
-
-// ── 放置魔法塔（在玩家前方）──────────────────────────────────────────────────
-function spawnTower() {
-  var tx = player.x + Math.sin(player.yaw) * 4;
-  var tz = player.z + Math.cos(player.yaw) * 4;
-  if (typeof placeTower === 'function') {
-    placeTower(tx, tz);
-  } else {
-    battleToast('⚠️ 塔防模块未就绪');
-  }
 }
 
 // 每帧胜负检查（combat_ai.js combatUpdate 调用）

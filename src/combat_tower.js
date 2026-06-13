@@ -3,11 +3,9 @@
 // 敌方优先向塔移动并攻击；塔自动射出魔法弹伤害范围内敌人；塔有 HP 可被摧毁。
 
 var _towers = [];          // 活动防御塔列表 [{x,y,z,hp,maxHp,atkCd,group,dead,...}]
-var _towerGltf = null;     // magic_tower.glb 缓存（异步加载）
-var _towerLoaded = false;
 var _towerOrbs = [];       // 飞行中的魔法弹
 
-// 塔配置
+// 塔配置（程序化模型，无外部 GLB）
 var TOWER_CFG = {
   hp:      150,
   range:   16,      // 攻击半径（米）
@@ -15,22 +13,7 @@ var TOWER_CFG = {
   atkCd:   2.0,     // 攻击间隔（秒）
   orbSpd:  14,      // 魔法弹速度
   h:       4.5,     // 显示高度（HP 条用）
-  scale:   3.8,     // GLB 模型整体缩放（根据模型大小微调）
 };
-
-// ── 加载魔法塔 GLB ─────────────────────────────────────────────────────────────
-function _loadTowerGltf(cb) {
-  if (_towerLoaded) { cb(); return; }
-  gltfLoader.load('assets/models/army/magic_tower.glb', function (g) {
-    _towerGltf = g;
-    _towerLoaded = true;
-    cb();
-  }, undefined, function () {
-    // 加载失败：标记为已加载（使用程序化备用模型）
-    _towerLoaded = true;
-    cb();
-  });
-}
 
 // ── 程序化魔法塔 ──────────────────────────────────────────────────────────────
 // 下载的 magic_tower.glb 几何退化（Z 跨度 9125，自动缩放后塌成不可见薄片），
@@ -162,7 +145,13 @@ function damageTower(tower, dmg) {
     scene.remove(tower.group);
     var i = _towers.indexOf(tower);
     if (i >= 0) _towers.splice(i, 1);
+    // 摧毁特效：紫色魔力炸裂 + 灰色碎石
+    if (typeof spawnBurst === 'function') {
+      spawnBurst(tower.x, tower.y + 2.5, tower.z, { count: 40, color: 0x9333ea, speed: 8, size: 0.3, life: 1.0, up: 0.4 });
+      spawnBurst(tower.x, tower.y + 1.2, tower.z, { count: 30, color: 0x6b7280, speed: 5, size: 0.25, life: 1.2, up: 0.2 });
+    }
     battleToast('🏚️ 魔法塔被摧毁！');
+    if (typeof saveGame === 'function') saveGame();   // 塔没了，更新存档
   }
 }
 
@@ -228,6 +217,9 @@ function updateTowers(dt) {
       var ez = orb.tgt.z - orb.z;
       if (ex*ex + ey*ey + ez*ez < 0.9) {
         damageUnit(orb.tgt, orb.dmg, null);
+        // 魔法弹命中：紫色魔力迸溅
+        if (typeof spawnBurst === 'function')
+          spawnBurst(orb.x, orb.y, orb.z, { count: 14, color: 0xc084fc, speed: 4, size: 0.18, life: 0.5, up: 0.3 });
         hit = true;
       }
     } else if (!orb.tgt || orb.tgt.state === 'DEAD') {

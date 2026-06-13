@@ -116,7 +116,6 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
 
 <script src="three.min.js"></script>
 <script src="GLTFLoader.js"></script>
-<script src="https://unpkg.com/partykals@1.0.2/dist/partykals.js"></script>
 
 <!-- Diagnostic: runs before the game bundle -->
 <script>
@@ -264,6 +263,14 @@ var BCOL = [
 var BNAMES = ['', '草地', '泥土', '石头', '沙子', '木头', '树叶', '水',
               '朱墙', '金瓦', '白玉', '青砖',
               '灰瓦', '红柱', '木板', '卵石', '土砖', '领地石'];
+
+// ── 特殊放置道具（非体素方块）──────────────────────────────────────────────────
+// 选中后在准星处"放置"会调用对应逻辑（如 placeTower）而非写入区块。
+// id 取大数避免与方块冲突；BCOL/BNAMES 稀疏赋值，UI 查表照常工作；
+// 无 BTEX 条目 → 手持模型自动跳过（_makeHandCube 返回 null）。
+var TOWER_ITEM = 100;            // 🗼 魔法塔放置道具
+BCOL[TOWER_ITEM]  = [0.576,0.180,0.918, 0.576,0.180,0.918, 0.576,0.180,0.918];  // 紫
+BNAMES[TOWER_ITEM] = '🗼塔';
 
 // ── 面定义 ────────────────────────────────────────────────────────────────────
 // FACES[f] = [dx, dy, dz,  顶点偏移数组(4顶点×3坐标=12个数),  BCOL 颜色偏移]
@@ -2733,6 +2740,10 @@ function _aiCavalry(u, dt, now) {
           damageUnit(tgt, Math.round((t.chargeDmg || t.dmg * 2) * (u.speed / t.spd)), u);
         }
         battleSfx('atk_clang');
+        // 冲锋撞击火花
+        if (typeof spawnBurst === 'function')
+          spawnBurst(tgt.x, tgt.y + (tgt.t ? tgt.t.h * 0.5 : 1), tgt.z,
+            { count: 22, color: 0xffae42, speed: 6, size: 0.18, life: 0.5, up: 0.5 });
         u.state = 'MELEE'; u.stateT = 0;
         u.vx = 0; u.vz = 0; u.speed = 0;
       }
@@ -3012,6 +3023,7 @@ function _aiUnit(u, dt, now) {
 function combatUpdate(dt, now) {
   updateTerritoryFx(dt);  // 结界动画（combat_steer.js）
   if (typeof updateTowers === 'function') updateTowers(dt);  // 塔防（combat_tower.js）
+  if (typeof updateParticles === 'function') updateParticles(dt);  // 粒子特效（combat_particles.js）
   battleProgress();   // 胜负判定
   updateFloats(dt);   // 伤害飘字
   if (!combatUnits.length) return;
@@ -3048,6 +3060,7 @@ var _recruitOpen = false, _orderOpen = false;
 var _hadEnemies = false;
 var _castleCourtyard = null;  // 城堡广场中心，placeSimpleCastle 设定后生效
 
+// 魔法塔已移到背包作为可放置道具（TOWER_ITEM），不再在招兵面板。
 var _RECRUIT = [
   ['🛡️', 'knight'],
   ['🪓', 'barbarian'],
@@ -3056,7 +3069,6 @@ var _RECRUIT = [
   ['💀', 'skel_war'],
   ['☠️', 'skel_min'],
   ['🎯', 'skel_rog'],
-  ['🗼', 'tower'],   // 魔法塔（非战斗单位，调用 placeTower）
 ];
 
 function buildBattleUI() {
@@ -3090,19 +3102,12 @@ function buildBattleUI() {
   var i;
   for (i = 0; i < _RECRUIT.length; i++) {
     (function (r) {
-      var isTower = r[1] === 'tower';
       var ally = r[1].indexOf('skel_') !== 0;
-      var label = isTower ? '魔法塔' : UNIT_TYPES[r[1]].name;
-      var b = _mkSmallBtn(r[0], label, function () {
-        if (isTower) {
-          spawnTower();
-        } else {
-          spawnKind(r[1], 6);
-        }
+      var b = _mkSmallBtn(r[0], UNIT_TYPES[r[1]].name, function () {
+        spawnKind(r[1], 6);
         _recruitOpen = false; _recruitPanel.style.display = 'none';
       });
-      b.style.borderColor = isTower ? 'rgba(168,85,247,.7)' :
-        ally ? 'rgba(74,222,128,.5)' : 'rgba(239,68,68,.5)';
+      b.style.borderColor = ally ? 'rgba(74,222,128,.5)' : 'rgba(239,68,68,.5)';
       _recruitPanel.appendChild(b);
     }(_RECRUIT[i]));
   }
@@ -3213,17 +3218,6 @@ function spawnKind(kind, count) {
     t.name + (spawned > 1 ? ' ×' + spawned : '') + ' 入场');
 }
 
-// ── 放置魔法塔（在玩家前方）──────────────────────────────────────────────────
-function spawnTower() {
-  var tx = player.x + Math.sin(player.yaw) * 4;
-  var tz = player.z + Math.cos(player.yaw) * 4;
-  if (typeof placeTower === 'function') {
-    placeTower(tx, tz);
-  } else {
-    battleToast('⚠️ 塔防模块未就绪');
-  }
-}
-
 // 每帧胜负检查（combat_ai.js combatUpdate 调用）
 function battleProgress() {
   var en = countAlive(1);
@@ -3248,11 +3242,9 @@ function battleProgress() {
 // 敌方优先向塔移动并攻击；塔自动射出魔法弹伤害范围内敌人；塔有 HP 可被摧毁。
 
 var _towers = [];          // 活动防御塔列表 [{x,y,z,hp,maxHp,atkCd,group,dead,...}]
-var _towerGltf = null;     // magic_tower.glb 缓存（异步加载）
-var _towerLoaded = false;
 var _towerOrbs = [];       // 飞行中的魔法弹
 
-// 塔配置
+// 塔配置（程序化模型，无外部 GLB）
 var TOWER_CFG = {
   hp:      150,
   range:   16,      // 攻击半径（米）
@@ -3260,22 +3252,7 @@ var TOWER_CFG = {
   atkCd:   2.0,     // 攻击间隔（秒）
   orbSpd:  14,      // 魔法弹速度
   h:       4.5,     // 显示高度（HP 条用）
-  scale:   3.8,     // GLB 模型整体缩放（根据模型大小微调）
 };
-
-// ── 加载魔法塔 GLB ─────────────────────────────────────────────────────────────
-function _loadTowerGltf(cb) {
-  if (_towerLoaded) { cb(); return; }
-  gltfLoader.load('assets/models/army/magic_tower.glb', function (g) {
-    _towerGltf = g;
-    _towerLoaded = true;
-    cb();
-  }, undefined, function () {
-    // 加载失败：标记为已加载（使用程序化备用模型）
-    _towerLoaded = true;
-    cb();
-  });
-}
 
 // ── 程序化魔法塔 ──────────────────────────────────────────────────────────────
 // 下载的 magic_tower.glb 几何退化（Z 跨度 9125，自动缩放后塌成不可见薄片），
@@ -3407,7 +3384,13 @@ function damageTower(tower, dmg) {
     scene.remove(tower.group);
     var i = _towers.indexOf(tower);
     if (i >= 0) _towers.splice(i, 1);
+    // 摧毁特效：紫色魔力炸裂 + 灰色碎石
+    if (typeof spawnBurst === 'function') {
+      spawnBurst(tower.x, tower.y + 2.5, tower.z, { count: 40, color: 0x9333ea, speed: 8, size: 0.3, life: 1.0, up: 0.4 });
+      spawnBurst(tower.x, tower.y + 1.2, tower.z, { count: 30, color: 0x6b7280, speed: 5, size: 0.25, life: 1.2, up: 0.2 });
+    }
     battleToast('🏚️ 魔法塔被摧毁！');
+    if (typeof saveGame === 'function') saveGame();   // 塔没了，更新存档
   }
 }
 
@@ -3473,6 +3456,9 @@ function updateTowers(dt) {
       var ez = orb.tgt.z - orb.z;
       if (ex*ex + ey*ey + ez*ez < 0.9) {
         damageUnit(orb.tgt, orb.dmg, null);
+        // 魔法弹命中：紫色魔力迸溅
+        if (typeof spawnBurst === 'function')
+          spawnBurst(orb.x, orb.y, orb.z, { count: 14, color: 0xc084fc, speed: 4, size: 0.18, life: 0.5, up: 0.3 });
         hit = true;
       }
     } else if (!orb.tgt || orb.tgt.state === 'DEAD') {
@@ -3483,6 +3469,78 @@ function updateTowers(dt) {
       scene.remove(orb.mesh);
       orb.mesh.geometry.dispose(); orb.mesh.material.dispose();
       _towerOrbs.splice(i, 1);
+    }
+  }
+}
+
+
+// ═══ src/combat_particles.js ═══
+// ─── combat_particles.js ──────────────────────────────────────────────────────
+// 轻量粒子特效：基于 THREE.Points + BufferGeometry（Three.js r147 原生，零外部依赖）。
+//
+// 设计取舍：调研的 Partykals 等库要么需要 npm 打包，要么其运行时 API 无法在本项目
+// 的 r147 UMD 环境中验证；为保证稳定，这里用原生 Points 自实现一个够用的爆发系统。
+// spawnBurst() 在某点喷出一簇粒子（半球向上 + 重力 + 渐隐），updateParticles() 每帧推进。
+
+var _bursts = [];   // 活动粒子簇
+
+// 在 (x,y,z) 喷出一簇粒子。opts: {count,color,speed,size,life,gravity,up}
+function spawnBurst(x, y, z, opts) {
+  if (typeof scene === 'undefined') return;
+  opts = opts || {};
+  var n     = opts.count   || 18;
+  var color = opts.color   != null ? opts.color   : 0x9333ea;
+  var spd   = opts.speed   || 4;
+  var size  = opts.size    || 0.22;
+  var life  = opts.life    || 0.7;
+  var grav  = opts.gravity != null ? opts.gravity : 10;
+  var up    = opts.up      != null ? opts.up      : 0.3;   // 额外向上初速比例
+
+  var positions = new Float32Array(n * 3);
+  var vel = new Float32Array(n * 3);
+  var i, a, b, sp;
+  for (i = 0; i < n; i++) {
+    positions[i*3] = x; positions[i*3+1] = y; positions[i*3+2] = z;
+    a  = Math.random() * Math.PI * 2;          // 方位角
+    b  = Math.random() * Math.PI * 0.5;         // 仰角 0~90°（半球向上）
+    sp = spd * (0.4 + Math.random() * 0.6);
+    vel[i*3]   = Math.cos(a) * Math.cos(b) * sp;
+    vel[i*3+1] = Math.sin(b) * sp + spd * up;
+    vel[i*3+2] = Math.sin(a) * Math.cos(b) * sp;
+  }
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  var mat = new THREE.PointsMaterial({
+    color: color, size: size, transparent: true, opacity: 1,
+    depthWrite: false, sizeAttenuation: true,
+  });
+  var pts = new THREE.Points(geo, mat);
+  pts.frustumCulled = false;
+  scene.add(pts);
+  _bursts.push({ pts: pts, vel: vel, t: 0, life: life, grav: grav, n: n });
+}
+
+// 每帧推进所有粒子簇（combat_ai.js combatUpdate 调用）
+function updateParticles(dt) {
+  var i, b, pos, j, k;
+  for (i = _bursts.length - 1; i >= 0; i--) {
+    b = _bursts[i];
+    b.t += dt;
+    pos = b.pts.geometry.attributes.position.array;
+    for (j = 0; j < b.n; j++) {
+      k = j * 3;
+      b.vel[k+1] -= b.grav * dt;
+      pos[k]   += b.vel[k]   * dt;
+      pos[k+1] += b.vel[k+1] * dt;
+      pos[k+2] += b.vel[k+2] * dt;
+    }
+    b.pts.geometry.attributes.position.needsUpdate = true;
+    b.pts.material.opacity = Math.max(0, 1 - b.t / b.life);
+    if (b.t >= b.life) {
+      scene.remove(b.pts);
+      b.pts.geometry.dispose();
+      b.pts.material.dispose();
+      _bursts.splice(i, 1);
     }
   }
 }
@@ -3924,7 +3982,7 @@ var player = {
   onGround: false, flying: false,
   jumpQ: false, breakQ: false, placeQ: false,
   slot: 0,
-  inv: [GRASS, DIRT, STONE, SAND, WOOD, LEAVES, RED_WALL, GOLD_ROOF, WHITE_STONE, GRAY_BRICK, GRAY_ROOF, RED_PILLAR, PLANKS, COBBLE, MUD_BRICK, TERRITORY_STONE]
+  inv: [GRASS, DIRT, STONE, SAND, WOOD, LEAVES, RED_WALL, GOLD_ROOF, WHITE_STONE, GRAY_BRICK, GRAY_ROOF, RED_PILLAR, PLANKS, COBBLE, MUD_BRICK, TERRITORY_STONE, TOWER_ITEM]
 };
 
 window._step = 4;
@@ -4329,29 +4387,35 @@ function tick(now) {
       var py0 = Math.floor(player.y),      py1 = Math.floor(player.y + PH - 0.01);
       if (pv.x < px0 || pv.x > px1 || pv.y < py0 || pv.y > py1 || pv.z < pz0 || pv.z > pz1) {
         var _placedId = player.inv[player.slot];
-        setBlock(pv.x, pv.y, pv.z, _placedId);
-        digSound(_placedId);
-        if (typeof recordEdit === 'function') recordEdit(pv.x, pv.y, pv.z, _placedId);
-        if (_placedId === TERRITORY_STONE && typeof _addTerritory === 'function') _addTerritory(pv.x, pv.y, pv.z);
-        _lastPlace = nowS;
-        // 学习放置方向：从第2块起才学（第1块 lastPos 为 null，不触发）
-        // 仅准星直接命中时从面法线学方向；方向预测放置时 pv≠selHit.prev，跳过，保持方向不变
-        if (_place.lastPos && selHit && selHit.prev &&
-            pv.x === selHit.prev.x && pv.y === selHit.prev.y && pv.z === selHit.prev.z) {
-          var _dx = pv.x - selHit.x;
-          var _dy = pv.y - selHit.y;
-          var _dz = pv.z - selHit.z;
-          // 取绝对值最大的轴作为方向（法线应该只有一个轴为 ±1，保险起见做一遍）
-          if (Math.abs(_dx) >= Math.abs(_dy) && Math.abs(_dx) >= Math.abs(_dz)) {
-            _place.lastDir = { x: _dx > 0 ? 1 : -1, y: 0, z: 0 };
-          } else if (Math.abs(_dy) >= Math.abs(_dz)) {
-            _place.lastDir = { x: 0, y: _dy > 0 ? 1 : -1, z: 0 };
-          } else {
-            _place.lastDir = { x: 0, y: 0, z: _dz > 0 ? 1 : -1 };
+        // 魔法塔道具：放置一座防御塔（非方块，不写区块/不记改动——塔单独入档）
+        if (_placedId === TOWER_ITEM) {
+          if (typeof placeTower === 'function') placeTower(pv.x + 0.5, pv.z + 0.5);
+          _lastPlace = nowS;
+        } else {
+          setBlock(pv.x, pv.y, pv.z, _placedId);
+          digSound(_placedId);
+          if (typeof recordEdit === 'function') recordEdit(pv.x, pv.y, pv.z, _placedId);
+          if (_placedId === TERRITORY_STONE && typeof _addTerritory === 'function') _addTerritory(pv.x, pv.y, pv.z);
+          _lastPlace = nowS;
+          // 学习放置方向：从第2块起才学（第1块 lastPos 为 null，不触发）
+          // 仅准星直接命中时从面法线学方向；方向预测放置时 pv≠selHit.prev，跳过，保持方向不变
+          if (_place.lastPos && selHit && selHit.prev &&
+              pv.x === selHit.prev.x && pv.y === selHit.prev.y && pv.z === selHit.prev.z) {
+            var _dx = pv.x - selHit.x;
+            var _dy = pv.y - selHit.y;
+            var _dz = pv.z - selHit.z;
+            // 取绝对值最大的轴作为方向（法线应该只有一个轴为 ±1，保险起见做一遍）
+            if (Math.abs(_dx) >= Math.abs(_dy) && Math.abs(_dx) >= Math.abs(_dz)) {
+              _place.lastDir = { x: _dx > 0 ? 1 : -1, y: 0, z: 0 };
+            } else if (Math.abs(_dy) >= Math.abs(_dz)) {
+              _place.lastDir = { x: 0, y: _dy > 0 ? 1 : -1, z: 0 };
+            } else {
+              _place.lastDir = { x: 0, y: 0, z: _dz > 0 ? 1 : -1 };
+            }
           }
+          _place.lastPos = { x: pv.x, y: pv.y, z: pv.z };
+          _place.idleT   = 0;
         }
-        _place.lastPos = { x: pv.x, y: pv.y, z: pv.z };
-        _place.idleT   = 0;
       }
     }
   }
@@ -4560,7 +4624,7 @@ function bootNext() {
     } else if (bootStep === 9) {
       setProgress(94, '放置建筑...');
       placeStructures();
-      placeSimpleCastle(-10, -82);   // 城堡在寺庙正北（留 2 格间隙，避免平整裙边切到寺庙）
+      placeSimpleCastle(-8, -8);   // 城堡置于出生平地中央（原点附近），玩家出生点(8,8)落在城堡庭院内
       if (typeof loadGame === 'function') loadGame();   // 读取本地存档（玩家改动/位置/塔）
       bootStep = 10; requestAnimationFrame(bootNext);
 

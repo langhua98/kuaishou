@@ -23,7 +23,7 @@ var player = {
   onGround: false, flying: false,
   jumpQ: false, breakQ: false, placeQ: false,
   slot: 0,
-  inv: [GRASS, DIRT, STONE, SAND, WOOD, LEAVES, RED_WALL, GOLD_ROOF, WHITE_STONE, GRAY_BRICK, GRAY_ROOF, RED_PILLAR, PLANKS, COBBLE, MUD_BRICK, TERRITORY_STONE]
+  inv: [GRASS, DIRT, STONE, SAND, WOOD, LEAVES, RED_WALL, GOLD_ROOF, WHITE_STONE, GRAY_BRICK, GRAY_ROOF, RED_PILLAR, PLANKS, COBBLE, MUD_BRICK, TERRITORY_STONE, TOWER_ITEM]
 };
 
 window._step = 4;
@@ -428,29 +428,35 @@ function tick(now) {
       var py0 = Math.floor(player.y),      py1 = Math.floor(player.y + PH - 0.01);
       if (pv.x < px0 || pv.x > px1 || pv.y < py0 || pv.y > py1 || pv.z < pz0 || pv.z > pz1) {
         var _placedId = player.inv[player.slot];
-        setBlock(pv.x, pv.y, pv.z, _placedId);
-        digSound(_placedId);
-        if (typeof recordEdit === 'function') recordEdit(pv.x, pv.y, pv.z, _placedId);
-        if (_placedId === TERRITORY_STONE && typeof _addTerritory === 'function') _addTerritory(pv.x, pv.y, pv.z);
-        _lastPlace = nowS;
-        // 学习放置方向：从第2块起才学（第1块 lastPos 为 null，不触发）
-        // 仅准星直接命中时从面法线学方向；方向预测放置时 pv≠selHit.prev，跳过，保持方向不变
-        if (_place.lastPos && selHit && selHit.prev &&
-            pv.x === selHit.prev.x && pv.y === selHit.prev.y && pv.z === selHit.prev.z) {
-          var _dx = pv.x - selHit.x;
-          var _dy = pv.y - selHit.y;
-          var _dz = pv.z - selHit.z;
-          // 取绝对值最大的轴作为方向（法线应该只有一个轴为 ±1，保险起见做一遍）
-          if (Math.abs(_dx) >= Math.abs(_dy) && Math.abs(_dx) >= Math.abs(_dz)) {
-            _place.lastDir = { x: _dx > 0 ? 1 : -1, y: 0, z: 0 };
-          } else if (Math.abs(_dy) >= Math.abs(_dz)) {
-            _place.lastDir = { x: 0, y: _dy > 0 ? 1 : -1, z: 0 };
-          } else {
-            _place.lastDir = { x: 0, y: 0, z: _dz > 0 ? 1 : -1 };
+        // 魔法塔道具：放置一座防御塔（非方块，不写区块/不记改动——塔单独入档）
+        if (_placedId === TOWER_ITEM) {
+          if (typeof placeTower === 'function') placeTower(pv.x + 0.5, pv.z + 0.5);
+          _lastPlace = nowS;
+        } else {
+          setBlock(pv.x, pv.y, pv.z, _placedId);
+          digSound(_placedId);
+          if (typeof recordEdit === 'function') recordEdit(pv.x, pv.y, pv.z, _placedId);
+          if (_placedId === TERRITORY_STONE && typeof _addTerritory === 'function') _addTerritory(pv.x, pv.y, pv.z);
+          _lastPlace = nowS;
+          // 学习放置方向：从第2块起才学（第1块 lastPos 为 null，不触发）
+          // 仅准星直接命中时从面法线学方向；方向预测放置时 pv≠selHit.prev，跳过，保持方向不变
+          if (_place.lastPos && selHit && selHit.prev &&
+              pv.x === selHit.prev.x && pv.y === selHit.prev.y && pv.z === selHit.prev.z) {
+            var _dx = pv.x - selHit.x;
+            var _dy = pv.y - selHit.y;
+            var _dz = pv.z - selHit.z;
+            // 取绝对值最大的轴作为方向（法线应该只有一个轴为 ±1，保险起见做一遍）
+            if (Math.abs(_dx) >= Math.abs(_dy) && Math.abs(_dx) >= Math.abs(_dz)) {
+              _place.lastDir = { x: _dx > 0 ? 1 : -1, y: 0, z: 0 };
+            } else if (Math.abs(_dy) >= Math.abs(_dz)) {
+              _place.lastDir = { x: 0, y: _dy > 0 ? 1 : -1, z: 0 };
+            } else {
+              _place.lastDir = { x: 0, y: 0, z: _dz > 0 ? 1 : -1 };
+            }
           }
+          _place.lastPos = { x: pv.x, y: pv.y, z: pv.z };
+          _place.idleT   = 0;
         }
-        _place.lastPos = { x: pv.x, y: pv.y, z: pv.z };
-        _place.idleT   = 0;
       }
     }
   }
@@ -659,7 +665,7 @@ function bootNext() {
     } else if (bootStep === 9) {
       setProgress(94, '放置建筑...');
       placeStructures();
-      placeSimpleCastle(-10, -82);   // 城堡在寺庙正北（留 2 格间隙，避免平整裙边切到寺庙）
+      placeSimpleCastle(-8, -8);   // 城堡置于出生平地中央（原点附近），玩家出生点(8,8)落在城堡庭院内
       if (typeof loadGame === 'function') loadGame();   // 读取本地存档（玩家改动/位置/塔）
       bootStep = 10; requestAnimationFrame(bootNext);
 
