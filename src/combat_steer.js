@@ -126,12 +126,14 @@ function _inTerritory(x, z) {
 }
 
 function _dirClear(x, y, z, dx, dz) {
-  var i, cx, cz;
-  for (i = 1; i <= 5; i++) {
+  var i, cx, cz, by = Math.floor(y);
+  for (i = 1; i <= 4; i++) {
     cx = Math.floor(x + dx * i * 0.5);
     cz = Math.floor(z + dz * i * 0.5);
-    var head = getBlock(cx, Math.floor(y) + 1, cz);   // 头高一格必须空
-    if (head !== AIR && head !== WATER) return false;
+    // 检查胸高 + 头顶第二格，覆盖城墙/建筑多层高度
+    var b1 = getBlock(cx, by + 1, cz);
+    var b2 = getBlock(cx, by + 2, cz);
+    if ((b1 !== AIR && b1 !== WATER) || (b2 !== AIR && b2 !== WATER)) return false;
   }
   return true;
 }
@@ -159,16 +161,15 @@ function steerMove(u, tx, tz, spd, dt) {
   var dl = Math.sqrt(dx * dx + dz * dz);
   dx /= dl; dz /= dl;
 
-  // 避障：原方向 → ±35° → ±75°
-  var ANG = [0, 0.61, -0.61, 1.31, -1.31];
+  // 避障：原方向 → ±30° → ±60° → ±90° → ±120° → ±150°（建筑角绕路必须覆盖更大角度）
+  var ANG = [0, 0.52, -0.52, 1.05, -1.05, 1.57, -1.57, 2.09, -2.09];
   var best = null, a, ca, sa, ndx, ndz;
   for (i = 0; i < ANG.length; i++) {
     a = ANG[i]; ca = Math.cos(a); sa = Math.sin(a);
     ndx = dx * ca - dz * sa; ndz = dx * sa + dz * ca;
     if (_dirClear(u.x, u.y, u.z, ndx, ndz)) { best = [ndx, ndz]; break; }
   }
-  var slow = 1;
-  if (!best) { best = [dx, dz]; slow = 0.3; }   // 全堵：原方向慢速蹭
+  if (!best) return false;   // 全堵（被夹角卡死）：停止等待，不再顶着墙蹭
 
   var mv = Math.min(spd * slow * dt, d);
   var nx = u.x + best[0] * mv, nz = u.z + best[1] * mv;

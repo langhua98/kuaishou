@@ -54,9 +54,9 @@ function _makeProcTower() {
   grp.add(crystalTop);
   grp.add(crystalBot);
 
-  // 大水平光环
+  // 大水平光环（缩小到雉堞内侧，避免穿模）
   var ring = new THREE.Mesh(
-    new THREE.TorusGeometry(1.1, 0.12, 8, 48),
+    new THREE.TorusGeometry(0.72, 0.10, 8, 48),
     new THREE.MeshBasicMaterial({ color: 0xc084fc })
   );
   ring.rotation.x = Math.PI * 0.5;
@@ -72,10 +72,11 @@ function _makeProcTower() {
   ring2.position.y = 6.28;
   grp.add(ring2);
 
-  // 水晶外发光球（BackSide 朝外辉光，透明脉冲）
+  // 水晶外发光球（加法混合，避免 BackSide 白雾感）
   var glowSph = new THREE.Mesh(
-    new THREE.SphereGeometry(0.65, 10, 8),
-    new THREE.MeshBasicMaterial({ color: 0xc084fc, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.BackSide })
+    new THREE.SphereGeometry(0.50, 10, 8),
+    new THREE.MeshBasicMaterial({ color: 0xc084fc, transparent: true, opacity: 0.22,
+      depthWrite: false, blending: THREE.AdditiveBlending })
   );
   glowSph.position.y = 6.28;
   grp.add(glowSph);
@@ -140,7 +141,7 @@ function _updateTowerHpBar(tower) {
 
 // ── 闪电束攻击（瞬发伤害 + 0.12s 淡出线条）────────────────────────────────────
 function _shootLightning(tower, tgt) {
-  battleSfx('atk_bow');
+  battleSfx('atk_clang');   // 撞击感比弓声更像法术放电
 
   // 瞬发伤害
   damageUnit(tgt, TOWER_CFG.dmg, null);
@@ -199,6 +200,13 @@ function updateTowers(dt) {
     // 发光球脉冲
     if (tower.group.userData.glow) {
       tower.group.userData.glow.material.opacity = 0.15 + 0.15 * Math.sin(_towerTime * 3.5 + i * 1.7);
+    }
+    // 水晶常驻粒子喷发（0.35s 一次，2 粒上升）
+    tower._sparkT = (tower._sparkT || 0) + dt;
+    if (tower._sparkT > 0.35 && typeof spawnBurst === 'function') {
+      tower._sparkT = 0;
+      spawnBurst(tower.x, tower.y + TOWER_CFG.h * 0.88, tower.z,
+        { count: 3, color: 0xc084fc, speed: 1.2, size: 0.10, life: 0.7, up: 1.2 });
     }
     tower.atkCd -= dt;
     if (tower.atkCd <= 0) {

@@ -17,6 +17,42 @@ var _MORALE_IV = 0.1;
 
 function _clampM(v) { return v < 0 ? 0 : (v > 100 ? 100 : v); }
 
+// ── 士气条可视化 ──────────────────────────────────────────────────────────────
+var _MORALE_COL = {
+  CONFIDENT:        '#22c55e',  // 绿：高昂
+  NORMAL:           '#84cc16',  // 草绿：正常
+  UNEASY:           '#f59e0b',  // 橙：不安
+  RETREAT_PRESSURE: '#ef4444',  // 红：压力后退
+  ROUT:             '#a855f7',  // 紫：溃逃
+};
+
+function makeMoraleBar(u) {
+  if (!u.group) return;
+  var cv = document.createElement('canvas');
+  cv.width = 48; cv.height = 4;
+  var tex = new THREE.CanvasTexture(cv);
+  var spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
+  spr.scale.set(0.90, 0.08, 1);
+  spr.position.y = u.t.h + 0.14;   // HP 条下方 0.21 世界单位
+  spr.renderOrder = 10;
+  u.group.add(spr);
+  u.moraleBar = spr;
+  u._moraleCv = cv; u._moraleTex = tex;
+  _updateMoraleBar(u);
+}
+
+function _updateMoraleBar(u) {
+  if (!u.moraleBar || u.morale === undefined) return;
+  var ctx = u._moraleCv.getContext('2d');
+  var w = 48, h = 4, r = u.morale / 100;
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = 'rgba(0,0,0,0.40)';
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = _MORALE_COL[u.moraleState] || '#84cc16';
+  ctx.fillRect(0, 0, w * r, h);
+  u._moraleTex.needsUpdate = true;
+}
+
 // 初始化（combat_core.spawnUnit 调用）
 function initMorale(u) {
   u.discipline  = (DISCIPLINE[u.kind] !== undefined) ? DISCIPLINE[u.kind] : 60;
@@ -24,6 +60,7 @@ function initMorale(u) {
   u.fear        = 10 + Math.random() * 20;   // 10~30
   u.moraleState = 'NORMAL';
   u.routing     = false;
+  makeMoraleBar(u);
 }
 
 // 士气数值 → 状态分层
@@ -126,6 +163,7 @@ function updateMorale(dt) {
       u.routing = false;       // 回血迟滞（+12 缓冲），避免在阈值处抖动
     }
     u.moraleState = ns;
+    _updateMoraleBar(u);   // 每 10Hz tick 刷新进度 + 颜色
   }
 
   // 第二轮：溃逃者向 10m 内同阵营传播恐惧（连锁崩溃，§8.2）

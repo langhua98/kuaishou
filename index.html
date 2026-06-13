@@ -2055,12 +2055,14 @@ function damageUnit(u, dmg, fromUnit) {
 }
 
 function killUnit(u) {
-  if (typeof onUnitDeath === 'function') onUnitDeath(u);   // 队友阵亡：周围士气崩
+  if (typeof onUnitDeath === 'function') onUnitDeath(u);
   u.state = 'DEAD';
   u.deadT = 0;
   u.target = null;
+  u.routing = false;
   playAnim(u, ANIM.death, 0.12, true);
-  if (u.hpBar) { u.group.remove(u.hpBar); u.hpBar = null; }
+  if (u.hpBar)     { u.group.remove(u.hpBar);     u.hpBar = null; }
+  if (u.moraleBar) { u.group.remove(u.moraleBar); u.moraleBar = null; }
   battleSfx('atk_hit');
 }
 
@@ -2212,12 +2214,14 @@ function _inTerritory(x, z) {
 }
 
 function _dirClear(x, y, z, dx, dz) {
-  var i, cx, cz;
-  for (i = 1; i <= 5; i++) {
+  var i, cx, cz, by = Math.floor(y);
+  for (i = 1; i <= 4; i++) {
     cx = Math.floor(x + dx * i * 0.5);
     cz = Math.floor(z + dz * i * 0.5);
-    var head = getBlock(cx, Math.floor(y) + 1, cz);   // 头高一格必须空
-    if (head !== AIR && head !== WATER) return false;
+    // 检查胸高 + 头顶第二格，覆盖城墙/建筑多层高度
+    var b1 = getBlock(cx, by + 1, cz);
+    var b2 = getBlock(cx, by + 2, cz);
+    if ((b1 !== AIR && b1 !== WATER) || (b2 !== AIR && b2 !== WATER)) return false;
   }
   return true;
 }
@@ -2245,16 +2249,15 @@ function steerMove(u, tx, tz, spd, dt) {
   var dl = Math.sqrt(dx * dx + dz * dz);
   dx /= dl; dz /= dl;
 
-  // 避障：原方向 → ±35° → ±75°
-  var ANG = [0, 0.61, -0.61, 1.31, -1.31];
+  // 避障：原方向 → ±30° → ±60° → ±90° → ±120° → ±150°（建筑角绕路必须覆盖更大角度）
+  var ANG = [0, 0.52, -0.52, 1.05, -1.05, 1.57, -1.57, 2.09, -2.09];
   var best = null, a, ca, sa, ndx, ndz;
   for (i = 0; i < ANG.length; i++) {
     a = ANG[i]; ca = Math.cos(a); sa = Math.sin(a);
     ndx = dx * ca - dz * sa; ndz = dx * sa + dz * ca;
     if (_dirClear(u.x, u.y, u.z, ndx, ndz)) { best = [ndx, ndz]; break; }
   }
-  var slow = 1;
-  if (!best) { best = [dx, dz]; slow = 0.3; }   // 全堵：原方向慢速蹭
+  if (!best) return false;   // 全堵（被夹角卡死）：停止等待，不再顶着墙蹭
 
   var mv = Math.min(spd * slow * dt, d);
   var nx = u.x + best[0] * mv, nz = u.z + best[1] * mv;
@@ -2357,6 +2360,42 @@ var _MORALE_IV = 0.1;
 
 function _clampM(v) { return v < 0 ? 0 : (v > 100 ? 100 : v); }
 
+// ── 士气条可视化 ──────────────────────────────────────────────────────────────
+var _MORALE_COL = {
+  CONFIDENT:        '#22c55e',  // 绿：高昂
+  NORMAL:           '#84cc16',  // 草绿：正常
+  UNEASY:           '#f59e0b',  // 橙：不安
+  RETREAT_PRESSURE: '#ef4444',  // 红：压力后退
+  ROUT:             '#a855f7',  // 紫：溃逃
+};
+
+function makeMoraleBar(u) {
+  if (!u.group) return;
+  var cv = document.createElement('canvas');
+  cv.width = 48; cv.height = 4;
+  var tex = new THREE.CanvasTexture(cv);
+  var spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
+  spr.scale.set(0.90, 0.08, 1);
+  spr.position.y = u.t.h + 0.14;   // HP 条下方 0.21 世界单位
+  spr.renderOrder = 10;
+  u.group.add(spr);
+  u.moraleBar = spr;
+  u._moraleCv = cv; u._moraleTex = tex;
+  _updateMoraleBar(u);
+}
+
+function _updateMoraleBar(u) {
+  if (!u.moraleBar || u.morale === undefined) return;
+  var ctx = u._moraleCv.getContext('2d');
+  var w = 48, h = 4, r = u.morale / 100;
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = 'rgba(0,0,0,0.40)';
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = _MORALE_COL[u.moraleState] || '#84cc16';
+  ctx.fillRect(0, 0, w * r, h);
+  u._moraleTex.needsUpdate = true;
+}
+
 // 初始化（combat_core.spawnUnit 调用）
 function initMorale(u) {
   u.discipline  = (DISCIPLINE[u.kind] !== undefined) ? DISCIPLINE[u.kind] : 60;
@@ -2364,6 +2403,7 @@ function initMorale(u) {
   u.fear        = 10 + Math.random() * 20;   // 10~30
   u.moraleState = 'NORMAL';
   u.routing     = false;
+  makeMoraleBar(u);
 }
 
 // 士气数值 → 状态分层
@@ -2466,6 +2506,7 @@ function updateMorale(dt) {
       u.routing = false;       // 回血迟滞（+12 缓冲），避免在阈值处抖动
     }
     u.moraleState = ns;
+    _updateMoraleBar(u);   // 每 10Hz tick 刷新进度 + 颜色
   }
 
   // 第二轮：溃逃者向 10m 内同阵营传播恐惧（连锁崩溃，§8.2）
@@ -3608,9 +3649,9 @@ function _makeProcTower() {
   grp.add(crystalTop);
   grp.add(crystalBot);
 
-  // 大水平光环
+  // 大水平光环（缩小到雉堞内侧，避免穿模）
   var ring = new THREE.Mesh(
-    new THREE.TorusGeometry(1.1, 0.12, 8, 48),
+    new THREE.TorusGeometry(0.72, 0.10, 8, 48),
     new THREE.MeshBasicMaterial({ color: 0xc084fc })
   );
   ring.rotation.x = Math.PI * 0.5;
@@ -3626,10 +3667,11 @@ function _makeProcTower() {
   ring2.position.y = 6.28;
   grp.add(ring2);
 
-  // 水晶外发光球（BackSide 朝外辉光，透明脉冲）
+  // 水晶外发光球（加法混合，避免 BackSide 白雾感）
   var glowSph = new THREE.Mesh(
-    new THREE.SphereGeometry(0.65, 10, 8),
-    new THREE.MeshBasicMaterial({ color: 0xc084fc, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.BackSide })
+    new THREE.SphereGeometry(0.50, 10, 8),
+    new THREE.MeshBasicMaterial({ color: 0xc084fc, transparent: true, opacity: 0.22,
+      depthWrite: false, blending: THREE.AdditiveBlending })
   );
   glowSph.position.y = 6.28;
   grp.add(glowSph);
@@ -3694,7 +3736,7 @@ function _updateTowerHpBar(tower) {
 
 // ── 闪电束攻击（瞬发伤害 + 0.12s 淡出线条）────────────────────────────────────
 function _shootLightning(tower, tgt) {
-  battleSfx('atk_bow');
+  battleSfx('atk_clang');   // 撞击感比弓声更像法术放电
 
   // 瞬发伤害
   damageUnit(tgt, TOWER_CFG.dmg, null);
@@ -3753,6 +3795,13 @@ function updateTowers(dt) {
     // 发光球脉冲
     if (tower.group.userData.glow) {
       tower.group.userData.glow.material.opacity = 0.15 + 0.15 * Math.sin(_towerTime * 3.5 + i * 1.7);
+    }
+    // 水晶常驻粒子喷发（0.35s 一次，2 粒上升）
+    tower._sparkT = (tower._sparkT || 0) + dt;
+    if (tower._sparkT > 0.35 && typeof spawnBurst === 'function') {
+      tower._sparkT = 0;
+      spawnBurst(tower.x, tower.y + TOWER_CFG.h * 0.88, tower.z,
+        { count: 3, color: 0xc084fc, speed: 1.2, size: 0.10, life: 0.7, up: 1.2 });
     }
     tower.atkCd -= dt;
     if (tower.atkCd <= 0) {

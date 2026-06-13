@@ -200,12 +200,14 @@ function damageUnit(u, dmg, fromUnit) {
 }
 
 function killUnit(u) {
-  if (typeof onUnitDeath === 'function') onUnitDeath(u);   // 队友阵亡：周围士气崩
+  if (typeof onUnitDeath === 'function') onUnitDeath(u);
   u.state = 'DEAD';
   u.deadT = 0;
   u.target = null;
+  u.routing = false;
   playAnim(u, ANIM.death, 0.12, true);
-  if (u.hpBar) { u.group.remove(u.hpBar); u.hpBar = null; }
+  if (u.hpBar)     { u.group.remove(u.hpBar);     u.hpBar = null; }
+  if (u.moraleBar) { u.group.remove(u.moraleBar); u.moraleBar = null; }
   battleSfx('atk_hit');
 }
 
