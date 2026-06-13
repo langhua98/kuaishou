@@ -35,18 +35,28 @@ var _SFX = {
   step_sand:    ['step_sand1', 'step_sand2'],
   splash:       ['random_splash'],
   // 战斗音效（combat_fx.js battleSfx 使用）
-  atk_swing:    ['atk_swing1', 'atk_swing2'],
+  atk_swing:    ['atk_swing1', 'atk_swing2', 'rpg_swing', 'rpg_swing2'],
   atk_clang:    ['atk_clang1', 'atk_clang2'],
   atk_hit:      ['atk_hit1', 'atk_hit2'],
   atk_bow:      ['atk_bow'],
   atk_draw:     ['atk_draw'],
   // 塔攻击 / 敌方单位 / UI
   tower_magic:  ['rpg_magic1', 'rpg_spell'],
-  enemy_hurt:   ['enemy_hurt1', 'enemy_hurt2', 'enemy_hurt3'],
+  enemy_hurt:   ['enemy_hurt1', 'enemy_hurt2', 'enemy_hurt3', 'fps_enemy_hurt'],
   enemy_death:  ['enemy_death1', 'enemy_death2', 'fps_enemy_destroy'],
   ui_click:     ['rpg_interface1', 'rpg_interface2', 'rpg_interface3'],
   ui_place:     ['ui_placement-a', 'ui_placement-b'],
-  ui_remove:    ['ui_removal-a']
+  ui_remove:    ['ui_removal-a'],
+  // 新增音效组
+  jump:         ['game_jump'],
+  land:         ['game_land'],
+  break_extra:  ['game_break'],
+  coin:         ['game_coin', 'rpg_coin'],
+  slot_change:  ['rpg_sword-unsheathe', 'fps_weapon_change'],
+  ui_toggle:    ['ui_toggle'],
+  view_rotate:  ['ui_rotate'],
+  enemy_atk:    ['fps_enemy_attack'],
+  blaster:      ['fps_blaster'],
 };
 
 // 方块 ID → 材质名（dig_/step_ 前缀拼接）
@@ -79,6 +89,33 @@ var _MAT = [
   'wood',  // 25 TNT
   'wood',  // 26 PUMPKIN
   'stone', // 27 COAL_ORE
+  'wood',  // 28 BIRCH_LOG
+  'grass', // 29 BIRCH_LEAVES
+  'wood',  // 30 SPRUCE_LOG
+  'grass', // 31 SPRUCE_LEAVES
+  'stone', // 32 BEDROCK
+  'grass', // 33 BLUE_WOOL
+  'grass', // 34 GREEN_WOOL
+  'grass', // 35 RED_WOOL
+  'grass', // 36 WHITE_WOOL
+  'grass', // 37 YELLOW_WOOL
+  'wood',  // 38 BOOKSHELF
+  'wood',  // 39 CARVED_PUMPKIN
+  'wood',  // 40 CRAFTING_TABLE
+  'stone', // 41 DIAMOND_ORE
+  'stone', // 42 EMERALD_ORE
+  'stone', // 43 GOLD_ORE
+  'stone', // 44 REDSTONE_ORE
+  'stone', // 45 FURNACE
+  null,    // 46 LAVA
+  'grass', // 47 MELON
+  'stone', // 48 MOSSY_COBBLE
+  'grass', // 49 DANDELION
+  'grass', // 50 POPPY
+  'grass', // 51 OAK_SAPLING
+  'grass', // 52 GRASS_PLANT
+  'stone', // 53 PACKED_ICE
+  'sand',  // 54 SANDSTONE
 ];
 
 function initAudio() {
@@ -175,3 +212,9 @@ function removeSound(blockId) {
 function uiClickSound() {
   _playSfx('ui_click', 0.45, 0.95, 1.05);
 }
+
+function jumpSound()       { _playSfx('jump',        0.50, 0.95, 1.05); }
+function landSound()       { _playSfx('land',        0.70, 0.90, 1.05); }
+function killSound()       { _playSfx('coin',        0.60, 0.90, 1.05); }
+function slotChangeSound() { _playSfx('slot_change', 0.45, 0.90, 1.10); }
+function bagToggleSound()  { _playSfx('ui_toggle',   0.45, 0.95, 1.05); }

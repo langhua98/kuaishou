@@ -251,6 +251,34 @@ var RED_SAND  = 24;  // 红沙
 var TNT       = 25;  // TNT
 var PUMPKIN   = 26;  // 南瓜
 var COAL_ORE  = 27;  // 煤矿石
+// 新增方块（贴图集扩展）
+var BIRCH_LOG      = 28;  // 白桦木
+var BIRCH_LEAVES   = 29;  // 白桦叶
+var SPRUCE_LOG     = 30;  // 云杉木
+var SPRUCE_LEAVES  = 31;  // 云杉叶
+var BEDROCK        = 32;  // 基岩
+var BLUE_WOOL      = 33;  // 蓝羊毛
+var GREEN_WOOL     = 34;  // 绿羊毛
+var RED_WOOL       = 35;  // 红羊毛
+var WHITE_WOOL     = 36;  // 白羊毛
+var YELLOW_WOOL    = 37;  // 黄羊毛
+var BOOKSHELF      = 38;  // 书架
+var CARVED_PUMPKIN = 39;  // 雕刻南瓜
+var CRAFTING_TABLE = 40;  // 工作台
+var DIAMOND_ORE    = 41;  // 钻石矿
+var EMERALD_ORE    = 42;  // 绿宝石矿
+var GOLD_ORE       = 43;  // 金矿
+var REDSTONE_ORE   = 44;  // 红石矿
+var FURNACE        = 45;  // 熔炉
+var LAVA           = 46;  // 熔岩
+var MELON          = 47;  // 西瓜
+var MOSSY_COBBLE   = 48;  // 苔石
+var DANDELION      = 49;  // 蒲公英
+var POPPY          = 50;  // 虞美人
+var OAK_SAPLING    = 51;  // 橡树苗
+var GRASS_PLANT    = 52;  // 草丛
+var PACKED_ICE     = 53;  // 浮冰
+var SANDSTONE      = 54;  // 砂岩
 
 // 每种方块三组颜色：[顶面 RGB, 底面 RGB, 侧面 RGB]（0.0–1.0）
 var BCOL = [
@@ -281,14 +309,46 @@ var BCOL = [
   [0.76, 0.47, 0.27, 0.76, 0.47, 0.27,  0.76, 0.47, 0.27],        // RED_SAND  橙红
   [0.62, 0.20, 0.18, 0.62, 0.20, 0.18,  0.62, 0.20, 0.18],        // TNT       红
   [0.83, 0.55, 0.11, 0.83, 0.55, 0.11,  0.83, 0.55, 0.11],        // PUMPKIN   橙
-  [0.37, 0.35, 0.33, 0.37, 0.35, 0.33,  0.37, 0.35, 0.33]         // COAL_ORE  深灰
+  [0.37, 0.35, 0.33, 0.37, 0.35, 0.33,  0.37, 0.35, 0.33],        // COAL_ORE  深灰
+  [0.85, 0.80, 0.60, 0.71, 0.55, 0.33,  0.71, 0.55, 0.33],        // BIRCH_LOG  白桦
+  [0.52, 0.74, 0.47, 0.52, 0.74, 0.47,  0.52, 0.74, 0.47],        // BIRCH_LEAVES 浅绿
+  [0.38, 0.26, 0.17, 0.28, 0.19, 0.12,  0.28, 0.19, 0.12],        // SPRUCE_LOG  深棕
+  [0.22, 0.38, 0.22, 0.22, 0.38, 0.22,  0.22, 0.38, 0.22],        // SPRUCE_LEAVES 深绿
+  [0.30, 0.30, 0.30, 0.30, 0.30, 0.30,  0.30, 0.30, 0.30],        // BEDROCK  深灰
+  [0.33, 0.51, 0.74, 0.33, 0.51, 0.74,  0.33, 0.51, 0.74],        // BLUE_WOOL 蓝
+  [0.35, 0.63, 0.33, 0.35, 0.63, 0.33,  0.35, 0.63, 0.33],        // GREEN_WOOL 绿
+  [0.71, 0.19, 0.19, 0.71, 0.19, 0.19,  0.71, 0.19, 0.19],        // RED_WOOL 红
+  [0.92, 0.92, 0.92, 0.92, 0.92, 0.92,  0.92, 0.92, 0.92],        // WHITE_WOOL 白
+  [0.89, 0.83, 0.22, 0.89, 0.83, 0.22,  0.89, 0.83, 0.22],        // YELLOW_WOOL 黄
+  [0.51, 0.36, 0.19, 0.51, 0.36, 0.19,  0.51, 0.36, 0.19],        // BOOKSHELF 棕木
+  [0.83, 0.55, 0.11, 0.83, 0.55, 0.11,  0.55, 0.44, 0.11],        // CARVED_PUMPKIN 橙
+  [0.71, 0.58, 0.36, 0.71, 0.58, 0.36,  0.58, 0.43, 0.24],        // CRAFTING_TABLE 木棕
+  [0.32, 0.60, 0.84, 0.32, 0.60, 0.84,  0.32, 0.60, 0.84],        // DIAMOND_ORE 蓝
+  [0.18, 0.73, 0.38, 0.18, 0.73, 0.38,  0.18, 0.73, 0.38],        // EMERALD_ORE 绿
+  [0.85, 0.73, 0.22, 0.85, 0.73, 0.22,  0.85, 0.73, 0.22],        // GOLD_ORE 金黄
+  [0.71, 0.12, 0.12, 0.71, 0.12, 0.12,  0.71, 0.12, 0.12],        // REDSTONE_ORE 红
+  [0.55, 0.55, 0.55, 0.55, 0.55, 0.55,  0.55, 0.55, 0.55],        // FURNACE 灰
+  [0.92, 0.42, 0.08, 0.92, 0.42, 0.08,  0.92, 0.42, 0.08],        // LAVA 橙红
+  [0.52, 0.72, 0.22, 0.52, 0.72, 0.22,  0.52, 0.72, 0.22],        // MELON 绿
+  [0.43, 0.46, 0.41, 0.43, 0.46, 0.41,  0.43, 0.46, 0.41],        // MOSSY_COBBLE 灰绿
+  [0.90, 0.87, 0.22, 0.90, 0.87, 0.22,  0.90, 0.87, 0.22],        // DANDELION 黄
+  [0.85, 0.18, 0.18, 0.85, 0.18, 0.18,  0.85, 0.18, 0.18],        // POPPY 红
+  [0.40, 0.60, 0.25, 0.40, 0.60, 0.25,  0.40, 0.60, 0.25],        // OAK_SAPLING 绿
+  [0.36, 0.55, 0.26, 0.36, 0.55, 0.26,  0.36, 0.55, 0.26],        // GRASS_PLANT 绿
+  [0.82, 0.91, 0.98, 0.82, 0.91, 0.98,  0.82, 0.91, 0.98],        // PACKED_ICE 蓝白
+  [0.82, 0.77, 0.55, 0.82, 0.77, 0.55,  0.82, 0.77, 0.55]         // SANDSTONE 沙黄
 ];
 
 // 方块中文名称（热键栏显示用）
 var BNAMES = ['', '草地', '泥土', '石头', '沙子', '木头', '树叶', '水',
               '朱墙', '金瓦', '白玉', '青砖',
               '灰瓦', '红柱', '木板', '卵石', '土砖', '领地石',
-              '冰', '雪', '铁矿', '玻璃', '黑曜石', '砾石', '红沙', 'TNT', '南瓜', '煤矿'];
+              '冰', '雪', '铁矿', '玻璃', '黑曜石', '砾石', '红沙', 'TNT', '南瓜', '煤矿',
+              '白桦木', '白桦叶', '云杉木', '云杉叶', '基岩',
+              '蓝羊毛', '绿羊毛', '红羊毛', '白羊毛', '黄羊毛',
+              '书架', '雕刻南瓜', '工作台', '钻石矿', '绿宝石矿', '金矿', '红石矿',
+              '熔炉', '熔岩', '西瓜', '苔石', '蒲公英', '虞美人', '橡树苗', '草丛',
+              '浮冰', '砂岩'];
 
 // ── 特殊放置道具（非体素方块）──────────────────────────────────────────────────
 // 选中后在准星处"放置"会调用对应逻辑（如 placeTower）而非写入区块。
@@ -440,6 +500,48 @@ function genTerrain(cx, cz) {
       }
     }
   }
+
+  // 树木生成（橡树/白桦/云杉；WorldR>40，草地，~4% 概率）
+  var tx, tz, twx, twz, twR, th, surfY, treeKind, trunkId, leafId, trunkH, topY, ty, tx2, tz2, rr;
+  for (tx = 2; tx < CHUNK_W - 2; tx++) {
+    for (tz = 2; tz < CHUNK_D - 2; tz++) {
+      twx = cx * CHUNK_W + tx;
+      twz = cz * CHUNK_D + tz;
+      twR = Math.max(Math.abs(twx), Math.abs(twz));
+      if (twR < 40) continue;
+      // 确定性伪随机（sin hash，每格唯一）
+      th = Math.sin(twx * 127.1 + twz * 311.7) * 43758.5453;
+      th = th - Math.floor(th);
+      if (th > 0.04) continue;
+      // 找草地表面
+      surfY = -1;
+      for (y = CHUNK_H - 1; y > SEA + 1; y--) {
+        if (data[tx + y * CHUNK_W + tz * CHUNK_W * CHUNK_H] === GRASS) { surfY = y; break; }
+      }
+      if (surfY < 0) continue;
+      // 树种：0=橡树 1=白桦 2=云杉
+      treeKind = Math.floor(th * 300) % 3;
+      trunkId  = (treeKind === 0) ? WOOD        : (treeKind === 1) ? BIRCH_LOG   : SPRUCE_LOG;
+      leafId   = (treeKind === 0) ? LEAVES      : (treeKind === 1) ? BIRCH_LEAVES : SPRUCE_LEAVES;
+      trunkH   = (treeKind === 2) ? 6 : 4;
+      for (ty = surfY + 1; ty <= surfY + trunkH && ty < CHUNK_H; ty++) {
+        data[tx + ty * CHUNK_W + tz * CHUNK_W * CHUNK_H] = trunkId;
+      }
+      topY = surfY + trunkH;
+      for (ty = topY - 1; ty <= topY + 2 && ty < CHUNK_H; ty++) {
+        rr = (ty >= topY + 1) ? 1 : 2;
+        for (tx2 = tx - rr; tx2 <= tx + rr; tx2++) {
+          if (tx2 < 0 || tx2 >= CHUNK_W) continue;
+          for (tz2 = tz - rr; tz2 <= tz + rr; tz2++) {
+            if (tz2 < 0 || tz2 >= CHUNK_D) continue;
+            if (data[tx2 + ty * CHUNK_W + tz2 * CHUNK_W * CHUNK_H] === AIR)
+              data[tx2 + ty * CHUNK_W + tz2 * CHUNK_W * CHUNK_H] = leafId;
+          }
+        }
+      }
+    }
+  }
+
   return data;
 }
 
@@ -449,7 +551,7 @@ function genTerrain(cx, cz) {
 // Three.js 渲染器、场景、摄像机。
 // 天空穹顶、太阳/月亮、云、灯光、雾的动态控制全部在 sky.js（昼夜+天气系统）。
 
-var renderer = new THREE.WebGLRenderer({ antialias: false });
+var renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.domElement.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;z-index:1;touch-action:none';
@@ -736,7 +838,7 @@ updateSky(0);
 // BTEX[blockId] = [top格, side格, bot格]
 // loadTextures(callback) — 异步加载完成后设置 atlasTexture 并回调
 
-var ATLAS_COLS = 4, ATLAS_ROWS = 8, TILE = 128;
+var ATLAS_COLS = 4, ATLAS_ROWS = 16, TILE = 128;
 
 var BTEX = [
   null,           // AIR
@@ -767,6 +869,33 @@ var BTEX = [
   [26, 27, 28],   // TNT         顶/侧/底不同贴图
   [29, 30, 29],   // PUMPKIN     顶/侧/顶
   [31, 31, 31],   // COAL_ORE    煤矿
+  [33, 33, 33],   // BIRCH_LOG       白桦木（侧面即全面）
+  [34, 34, 34],   // BIRCH_LEAVES    白桦叶
+  [35, 35, 35],   // SPRUCE_LOG      云杉木
+  [36, 36, 36],   // SPRUCE_LEAVES   云杉叶
+  [32, 32, 32],   // BEDROCK         基岩
+  [37, 37, 37],   // BLUE_WOOL       蓝羊毛
+  [38, 38, 38],   // GREEN_WOOL      绿羊毛
+  [39, 39, 39],   // RED_WOOL        红羊毛
+  [40, 40, 40],   // WHITE_WOOL      白羊毛
+  [41, 41, 41],   // YELLOW_WOOL     黄羊毛
+  [42, 42, 42],   // BOOKSHELF       书架
+  [29, 43, 29],   // CARVED_PUMPKIN  雕刻南瓜（顶=南瓜顶，侧=雕刻面）
+  [44, 45, 44],   // CRAFTING_TABLE  工作台
+  [46, 46, 46],   // DIAMOND_ORE     钻石矿
+  [47, 47, 47],   // EMERALD_ORE     绿宝石矿
+  [48, 48, 48],   // GOLD_ORE        金矿
+  [49, 49, 49],   // REDSTONE_ORE    红石矿
+  [50, 51, 50],   // FURNACE         熔炉
+  [52, 52, 52],   // LAVA            熔岩
+  [53, 54, 53],   // MELON           西瓜
+  [55, 55, 55],   // MOSSY_COBBLE    苔石
+  [56, 56, 56],   // DANDELION       蒲公英
+  [57, 57, 57],   // POPPY           虞美人
+  [58, 58, 58],   // OAK_SAPLING     橡树苗
+  [59, 59, 59],   // GRASS_PLANT     草丛
+  [60, 60, 60],   // PACKED_ICE      浮冰
+  [61, 61, 61],   // SANDSTONE       砂岩
 ];
 
 var atlasTexture = null;
@@ -807,6 +936,37 @@ var _TILES = [
   { file: 'pumpkin_top' },                      // 29 南瓜顶
   { file: 'pumpkin_side' },                     // 30 南瓜侧
   { file: 'coal_ore' },                         // 31 煤矿
+  // 行8-15（扩展方块贴图格，索引 32-61）
+  { file: 'bedrock' },                          // 32 基岩
+  { file: 'birch_log' },                        // 33 白桦木侧
+  { file: 'birch_leaves' },                     // 34 白桦叶
+  { file: 'spruce_log' },                       // 35 云杉木侧
+  { file: 'spruce_leaves' },                    // 36 云杉叶
+  { file: 'blue_wool' },                        // 37 蓝羊毛
+  { file: 'green_wool' },                       // 38 绿羊毛
+  { file: 'red_wool' },                         // 39 红羊毛
+  { file: 'white_wool' },                       // 40 白羊毛
+  { file: 'yellow_wool' },                      // 41 黄羊毛
+  { file: 'bookshelf' },                        // 42 书架
+  { file: 'carved_pumpkin' },                   // 43 雕刻南瓜侧
+  { file: 'crafting_table_top' },               // 44 工作台顶
+  { file: 'crafting_table_side' },              // 45 工作台侧
+  { file: 'diamond_ore' },                      // 46 钻石矿
+  { file: 'emerald_ore' },                      // 47 绿宝石矿
+  { file: 'gold_ore' },                         // 48 金矿
+  { file: 'redstone_ore' },                     // 49 红石矿
+  { file: 'furnace_top' },                      // 50 熔炉顶
+  { file: 'furnace_side' },                     // 51 熔炉侧
+  { file: 'lava_still' },                       // 52 熔岩
+  { file: 'melon_top' },                        // 53 西瓜顶
+  { file: 'melon_side' },                       // 54 西瓜侧
+  { file: 'mossy_cobblestone' },                // 55 苔石
+  { file: 'dandelion' },                        // 56 蒲公英
+  { file: 'poppy' },                            // 57 虞美人
+  { file: 'oak_sapling' },                      // 58 橡树苗
+  { file: 'grass_plant' },                      // 59 草丛
+  { file: 'packed_ice' },                       // 60 浮冰
+  { file: 'sandstone_top' },                    // 61 砂岩
 ];
 
 // 单格处理：染色（multiply 保留 alpha）后画入贴图集
@@ -1442,6 +1602,7 @@ function _renderBag() {
 
 function toggleBag() {
   if (!_bagEl) return;
+  if (typeof bagToggleSound === 'function') bagToggleSound();
   _bagEl.style.display = _bagEl.style.display === 'none' ? 'grid' : 'none';
 }
 
@@ -1484,18 +1645,28 @@ var _SFX = {
   step_sand:    ['step_sand1', 'step_sand2'],
   splash:       ['random_splash'],
   // 战斗音效（combat_fx.js battleSfx 使用）
-  atk_swing:    ['atk_swing1', 'atk_swing2'],
+  atk_swing:    ['atk_swing1', 'atk_swing2', 'rpg_swing', 'rpg_swing2'],
   atk_clang:    ['atk_clang1', 'atk_clang2'],
   atk_hit:      ['atk_hit1', 'atk_hit2'],
   atk_bow:      ['atk_bow'],
   atk_draw:     ['atk_draw'],
   // 塔攻击 / 敌方单位 / UI
   tower_magic:  ['rpg_magic1', 'rpg_spell'],
-  enemy_hurt:   ['enemy_hurt1', 'enemy_hurt2', 'enemy_hurt3'],
+  enemy_hurt:   ['enemy_hurt1', 'enemy_hurt2', 'enemy_hurt3', 'fps_enemy_hurt'],
   enemy_death:  ['enemy_death1', 'enemy_death2', 'fps_enemy_destroy'],
   ui_click:     ['rpg_interface1', 'rpg_interface2', 'rpg_interface3'],
   ui_place:     ['ui_placement-a', 'ui_placement-b'],
-  ui_remove:    ['ui_removal-a']
+  ui_remove:    ['ui_removal-a'],
+  // 新增音效组
+  jump:         ['game_jump'],
+  land:         ['game_land'],
+  break_extra:  ['game_break'],
+  coin:         ['game_coin', 'rpg_coin'],
+  slot_change:  ['rpg_sword-unsheathe', 'fps_weapon_change'],
+  ui_toggle:    ['ui_toggle'],
+  view_rotate:  ['ui_rotate'],
+  enemy_atk:    ['fps_enemy_attack'],
+  blaster:      ['fps_blaster'],
 };
 
 // 方块 ID → 材质名（dig_/step_ 前缀拼接）
@@ -1528,6 +1699,33 @@ var _MAT = [
   'wood',  // 25 TNT
   'wood',  // 26 PUMPKIN
   'stone', // 27 COAL_ORE
+  'wood',  // 28 BIRCH_LOG
+  'grass', // 29 BIRCH_LEAVES
+  'wood',  // 30 SPRUCE_LOG
+  'grass', // 31 SPRUCE_LEAVES
+  'stone', // 32 BEDROCK
+  'grass', // 33 BLUE_WOOL
+  'grass', // 34 GREEN_WOOL
+  'grass', // 35 RED_WOOL
+  'grass', // 36 WHITE_WOOL
+  'grass', // 37 YELLOW_WOOL
+  'wood',  // 38 BOOKSHELF
+  'wood',  // 39 CARVED_PUMPKIN
+  'wood',  // 40 CRAFTING_TABLE
+  'stone', // 41 DIAMOND_ORE
+  'stone', // 42 EMERALD_ORE
+  'stone', // 43 GOLD_ORE
+  'stone', // 44 REDSTONE_ORE
+  'stone', // 45 FURNACE
+  null,    // 46 LAVA
+  'grass', // 47 MELON
+  'stone', // 48 MOSSY_COBBLE
+  'grass', // 49 DANDELION
+  'grass', // 50 POPPY
+  'grass', // 51 OAK_SAPLING
+  'grass', // 52 GRASS_PLANT
+  'stone', // 53 PACKED_ICE
+  'sand',  // 54 SANDSTONE
 ];
 
 function initAudio() {
@@ -1624,6 +1822,12 @@ function removeSound(blockId) {
 function uiClickSound() {
   _playSfx('ui_click', 0.45, 0.95, 1.05);
 }
+
+function jumpSound()       { _playSfx('jump',        0.50, 0.95, 1.05); }
+function landSound()       { _playSfx('land',        0.70, 0.90, 1.05); }
+function killSound()       { _playSfx('coin',        0.60, 0.90, 1.05); }
+function slotChangeSound() { _playSfx('slot_change', 0.45, 0.90, 1.10); }
+function bagToggleSound()  { _playSfx('ui_toggle',   0.45, 0.95, 1.05); }
 
 
 // ═══ src/models.js ═══
@@ -4688,7 +4892,8 @@ var player = {
   onGround: false, flying: false,
   jumpQ: false, breakQ: false, placeQ: false,
   slot: 0,
-  inv: [GRASS, DIRT, STONE, SAND, WOOD, LEAVES, RED_WALL, GOLD_ROOF, WHITE_STONE, GRAY_BRICK, GRAY_ROOF, RED_PILLAR, PLANKS, COBBLE, MUD_BRICK, TERRITORY_STONE, ICE, SNOW, IRON_ORE, GLASS, OBSIDIAN, GRAVEL, RED_SAND, TNT, PUMPKIN, COAL_ORE, TOWER_ITEM]
+  inv: [GRASS, DIRT, STONE, SAND, WOOD, LEAVES, RED_WALL, GOLD_ROOF, WHITE_STONE, GRAY_BRICK, GRAY_ROOF, RED_PILLAR, PLANKS, COBBLE, MUD_BRICK, TERRITORY_STONE, ICE, SNOW, IRON_ORE, GLASS, OBSIDIAN, GRAVEL, RED_SAND, TNT, PUMPKIN, COAL_ORE, TOWER_ITEM,
+        BIRCH_LOG, BIRCH_LEAVES, SPRUCE_LOG, SPRUCE_LEAVES, BEDROCK, BLUE_WOOL, GREEN_WOOL, RED_WOOL, WHITE_WOOL, YELLOW_WOOL, BOOKSHELF, CARVED_PUMPKIN, CRAFTING_TABLE, DIAMOND_ORE, EMERALD_ORE, GOLD_ORE, REDSTONE_ORE, FURNACE, LAVA, MELON, MOSSY_COBBLE, DANDELION, POPPY, OAK_SAPLING, GRASS_PLANT, PACKED_ICE, SANDSTONE]
 };
 
 window._step = 4;
@@ -4936,7 +5141,7 @@ function tick(now) {
     else               player.vy *= 0.8;
   } else {
     player.vy -= GRAVITY * dt;
-    if (player.jumpQ && player.onGround) player.vy = JUMP_V;
+    if (player.jumpQ && player.onGround) { player.vy = JUMP_V; jumpSound(); }
   }
   player.jumpQ    = false;
   player.onGround = false;
@@ -4953,6 +5158,7 @@ function tick(now) {
   }
   // 落地脚步声（任何下落着地都响一声）
   if (!_wasGround && player.onGround && preVy < -4) {
+    landSound();
     stepSound(getBlock(Math.floor(player.x), Math.floor(player.y) - 1, Math.floor(player.z)));
   }
   _wasGround = player.onGround;
@@ -4976,6 +5182,15 @@ function tick(now) {
       if (hitB) {
         var _brokenId = getBlock(hitB.x, hitB.y, hitB.z);
         removeSound(_brokenId);
+        // 方块破碎粒子特效
+        if (typeof spawnBurst === 'function' && BCOL[_brokenId]) {
+          var _bc = BCOL[_brokenId];
+          spawnBurst(hitB.x + 0.5, hitB.y + 0.5, hitB.z + 0.5, {
+            count: 16,
+            color: (Math.round(_bc[0]*255) << 16) | (Math.round(_bc[1]*255) << 8) | Math.round(_bc[2]*255),
+            speed: 3, size: 0.14, life: 0.45, gravity: 16
+          });
+        }
         setBlock(hitB.x, hitB.y, hitB.z, AIR);
         if (typeof recordEdit === 'function') recordEdit(hitB.x, hitB.y, hitB.z, AIR);
         if (_brokenId === TERRITORY_STONE && typeof _removeTerritory === 'function') _removeTerritory(hitB.x, hitB.y, hitB.z);
@@ -5009,6 +5224,7 @@ function tick(now) {
     _place.lastPos = null;
     _place.lastDir = null;
     _place.idleT   = 0;
+    slotChangeSound();
   }
 
   // ── 放置预览坐标计算 ──────────────────────────────────────────────────────
@@ -5291,6 +5507,11 @@ function tick(now) {
   combatUpdate(dt, nowS);    // 军队战斗（单位 AI/箭矢/胜负）
 
   renderer.render(scene, camera);
+}
+
+// 单位死亡回调（combat_core.js killUnit 调用）
+function onUnitDeath(u) {
+  if (u.side === 1) killSound();   // 击杀敌方单位：金币奖励音效
 }
 
 // ── 开始游戏 ───────────────────────────────────────────────────────────────────

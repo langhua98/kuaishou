@@ -23,7 +23,8 @@ var player = {
   onGround: false, flying: false,
   jumpQ: false, breakQ: false, placeQ: false,
   slot: 0,
-  inv: [GRASS, DIRT, STONE, SAND, WOOD, LEAVES, RED_WALL, GOLD_ROOF, WHITE_STONE, GRAY_BRICK, GRAY_ROOF, RED_PILLAR, PLANKS, COBBLE, MUD_BRICK, TERRITORY_STONE, ICE, SNOW, IRON_ORE, GLASS, OBSIDIAN, GRAVEL, RED_SAND, TNT, PUMPKIN, COAL_ORE, TOWER_ITEM]
+  inv: [GRASS, DIRT, STONE, SAND, WOOD, LEAVES, RED_WALL, GOLD_ROOF, WHITE_STONE, GRAY_BRICK, GRAY_ROOF, RED_PILLAR, PLANKS, COBBLE, MUD_BRICK, TERRITORY_STONE, ICE, SNOW, IRON_ORE, GLASS, OBSIDIAN, GRAVEL, RED_SAND, TNT, PUMPKIN, COAL_ORE, TOWER_ITEM,
+        BIRCH_LOG, BIRCH_LEAVES, SPRUCE_LOG, SPRUCE_LEAVES, BEDROCK, BLUE_WOOL, GREEN_WOOL, RED_WOOL, WHITE_WOOL, YELLOW_WOOL, BOOKSHELF, CARVED_PUMPKIN, CRAFTING_TABLE, DIAMOND_ORE, EMERALD_ORE, GOLD_ORE, REDSTONE_ORE, FURNACE, LAVA, MELON, MOSSY_COBBLE, DANDELION, POPPY, OAK_SAPLING, GRASS_PLANT, PACKED_ICE, SANDSTONE]
 };
 
 window._step = 4;
@@ -271,7 +272,7 @@ function tick(now) {
     else               player.vy *= 0.8;
   } else {
     player.vy -= GRAVITY * dt;
-    if (player.jumpQ && player.onGround) player.vy = JUMP_V;
+    if (player.jumpQ && player.onGround) { player.vy = JUMP_V; jumpSound(); }
   }
   player.jumpQ    = false;
   player.onGround = false;
@@ -288,6 +289,7 @@ function tick(now) {
   }
   // 落地脚步声（任何下落着地都响一声）
   if (!_wasGround && player.onGround && preVy < -4) {
+    landSound();
     stepSound(getBlock(Math.floor(player.x), Math.floor(player.y) - 1, Math.floor(player.z)));
   }
   _wasGround = player.onGround;
@@ -311,6 +313,15 @@ function tick(now) {
       if (hitB) {
         var _brokenId = getBlock(hitB.x, hitB.y, hitB.z);
         removeSound(_brokenId);
+        // 方块破碎粒子特效
+        if (typeof spawnBurst === 'function' && BCOL[_brokenId]) {
+          var _bc = BCOL[_brokenId];
+          spawnBurst(hitB.x + 0.5, hitB.y + 0.5, hitB.z + 0.5, {
+            count: 16,
+            color: (Math.round(_bc[0]*255) << 16) | (Math.round(_bc[1]*255) << 8) | Math.round(_bc[2]*255),
+            speed: 3, size: 0.14, life: 0.45, gravity: 16
+          });
+        }
         setBlock(hitB.x, hitB.y, hitB.z, AIR);
         if (typeof recordEdit === 'function') recordEdit(hitB.x, hitB.y, hitB.z, AIR);
         if (_brokenId === TERRITORY_STONE && typeof _removeTerritory === 'function') _removeTerritory(hitB.x, hitB.y, hitB.z);
@@ -344,6 +355,7 @@ function tick(now) {
     _place.lastPos = null;
     _place.lastDir = null;
     _place.idleT   = 0;
+    slotChangeSound();
   }
 
   // ── 放置预览坐标计算 ──────────────────────────────────────────────────────
@@ -626,6 +638,11 @@ function tick(now) {
   combatUpdate(dt, nowS);    // 军队战斗（单位 AI/箭矢/胜负）
 
   renderer.render(scene, camera);
+}
+
+// 单位死亡回调（combat_core.js killUnit 调用）
+function onUnitDeath(u) {
+  if (u.side === 1) killSound();   // 击杀敌方单位：金币奖励音效
 }
 
 // ── 开始游戏 ───────────────────────────────────────────────────────────────────

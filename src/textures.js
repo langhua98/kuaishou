@@ -15,7 +15,7 @@
 // BTEX[blockId] = [top格, side格, bot格]
 // loadTextures(callback) — 异步加载完成后设置 atlasTexture 并回调
 
-var ATLAS_COLS = 4, ATLAS_ROWS = 8, TILE = 128;
+var ATLAS_COLS = 4, ATLAS_ROWS = 16, TILE = 128;
 
 var BTEX = [
   null,           // AIR
@@ -46,6 +46,33 @@ var BTEX = [
   [26, 27, 28],   // TNT         顶/侧/底不同贴图
   [29, 30, 29],   // PUMPKIN     顶/侧/顶
   [31, 31, 31],   // COAL_ORE    煤矿
+  [33, 33, 33],   // BIRCH_LOG       白桦木（侧面即全面）
+  [34, 34, 34],   // BIRCH_LEAVES    白桦叶
+  [35, 35, 35],   // SPRUCE_LOG      云杉木
+  [36, 36, 36],   // SPRUCE_LEAVES   云杉叶
+  [32, 32, 32],   // BEDROCK         基岩
+  [37, 37, 37],   // BLUE_WOOL       蓝羊毛
+  [38, 38, 38],   // GREEN_WOOL      绿羊毛
+  [39, 39, 39],   // RED_WOOL        红羊毛
+  [40, 40, 40],   // WHITE_WOOL      白羊毛
+  [41, 41, 41],   // YELLOW_WOOL     黄羊毛
+  [42, 42, 42],   // BOOKSHELF       书架
+  [29, 43, 29],   // CARVED_PUMPKIN  雕刻南瓜（顶=南瓜顶，侧=雕刻面）
+  [44, 45, 44],   // CRAFTING_TABLE  工作台
+  [46, 46, 46],   // DIAMOND_ORE     钻石矿
+  [47, 47, 47],   // EMERALD_ORE     绿宝石矿
+  [48, 48, 48],   // GOLD_ORE        金矿
+  [49, 49, 49],   // REDSTONE_ORE    红石矿
+  [50, 51, 50],   // FURNACE         熔炉
+  [52, 52, 52],   // LAVA            熔岩
+  [53, 54, 53],   // MELON           西瓜
+  [55, 55, 55],   // MOSSY_COBBLE    苔石
+  [56, 56, 56],   // DANDELION       蒲公英
+  [57, 57, 57],   // POPPY           虞美人
+  [58, 58, 58],   // OAK_SAPLING     橡树苗
+  [59, 59, 59],   // GRASS_PLANT     草丛
+  [60, 60, 60],   // PACKED_ICE      浮冰
+  [61, 61, 61],   // SANDSTONE       砂岩
 ];
 
 var atlasTexture = null;
@@ -86,6 +113,37 @@ var _TILES = [
   { file: 'pumpkin_top' },                      // 29 南瓜顶
   { file: 'pumpkin_side' },                     // 30 南瓜侧
   { file: 'coal_ore' },                         // 31 煤矿
+  // 行8-15（扩展方块贴图格，索引 32-61）
+  { file: 'bedrock' },                          // 32 基岩
+  { file: 'birch_log' },                        // 33 白桦木侧
+  { file: 'birch_leaves' },                     // 34 白桦叶
+  { file: 'spruce_log' },                       // 35 云杉木侧
+  { file: 'spruce_leaves' },                    // 36 云杉叶
+  { file: 'blue_wool' },                        // 37 蓝羊毛
+  { file: 'green_wool' },                       // 38 绿羊毛
+  { file: 'red_wool' },                         // 39 红羊毛
+  { file: 'white_wool' },                       // 40 白羊毛
+  { file: 'yellow_wool' },                      // 41 黄羊毛
+  { file: 'bookshelf' },                        // 42 书架
+  { file: 'carved_pumpkin' },                   // 43 雕刻南瓜侧
+  { file: 'crafting_table_top' },               // 44 工作台顶
+  { file: 'crafting_table_side' },              // 45 工作台侧
+  { file: 'diamond_ore' },                      // 46 钻石矿
+  { file: 'emerald_ore' },                      // 47 绿宝石矿
+  { file: 'gold_ore' },                         // 48 金矿
+  { file: 'redstone_ore' },                     // 49 红石矿
+  { file: 'furnace_top' },                      // 50 熔炉顶
+  { file: 'furnace_side' },                     // 51 熔炉侧
+  { file: 'lava_still' },                       // 52 熔岩
+  { file: 'melon_top' },                        // 53 西瓜顶
+  { file: 'melon_side' },                       // 54 西瓜侧
+  { file: 'mossy_cobblestone' },                // 55 苔石
+  { file: 'dandelion' },                        // 56 蒲公英
+  { file: 'poppy' },                            // 57 虞美人
+  { file: 'oak_sapling' },                      // 58 橡树苗
+  { file: 'grass_plant' },                      // 59 草丛
+  { file: 'packed_ice' },                       // 60 浮冰
+  { file: 'sandstone_top' },                    // 61 砂岩
 ];
 
 // 单格处理：染色（multiply 保留 alpha）后画入贴图集

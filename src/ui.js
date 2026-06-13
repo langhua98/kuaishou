@@ -166,5 +166,6 @@ function _renderBag() {
 
 function toggleBag() {
   if (!_bagEl) return;
+  if (typeof bagToggleSound === 'function') bagToggleSound();
   _bagEl.style.display = _bagEl.style.display === 'none' ? 'grid' : 'none';
 }

@@ -2,7 +2,7 @@
 // Three.js 渲染器、场景、摄像机。
 // 天空穹顶、太阳/月亮、云、灯光、雾的动态控制全部在 sky.js（昼夜+天气系统）。
 
-var renderer = new THREE.WebGLRenderer({ antialias: false });
+var renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.domElement.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;z-index:1;touch-action:none';

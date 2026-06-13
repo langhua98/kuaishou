@@ -78,5 +78,47 @@ function genTerrain(cx, cz) {
       }
     }
   }
+
+  // 树木生成（橡树/白桦/云杉；WorldR>40，草地，~4% 概率）
+  var tx, tz, twx, twz, twR, th, surfY, treeKind, trunkId, leafId, trunkH, topY, ty, tx2, tz2, rr;
+  for (tx = 2; tx < CHUNK_W - 2; tx++) {
+    for (tz = 2; tz < CHUNK_D - 2; tz++) {
+      twx = cx * CHUNK_W + tx;
+      twz = cz * CHUNK_D + tz;
+      twR = Math.max(Math.abs(twx), Math.abs(twz));
+      if (twR < 40) continue;
+      // 确定性伪随机（sin hash，每格唯一）
+      th = Math.sin(twx * 127.1 + twz * 311.7) * 43758.5453;
+      th = th - Math.floor(th);
+      if (th > 0.04) continue;
+      // 找草地表面
+      surfY = -1;
+      for (y = CHUNK_H - 1; y > SEA + 1; y--) {
+        if (data[tx + y * CHUNK_W + tz * CHUNK_W * CHUNK_H] === GRASS) { surfY = y; break; }
+      }
+      if (surfY < 0) continue;
+      // 树种：0=橡树 1=白桦 2=云杉
+      treeKind = Math.floor(th * 300) % 3;
+      trunkId  = (treeKind === 0) ? WOOD        : (treeKind === 1) ? BIRCH_LOG   : SPRUCE_LOG;
+      leafId   = (treeKind === 0) ? LEAVES      : (treeKind === 1) ? BIRCH_LEAVES : SPRUCE_LEAVES;
+      trunkH   = (treeKind === 2) ? 6 : 4;
+      for (ty = surfY + 1; ty <= surfY + trunkH && ty < CHUNK_H; ty++) {
+        data[tx + ty * CHUNK_W + tz * CHUNK_W * CHUNK_H] = trunkId;
+      }
+      topY = surfY + trunkH;
+      for (ty = topY - 1; ty <= topY + 2 && ty < CHUNK_H; ty++) {
+        rr = (ty >= topY + 1) ? 1 : 2;
+        for (tx2 = tx - rr; tx2 <= tx + rr; tx2++) {
+          if (tx2 < 0 || tx2 >= CHUNK_W) continue;
+          for (tz2 = tz - rr; tz2 <= tz + rr; tz2++) {
+            if (tz2 < 0 || tz2 >= CHUNK_D) continue;
+            if (data[tx2 + ty * CHUNK_W + tz2 * CHUNK_W * CHUNK_H] === AIR)
+              data[tx2 + ty * CHUNK_W + tz2 * CHUNK_W * CHUNK_H] = leafId;
+          }
+        }
+      }
+    }
+  }
+
   return data;
 }
