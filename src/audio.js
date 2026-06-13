@@ -50,8 +50,36 @@ var _SFX = {
 };
 
 // 方块 ID → 材质名（dig_/step_ 前缀拼接）
-var _MAT = [null, 'grass', 'grass', 'stone', 'sand', 'wood', 'grass', null];
-//          AIR   GRASS    DIRT     STONE    SAND    WOOD    LEAVES  WATER
+var _MAT = [
+  null,    // 0  AIR
+  'grass', // 1  GRASS
+  'grass', // 2  DIRT
+  'stone', // 3  STONE
+  'sand',  // 4  SAND
+  'wood',  // 5  WOOD
+  'grass', // 6  LEAVES
+  null,    // 7  WATER
+  'stone', // 8  RED_WALL
+  'stone', // 9  GOLD_ROOF
+  'stone', // 10 WHITE_STONE
+  'stone', // 11 GRAY_BRICK
+  'stone', // 12 GRAY_ROOF
+  'wood',  // 13 RED_PILLAR
+  'wood',  // 14 PLANKS
+  'stone', // 15 COBBLE
+  'sand',  // 16 MUD_BRICK
+  'stone', // 17 TERRITORY_STONE
+  'stone', // 18 ICE
+  'grass', // 19 SNOW
+  'stone', // 20 IRON_ORE
+  'stone', // 21 GLASS
+  'stone', // 22 OBSIDIAN
+  'sand',  // 23 GRAVEL
+  'sand',  // 24 RED_SAND
+  'wood',  // 25 TNT
+  'wood',  // 26 PUMPKIN
+  'stone', // 27 COAL_ORE
+];
 
 function initAudio() {
   var AC = window.AudioContext || window.webkitAudioContext;

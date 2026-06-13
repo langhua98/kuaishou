@@ -2,17 +2,20 @@
 // 方块贴图集：Kenney Voxel Pack（CC0，128×128，专为方块游戏设计的风格化贴图）
 //   https://kenney.nl/assets/voxel-pack
 //
-// 贴图格布局（ATLAS_COLS=4, ATLAS_ROWS=5, TILE=128）：
+// 贴图格布局（ATLAS_COLS=4, ATLAS_ROWS=8, TILE=128）：
 //   行0: [0] grass_top  [1] grass_side  [2] dirt       [3] stone
 //   行1: [4] sand       [5] wood_top    [6] wood_side   [7] leaves
 //   行2: [8] water      [9] red_wall   [10] gold_roof  [11] white_stone
 //   行3: [12] gray_brick [13] gray_roof [14] red_pillar [15] planks
-//   行4: [16] cobble    [17] mud_brick  （余留空位）
+//   行4: [16] cobble    [17] mud_brick  [18] territory
+//   行5: [19] ice       [20] snow       [21] iron_ore   [22] glass
+//   行6: [23] obsidian  [24] gravel     [25] red_sand   [26] tnt_top
+//   行7: [27] tnt_side  [28] tnt_bot    [29] pumpkin_top [30] pumpkin_side [31] coal_ore
 //
 // BTEX[blockId] = [top格, side格, bot格]
 // loadTextures(callback) — 异步加载完成后设置 atlasTexture 并回调
 
-var ATLAS_COLS = 4, ATLAS_ROWS = 5, TILE = 128;
+var ATLAS_COLS = 4, ATLAS_ROWS = 8, TILE = 128;
 
 var BTEX = [
   null,           // AIR
@@ -33,6 +36,16 @@ var BTEX = [
   [16, 16, 16],   // COBBLE      卵石
   [17, 17, 17],   // MUD_BRICK   土砖
   [18, 18, 18],   // TERRITORY_STONE 领地石
+  [19, 19, 19],   // ICE         冰
+  [20, 20, 20],   // SNOW        雪
+  [21, 21, 21],   // IRON_ORE    铁矿
+  [22, 22, 22],   // GLASS       玻璃
+  [23, 23, 23],   // OBSIDIAN    黑曜石
+  [24, 24, 24],   // GRAVEL      砾石
+  [25, 25, 25],   // RED_SAND    红沙
+  [26, 27, 28],   // TNT         顶/侧/底不同贴图
+  [29, 30, 29],   // PUMPKIN     顶/侧/顶
+  [31, 31, 31],   // COAL_ORE    煤矿
 ];
 
 var atlasTexture = null;
@@ -60,6 +73,19 @@ var _TILES = [
   { file: 'cobblestone' },                      // 16 卵石   gravel_stone
   { file: 'mud_brick' },                        // 17 土砖   stone_sand
   { file: 'white_stone', tint: '#9333ea' },     // 18 领地石  紫色结界
+  { file: 'ice' },                              // 19 冰
+  { file: 'snow' },                             // 20 雪
+  { file: 'iron_ore' },                         // 21 铁矿
+  { file: 'glass' },                            // 22 玻璃
+  { file: 'obsidian' },                         // 23 黑曜石
+  { file: 'gravel' },                           // 24 砾石
+  { file: 'red_sand' },                         // 25 红沙
+  { file: 'tnt_top' },                          // 26 TNT顶
+  { file: 'tnt_side' },                         // 27 TNT侧
+  { file: 'tnt_bottom' },                       // 28 TNT底
+  { file: 'pumpkin_top' },                      // 29 南瓜顶
+  { file: 'pumpkin_side' },                     // 30 南瓜侧
+  { file: 'coal_ore' },                         // 31 煤矿
 ];
 
 // 单格处理：染色（multiply 保留 alpha）后画入贴图集

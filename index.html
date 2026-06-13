@@ -236,6 +236,17 @@ var PLANKS      = 14;  // 木板（橡木板原色）
 var COBBLE      = 15;  // 卵石（圆石原色）
 var MUD_BRICK   = 16;  // 土砖（砂岩纹+土黄 tint）
 var TERRITORY_STONE = 17;  // 领地石（紫色结界，敌人无法进入 12m 范围）
+// 新增自然方块
+var ICE       = 18;  // 冰
+var SNOW      = 19;  // 雪
+var IRON_ORE  = 20;  // 铁矿石
+var GLASS     = 21;  // 玻璃
+var OBSIDIAN  = 22;  // 黑曜石
+var GRAVEL    = 23;  // 砾石
+var RED_SAND  = 24;  // 红沙
+var TNT       = 25;  // TNT
+var PUMPKIN   = 26;  // 南瓜
+var COAL_ORE  = 27;  // 煤矿石
 
 // 每种方块三组颜色：[顶面 RGB, 底面 RGB, 侧面 RGB]（0.0–1.0）
 var BCOL = [
@@ -256,13 +267,24 @@ var BCOL = [
   [0.710,0.580,0.360, 0.710,0.580,0.360, 0.710,0.580,0.360],      // PLANKS
   [0.470,0.470,0.470, 0.470,0.470,0.470, 0.470,0.470,0.470],      // COBBLE
   [0.730,0.620,0.430, 0.730,0.620,0.430, 0.730,0.620,0.430],      // MUD_BRICK
-  [0.576,0.180,0.918, 0.576,0.180,0.918, 0.576,0.180,0.918]       // TERRITORY_STONE 紫
+  [0.576,0.180,0.918, 0.576,0.180,0.918, 0.576,0.180,0.918],      // TERRITORY_STONE 紫
+  [0.68, 0.87, 0.98, 0.68, 0.87, 0.98,  0.68, 0.87, 0.98],        // ICE       淡蓝
+  [0.95, 0.98, 1.00, 0.95, 0.98, 1.00,  0.95, 0.98, 1.00],        // SNOW      白
+  [0.53, 0.53, 0.53, 0.53, 0.53, 0.53,  0.53, 0.53, 0.53],        // IRON_ORE  石灰+橙点
+  [0.85, 0.92, 0.98, 0.85, 0.92, 0.98,  0.85, 0.92, 0.98],        // GLASS     透明蓝白
+  [0.12, 0.07, 0.16, 0.12, 0.07, 0.16,  0.12, 0.07, 0.16],        // OBSIDIAN  深紫黑
+  [0.57, 0.56, 0.53, 0.57, 0.56, 0.53,  0.57, 0.56, 0.53],        // GRAVEL    中灰
+  [0.76, 0.47, 0.27, 0.76, 0.47, 0.27,  0.76, 0.47, 0.27],        // RED_SAND  橙红
+  [0.62, 0.20, 0.18, 0.62, 0.20, 0.18,  0.62, 0.20, 0.18],        // TNT       红
+  [0.83, 0.55, 0.11, 0.83, 0.55, 0.11,  0.83, 0.55, 0.11],        // PUMPKIN   橙
+  [0.37, 0.35, 0.33, 0.37, 0.35, 0.33,  0.37, 0.35, 0.33]         // COAL_ORE  深灰
 ];
 
 // 方块中文名称（热键栏显示用）
 var BNAMES = ['', '草地', '泥土', '石头', '沙子', '木头', '树叶', '水',
               '朱墙', '金瓦', '白玉', '青砖',
-              '灰瓦', '红柱', '木板', '卵石', '土砖', '领地石'];
+              '灰瓦', '红柱', '木板', '卵石', '土砖', '领地石',
+              '冰', '雪', '铁矿', '玻璃', '黑曜石', '砾石', '红沙', 'TNT', '南瓜', '煤矿'];
 
 // ── 特殊放置道具（非体素方块）──────────────────────────────────────────────────
 // 选中后在准星处"放置"会调用对应逻辑（如 placeTower）而非写入区块。
@@ -697,17 +719,20 @@ updateSky(0);
 // 方块贴图集：Kenney Voxel Pack（CC0，128×128，专为方块游戏设计的风格化贴图）
 //   https://kenney.nl/assets/voxel-pack
 //
-// 贴图格布局（ATLAS_COLS=4, ATLAS_ROWS=5, TILE=128）：
+// 贴图格布局（ATLAS_COLS=4, ATLAS_ROWS=8, TILE=128）：
 //   行0: [0] grass_top  [1] grass_side  [2] dirt       [3] stone
 //   行1: [4] sand       [5] wood_top    [6] wood_side   [7] leaves
 //   行2: [8] water      [9] red_wall   [10] gold_roof  [11] white_stone
 //   行3: [12] gray_brick [13] gray_roof [14] red_pillar [15] planks
-//   行4: [16] cobble    [17] mud_brick  （余留空位）
+//   行4: [16] cobble    [17] mud_brick  [18] territory
+//   行5: [19] ice       [20] snow       [21] iron_ore   [22] glass
+//   行6: [23] obsidian  [24] gravel     [25] red_sand   [26] tnt_top
+//   行7: [27] tnt_side  [28] tnt_bot    [29] pumpkin_top [30] pumpkin_side [31] coal_ore
 //
 // BTEX[blockId] = [top格, side格, bot格]
 // loadTextures(callback) — 异步加载完成后设置 atlasTexture 并回调
 
-var ATLAS_COLS = 4, ATLAS_ROWS = 5, TILE = 128;
+var ATLAS_COLS = 4, ATLAS_ROWS = 8, TILE = 128;
 
 var BTEX = [
   null,           // AIR
@@ -728,6 +753,16 @@ var BTEX = [
   [16, 16, 16],   // COBBLE      卵石
   [17, 17, 17],   // MUD_BRICK   土砖
   [18, 18, 18],   // TERRITORY_STONE 领地石
+  [19, 19, 19],   // ICE         冰
+  [20, 20, 20],   // SNOW        雪
+  [21, 21, 21],   // IRON_ORE    铁矿
+  [22, 22, 22],   // GLASS       玻璃
+  [23, 23, 23],   // OBSIDIAN    黑曜石
+  [24, 24, 24],   // GRAVEL      砾石
+  [25, 25, 25],   // RED_SAND    红沙
+  [26, 27, 28],   // TNT         顶/侧/底不同贴图
+  [29, 30, 29],   // PUMPKIN     顶/侧/顶
+  [31, 31, 31],   // COAL_ORE    煤矿
 ];
 
 var atlasTexture = null;
@@ -755,6 +790,19 @@ var _TILES = [
   { file: 'cobblestone' },                      // 16 卵石   gravel_stone
   { file: 'mud_brick' },                        // 17 土砖   stone_sand
   { file: 'white_stone', tint: '#9333ea' },     // 18 领地石  紫色结界
+  { file: 'ice' },                              // 19 冰
+  { file: 'snow' },                             // 20 雪
+  { file: 'iron_ore' },                         // 21 铁矿
+  { file: 'glass' },                            // 22 玻璃
+  { file: 'obsidian' },                         // 23 黑曜石
+  { file: 'gravel' },                           // 24 砾石
+  { file: 'red_sand' },                         // 25 红沙
+  { file: 'tnt_top' },                          // 26 TNT顶
+  { file: 'tnt_side' },                         // 27 TNT侧
+  { file: 'tnt_bottom' },                       // 28 TNT底
+  { file: 'pumpkin_top' },                      // 29 南瓜顶
+  { file: 'pumpkin_side' },                     // 30 南瓜侧
+  { file: 'coal_ore' },                         // 31 煤矿
 ];
 
 // 单格处理：染色（multiply 保留 alpha）后画入贴图集
@@ -1447,8 +1495,36 @@ var _SFX = {
 };
 
 // 方块 ID → 材质名（dig_/step_ 前缀拼接）
-var _MAT = [null, 'grass', 'grass', 'stone', 'sand', 'wood', 'grass', null];
-//          AIR   GRASS    DIRT     STONE    SAND    WOOD    LEAVES  WATER
+var _MAT = [
+  null,    // 0  AIR
+  'grass', // 1  GRASS
+  'grass', // 2  DIRT
+  'stone', // 3  STONE
+  'sand',  // 4  SAND
+  'wood',  // 5  WOOD
+  'grass', // 6  LEAVES
+  null,    // 7  WATER
+  'stone', // 8  RED_WALL
+  'stone', // 9  GOLD_ROOF
+  'stone', // 10 WHITE_STONE
+  'stone', // 11 GRAY_BRICK
+  'stone', // 12 GRAY_ROOF
+  'wood',  // 13 RED_PILLAR
+  'wood',  // 14 PLANKS
+  'stone', // 15 COBBLE
+  'sand',  // 16 MUD_BRICK
+  'stone', // 17 TERRITORY_STONE
+  'stone', // 18 ICE
+  'grass', // 19 SNOW
+  'stone', // 20 IRON_ORE
+  'stone', // 21 GLASS
+  'stone', // 22 OBSIDIAN
+  'sand',  // 23 GRAVEL
+  'sand',  // 24 RED_SAND
+  'wood',  // 25 TNT
+  'wood',  // 26 PUMPKIN
+  'stone', // 27 COAL_ORE
+];
 
 function initAudio() {
   var AC = window.AudioContext || window.webkitAudioContext;
@@ -4494,7 +4570,7 @@ var player = {
   onGround: false, flying: false,
   jumpQ: false, breakQ: false, placeQ: false,
   slot: 0,
-  inv: [GRASS, DIRT, STONE, SAND, WOOD, LEAVES, RED_WALL, GOLD_ROOF, WHITE_STONE, GRAY_BRICK, GRAY_ROOF, RED_PILLAR, PLANKS, COBBLE, MUD_BRICK, TERRITORY_STONE, TOWER_ITEM]
+  inv: [GRASS, DIRT, STONE, SAND, WOOD, LEAVES, RED_WALL, GOLD_ROOF, WHITE_STONE, GRAY_BRICK, GRAY_ROOF, RED_PILLAR, PLANKS, COBBLE, MUD_BRICK, TERRITORY_STONE, ICE, SNOW, IRON_ORE, GLASS, OBSIDIAN, GRAVEL, RED_SAND, TNT, PUMPKIN, COAL_ORE, TOWER_ITEM]
 };
 
 window._step = 4;
