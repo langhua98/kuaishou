@@ -384,7 +384,9 @@ function tick(now) {
         // 准星打在上一个方块上，或命中了建造方向身后的旧块
         // → 强制用方向预测（忽略面信息，防止竖向堆叠丢失预览）
         _place.pos = { x: _nx, y: _ny, z: _nz };
-        _idleInc = false;
+        // 只有打到最后放置的方块才抑制超时；_isBehind 照常累积空闲时间，
+        // 3.5s 后方向记忆清除，准星立即接管预览（修复：准星移走后预览不消失）
+        if (_onLast) _idleInc = false;
       } else {
         // 准星未命中 → FOV 门控回退
         var _eyeX = player.x + (viewFP ? 0 : Math.cos(player.yaw) * CAM_SHOULDER);

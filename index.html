@@ -64,9 +64,12 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
 #b-view{background:rgba(60,200,220,.35);border-color:rgba(110,230,250,.5)}
 #b-view.on{background:rgba(60,200,220,.7);border-color:#5ee0f5;box-shadow:0 0 16px rgba(60,200,220,.5)}
 
-/* 热键栏 — 更宽槽位 */
-#hotbar{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);display:flex;gap:5px}
-.slot{width:62px;height:62px;background:rgba(0,0,0,.55);border:2px solid rgba(255,255,255,.18);border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;touch-action:manipulation;cursor:pointer;transition:border-color .1s}
+/* 热键栏 — 全量横向滚动 */
+#hotbar{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);display:flex;gap:5px;max-width:95vw;overflow-x:auto;-webkit-overflow-scrolling:touch;scroll-snap-type:x mandatory;padding-bottom:3px;flex-wrap:nowrap}
+#hotbar::-webkit-scrollbar{height:3px}
+#hotbar::-webkit-scrollbar-track{background:rgba(0,0,0,.2);border-radius:2px}
+#hotbar::-webkit-scrollbar-thumb{background:rgba(255,255,255,.3);border-radius:2px}
+.slot{width:62px;height:62px;background:rgba(0,0,0,.55);border:2px solid rgba(255,255,255,.18);border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;touch-action:manipulation;cursor:pointer;transition:border-color .1s;flex-shrink:0;scroll-snap-align:center}
 .slot.on{border-color:#fff;background:rgba(255,255,255,.12);box-shadow:0 0 10px rgba(255,255,255,.2)}
 .slot-ic{width:34px;height:34px;border-radius:4px}
 .slot-lbl{color:#bcd;font-size:9px;font-family:monospace}
@@ -1352,8 +1355,8 @@ function buildHotbar() {
   hbar.innerHTML = '';
 
   var i, id, slot;
-  var n = Math.min(HOTBAR_N, player.inv.length);
-  for (i = 0; i < n; i++) {
+  // 全量渲染所有道具，热键栏横向滚动（不再限制为 HOTBAR_N 个）
+  for (i = 0; i < player.inv.length; i++) {
     id   = player.inv[i];
     slot = document.createElement('div');
     slot.className = 'slot' + (i === player.slot ? ' on' : '');
@@ -1371,30 +1374,13 @@ function buildHotbar() {
         if (prev) prev.classList.remove('on');
         player.slot = idx;
         slotEl.classList.add('on');
+        // 自动将选中槽滚入视野
+        slotEl.scrollIntoView({ inline: 'center', behavior: 'smooth' });
       }, { passive: false });
     }(i, slot));
 
     hbar.appendChild(slot);
   }
-
-  // 仓库开关
-  var bagBtn = document.createElement('div');
-  bagBtn.className = 'slot';
-  var bagIc = document.createElement('div');
-  bagIc.className = 'slot-ic';
-  bagIc.style.cssText = 'background:transparent;font-size:26px;line-height:34px;text-align:center';
-  bagIc.textContent = '📦';
-  var bagLbl = document.createElement('div');
-  bagLbl.className = 'slot-lbl';
-  bagLbl.textContent = '仓库';
-  bagBtn.appendChild(bagIc);
-  bagBtn.appendChild(bagLbl);
-  bagBtn.addEventListener('touchstart', function (e) { e.preventDefault(); toggleBag(); }, { passive: false });
-  bagBtn.addEventListener('click', function () { toggleBag(); });
-  hbar.appendChild(bagBtn);
-
-  _ensureBag();
-  _renderBag();
 }
 
 function _ensureBag() {
@@ -4934,7 +4920,9 @@ function tick(now) {
         // 准星打在上一个方块上，或命中了建造方向身后的旧块
         // → 强制用方向预测（忽略面信息，防止竖向堆叠丢失预览）
         _place.pos = { x: _nx, y: _ny, z: _nz };
-        _idleInc = false;
+        // 只有打到最后放置的方块才抑制超时；_isBehind 照常累积空闲时间，
+        // 3.5s 后方向记忆清除，准星立即接管预览（修复：准星移走后预览不消失）
+        if (_onLast) _idleInc = false;
       } else {
         // 准星未命中 → FOV 门控回退
         var _eyeX = player.x + (viewFP ? 0 : Math.cos(player.yaw) * CAM_SHOULDER);

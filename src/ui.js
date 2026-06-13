@@ -80,8 +80,8 @@ function buildHotbar() {
   hbar.innerHTML = '';
 
   var i, id, slot;
-  var n = Math.min(HOTBAR_N, player.inv.length);
-  for (i = 0; i < n; i++) {
+  // 全量渲染所有道具，热键栏横向滚动（不再限制为 HOTBAR_N 个）
+  for (i = 0; i < player.inv.length; i++) {
     id   = player.inv[i];
     slot = document.createElement('div');
     slot.className = 'slot' + (i === player.slot ? ' on' : '');
@@ -99,30 +99,13 @@ function buildHotbar() {
         if (prev) prev.classList.remove('on');
         player.slot = idx;
         slotEl.classList.add('on');
+        // 自动将选中槽滚入视野
+        slotEl.scrollIntoView({ inline: 'center', behavior: 'smooth' });
       }, { passive: false });
     }(i, slot));
 
     hbar.appendChild(slot);
   }
-
-  // 仓库开关
-  var bagBtn = document.createElement('div');
-  bagBtn.className = 'slot';
-  var bagIc = document.createElement('div');
-  bagIc.className = 'slot-ic';
-  bagIc.style.cssText = 'background:transparent;font-size:26px;line-height:34px;text-align:center';
-  bagIc.textContent = '📦';
-  var bagLbl = document.createElement('div');
-  bagLbl.className = 'slot-lbl';
-  bagLbl.textContent = '仓库';
-  bagBtn.appendChild(bagIc);
-  bagBtn.appendChild(bagLbl);
-  bagBtn.addEventListener('touchstart', function (e) { e.preventDefault(); toggleBag(); }, { passive: false });
-  bagBtn.addEventListener('click', function () { toggleBag(); });
-  hbar.appendChild(bagBtn);
-
-  _ensureBag();
-  _renderBag();
 }
 
 function _ensureBag() {
