@@ -165,7 +165,7 @@ function _updateTowerHpBar(tower) {
 
 // ── 闪电束攻击（瞬发伤害 + 0.12s 淡出线条）────────────────────────────────────
 function _shootLightning(tower, tgt) {
-  battleSfx('atk_clang');   // 撞击感比弓声更像法术放电
+  battleSfx('tower_magic');
 
   // 瞬发伤害
   damageUnit(tgt, TOWER_CFG.dmg, null);

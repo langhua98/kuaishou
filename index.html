@@ -1422,21 +1422,28 @@ var _MUSIC_TRACKS = [
 
 // 音效组 → 变体文件名（assets/sounds/*.mp3）
 var _SFX = {
-  dig_grass:  ['dig_grass1', 'dig_grass2'],
-  dig_stone:  ['dig_stone1', 'dig_stone2'],
-  dig_wood:   ['dig_wood1', 'dig_wood2'],
-  dig_sand:   ['dig_sand1', 'dig_sand2'],
-  step_grass: ['step_grass1', 'step_grass2', 'step_grass3'],
-  step_stone: ['step_stone1', 'step_stone2', 'step_stone3'],
-  step_wood:  ['step_wood1', 'step_wood2'],
-  step_sand:  ['step_sand1', 'step_sand2'],
-  splash:     ['random_splash'],
+  dig_grass:    ['dig_grass1', 'dig_grass2'],
+  dig_stone:    ['dig_stone1', 'dig_stone2'],
+  dig_wood:     ['dig_wood1', 'dig_wood2'],
+  dig_sand:     ['dig_sand1', 'dig_sand2'],
+  step_grass:   ['step_grass1', 'step_grass2', 'step_grass3'],
+  step_stone:   ['step_stone1', 'step_stone2', 'step_stone3'],
+  step_wood:    ['step_wood1', 'step_wood2'],
+  step_sand:    ['step_sand1', 'step_sand2'],
+  splash:       ['random_splash'],
   // 战斗音效（combat_fx.js battleSfx 使用）
-  atk_swing:  ['atk_swing1', 'atk_swing2'],
-  atk_clang:  ['atk_clang1', 'atk_clang2'],
-  atk_hit:    ['atk_hit1', 'atk_hit2'],
-  atk_bow:    ['atk_bow'],
-  atk_draw:   ['atk_draw']
+  atk_swing:    ['atk_swing1', 'atk_swing2'],
+  atk_clang:    ['atk_clang1', 'atk_clang2'],
+  atk_hit:      ['atk_hit1', 'atk_hit2'],
+  atk_bow:      ['atk_bow'],
+  atk_draw:     ['atk_draw'],
+  // 塔攻击 / 敌方单位 / UI
+  tower_magic:  ['rpg_magic1', 'rpg_spell'],
+  enemy_hurt:   ['enemy_hurt1', 'enemy_hurt2', 'enemy_hurt3'],
+  enemy_death:  ['enemy_death1', 'enemy_death2', 'fps_enemy_destroy'],
+  ui_click:     ['rpg_interface1', 'rpg_interface2', 'rpg_interface3'],
+  ui_place:     ['ui_placement-a', 'ui_placement-b'],
+  ui_remove:    ['ui_removal-a']
 };
 
 // 方块 ID → 材质名（dig_/step_ 前缀拼接）
@@ -1521,6 +1528,21 @@ function stepSound(blockId) {
 
 function splashSound() {
   _playSfx('splash', 0.6, 0.9, 1.1);
+}
+
+function placeSound() {
+  _playSfx('ui_place', 0.55, 0.9, 1.1);
+}
+
+function removeSound(blockId) {
+  // 破坏音用材质特定音效；若无材质则用通用移除音
+  var m = _MAT[blockId];
+  if (m) _playSfx('dig_' + m, 0.7, 0.85, 1.05);
+  else _playSfx('ui_remove', 0.6, 0.9, 1.1);
+}
+
+function uiClickSound() {
+  _playSfx('ui_click', 0.45, 0.95, 1.05);
 }
 
 
@@ -2040,6 +2062,7 @@ function damageUnit(u, dmg, fromUnit) {
   }
   u.hp -= dmg;
   battleSfx(blocked || !u.t.ranged ? 'atk_clang' : 'atk_hit');
+  if (!blocked) battleSfx('enemy_hurt');
   updateHpBar(u);
   dmgFloat(u, dmg, fromUnit && fromUnit.isPlayer, blocked);
   if (u.hp <= 0) { killUnit(u); return; }
@@ -2070,7 +2093,7 @@ function killUnit(u) {
   playAnim(u, ANIM.death, 0.12, true);
   if (u.hpBar)     { u.group.remove(u.hpBar);     u.hpBar = null; }
   if (u.moraleBar) { u.group.remove(u.moraleBar); u.moraleBar = null; }
-  battleSfx('atk_hit');
+  battleSfx('enemy_death');
 }
 
 function _removeUnit(u) {
@@ -3814,7 +3837,7 @@ function _updateTowerHpBar(tower) {
 
 // ── 闪电束攻击（瞬发伤害 + 0.12s 淡出线条）────────────────────────────────────
 function _shootLightning(tower, tgt) {
-  battleSfx('atk_clang');   // 撞击感比弓声更像法术放电
+  battleSfx('tower_magic');
 
   // 瞬发伤害
   damageUnit(tgt, TOWER_CFG.dmg, null);
@@ -4758,7 +4781,7 @@ function tick(now) {
       var hitB = raycast(12);
       if (hitB) {
         var _brokenId = getBlock(hitB.x, hitB.y, hitB.z);
-        digSound(_brokenId);   // 先取 ID 再清除
+        removeSound(_brokenId);
         setBlock(hitB.x, hitB.y, hitB.z, AIR);
         if (typeof recordEdit === 'function') recordEdit(hitB.x, hitB.y, hitB.z, AIR);
         if (_brokenId === TERRITORY_STONE && typeof _removeTerritory === 'function') _removeTerritory(hitB.x, hitB.y, hitB.z);
@@ -4851,13 +4874,15 @@ function tick(now) {
     _idleInc = false;
   }
 
-  // 超时清除方向记忆（连续 7 秒无有效预览）
+  // 超时清除方向记忆，立即交还准星控制权
   if (_idleInc) {
     _place.idleT += dt;
     if (_place.idleT > 3.5) {
       _place.lastPos = null;
       _place.lastDir = null;
       _place.idleT   = 0;
+      // 同帧立即用准星重新定位，不等下一帧
+      if (selHit && selHit.prev) _place.pos = selHit.prev;
     }
   } else {
     _place.idleT = 0;
@@ -4903,7 +4928,7 @@ function tick(now) {
           _lastPlace = nowS;
         } else {
           setBlock(pv.x, pv.y, pv.z, _placedId);
-          digSound(_placedId);
+          placeSound();
           if (typeof recordEdit === 'function') recordEdit(pv.x, pv.y, pv.z, _placedId);
           if (_placedId === TERRITORY_STONE && typeof _addTerritory === 'function') _addTerritory(pv.x, pv.y, pv.z);
           _lastPlace = nowS;

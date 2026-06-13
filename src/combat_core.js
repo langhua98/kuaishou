@@ -178,6 +178,7 @@ function damageUnit(u, dmg, fromUnit) {
   }
   u.hp -= dmg;
   battleSfx(blocked || !u.t.ranged ? 'atk_clang' : 'atk_hit');
+  if (!blocked) battleSfx('enemy_hurt');
   updateHpBar(u);
   dmgFloat(u, dmg, fromUnit && fromUnit.isPlayer, blocked);
   if (u.hp <= 0) { killUnit(u); return; }
@@ -208,7 +209,7 @@ function killUnit(u) {
   playAnim(u, ANIM.death, 0.12, true);
   if (u.hpBar)     { u.group.remove(u.hpBar);     u.hpBar = null; }
   if (u.moraleBar) { u.group.remove(u.moraleBar); u.moraleBar = null; }
-  battleSfx('atk_hit');
+  battleSfx('enemy_death');
 }
 
 function _removeUnit(u) {

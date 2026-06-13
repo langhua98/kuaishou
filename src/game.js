@@ -310,7 +310,7 @@ function tick(now) {
       var hitB = raycast(12);
       if (hitB) {
         var _brokenId = getBlock(hitB.x, hitB.y, hitB.z);
-        digSound(_brokenId);   // 先取 ID 再清除
+        removeSound(_brokenId);
         setBlock(hitB.x, hitB.y, hitB.z, AIR);
         if (typeof recordEdit === 'function') recordEdit(hitB.x, hitB.y, hitB.z, AIR);
         if (_brokenId === TERRITORY_STONE && typeof _removeTerritory === 'function') _removeTerritory(hitB.x, hitB.y, hitB.z);
@@ -403,13 +403,15 @@ function tick(now) {
     _idleInc = false;
   }
 
-  // 超时清除方向记忆（连续 7 秒无有效预览）
+  // 超时清除方向记忆，立即交还准星控制权
   if (_idleInc) {
     _place.idleT += dt;
     if (_place.idleT > 3.5) {
       _place.lastPos = null;
       _place.lastDir = null;
       _place.idleT   = 0;
+      // 同帧立即用准星重新定位，不等下一帧
+      if (selHit && selHit.prev) _place.pos = selHit.prev;
     }
   } else {
     _place.idleT = 0;
@@ -455,7 +457,7 @@ function tick(now) {
           _lastPlace = nowS;
         } else {
           setBlock(pv.x, pv.y, pv.z, _placedId);
-          digSound(_placedId);
+          placeSound();
           if (typeof recordEdit === 'function') recordEdit(pv.x, pv.y, pv.z, _placedId);
           if (_placedId === TERRITORY_STONE && typeof _addTerritory === 'function') _addTerritory(pv.x, pv.y, pv.z);
           _lastPlace = nowS;
