@@ -9,8 +9,9 @@
 // 每块领地石放置时创建 R=25m 圆形穹顶保护圈；敌方无法进入。
 // 半球形穹顶：内壁半透明 + 经纬线框 + 底部圆环 + 脉冲动画。
 
-var _territoryList = [];   // [{cx,cz,r,mesh,meshOut,ring}]
+var _territoryList = [];   // [{cx,cz,r,mesh,meshOut,ring,pulseT}]
 var _territoryTime = 0;    // 动画时间（updateTerritoryFx 累加）
+var _pulseRings = [];      // 扩散脉冲环 [{mesh,t,life}]
 
 function _addTerritory(bx, by, bz) {
   var R = 25;
@@ -61,13 +62,55 @@ function _removeTerritory(bx, by, bz) {
 // 每帧动画（combat_ai.js combatUpdate 调用）
 function updateTerritoryFx(dt) {
   _territoryTime += dt;
-  var i, t, pulse;
+  var i, t, pulse, pr, frac, pa, angle;
   for (i = 0; i < _territoryList.length; i++) {
     t = _territoryList[i];
     pulse = Math.sin(_territoryTime * 2.2 + i * 1.3);
-    t.mesh.material.opacity    = 0.05 + 0.04 * pulse;   // 穹顶内壁微光脉动
-    t.meshOut.material.opacity = 0.30 + 0.20 * pulse;   // 线框脉动
+    t.mesh.material.opacity    = 0.05 + 0.04 * pulse;
+    t.meshOut.material.opacity = 0.30 + 0.20 * pulse;
     if (t.ring) t.ring.material.opacity = 0.5 + 0.25 * Math.sin(_territoryTime * 3.0 + i);
+
+    // 每 3 秒发射一次扩散脉冲环 + 周界粒子
+    t.pulseT = (t.pulseT || 3.0) - dt;
+    if (t.pulseT <= 0) {
+      t.pulseT = 3.0;
+      // 扩散脉冲环：从 0 缩放到 1（全尺寸）
+      var pGeo = new THREE.TorusGeometry(t.r, 0.3, 6, 64);
+      var pMat = new THREE.MeshBasicMaterial({ color: 0xc084fc, transparent: true, opacity: 0.7, depthWrite: false });
+      var pMesh = new THREE.Mesh(pGeo, pMat);
+      pMesh.rotation.x = Math.PI * 0.5;
+      pMesh.position.set(t.cx, t.mesh.position.y + 0.25, t.cz);
+      pMesh.scale.set(0.05, 1, 0.05);
+      scene.add(pMesh);
+      _pulseRings.push({ mesh: pMesh, t: 0, life: 1.6 });
+      // 周界 8 点粒子喷发
+      if (typeof spawnBurst === 'function') {
+        for (pa = 0; pa < 8; pa++) {
+          angle = (pa / 8) * Math.PI * 2;
+          spawnBurst(
+            t.cx + Math.cos(angle) * t.r,
+            t.mesh.position.y + 0.6,
+            t.cz + Math.sin(angle) * t.r,
+            { count: 6, color: 0x9333ea, speed: 2.5, size: 0.16, life: 0.9, up: 0.6 }
+          );
+        }
+      }
+    }
+  }
+
+  // 更新扩散脉冲环（缩放扩散 + 淡出）
+  for (i = _pulseRings.length - 1; i >= 0; i--) {
+    pr = _pulseRings[i];
+    pr.t += dt;
+    frac = pr.t / pr.life;
+    pr.mesh.scale.set(frac, 1, frac);
+    pr.mesh.material.opacity = 0.7 * (1 - frac);
+    if (pr.t >= pr.life) {
+      scene.remove(pr.mesh);
+      pr.mesh.geometry.dispose();
+      pr.mesh.material.dispose();
+      _pulseRings.splice(i, 1);
+    }
   }
 }
 

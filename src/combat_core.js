@@ -113,6 +113,16 @@ function spawnUnit(kind, side, x, z) {
     anims[c.name] = mixer.clipAction(c);
   }
 
+  // 地面阴影圆饼（随 group 移动，不受 group 旋转影响）
+  var shadowR = t.cavalry ? 0.85 : 0.55;
+  var blobShadow = new THREE.Mesh(
+    new THREE.CircleGeometry(shadowR, 10),
+    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.30, depthWrite: false })
+  );
+  blobShadow.rotation.x = -Math.PI * 0.5;
+  blobShadow.position.y = 0.03;
+  group.add(blobShadow);
+
   var u = {
     id: _unitSeq++, side: side, kind: kind, t: t,
     x: x, y: gy, z: z, yaw: 0,
@@ -123,7 +133,7 @@ function spawnUnit(kind, side, x, z) {
     deadT: 0, cheering: false, cheerT: 0,
     chargeFrom: null, breakDir: null, regroupT: 0,
     group: group, model: model, mixer: mixer, anims: anims, curAnim: '',
-    horseMixer: horseMixer, hpBar: null,
+    horseMixer: horseMixer, hpBar: null, blobShadow: blobShadow,
   };
   playAnim(u, ANIM.idle, 0);
   makeHpBar(u);

@@ -1957,6 +1957,16 @@ function spawnUnit(kind, side, x, z) {
     anims[c.name] = mixer.clipAction(c);
   }
 
+  // 地面阴影圆饼（随 group 移动，不受 group 旋转影响）
+  var shadowR = t.cavalry ? 0.85 : 0.55;
+  var blobShadow = new THREE.Mesh(
+    new THREE.CircleGeometry(shadowR, 10),
+    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.30, depthWrite: false })
+  );
+  blobShadow.rotation.x = -Math.PI * 0.5;
+  blobShadow.position.y = 0.03;
+  group.add(blobShadow);
+
   var u = {
     id: _unitSeq++, side: side, kind: kind, t: t,
     x: x, y: gy, z: z, yaw: 0,
@@ -1967,7 +1977,7 @@ function spawnUnit(kind, side, x, z) {
     deadT: 0, cheering: false, cheerT: 0,
     chargeFrom: null, breakDir: null, regroupT: 0,
     group: group, model: model, mixer: mixer, anims: anims, curAnim: '',
-    horseMixer: horseMixer, hpBar: null,
+    horseMixer: horseMixer, hpBar: null, blobShadow: blobShadow,
   };
   playAnim(u, ANIM.idle, 0);
   makeHpBar(u);
@@ -2072,8 +2082,9 @@ function countAlive(side) {
 // 每块领地石放置时创建 R=25m 圆形穹顶保护圈；敌方无法进入。
 // 半球形穹顶：内壁半透明 + 经纬线框 + 底部圆环 + 脉冲动画。
 
-var _territoryList = [];   // [{cx,cz,r,mesh,meshOut,ring}]
+var _territoryList = [];   // [{cx,cz,r,mesh,meshOut,ring,pulseT}]
 var _territoryTime = 0;    // 动画时间（updateTerritoryFx 累加）
+var _pulseRings = [];      // 扩散脉冲环 [{mesh,t,life}]
 
 function _addTerritory(bx, by, bz) {
   var R = 25;
@@ -2124,13 +2135,55 @@ function _removeTerritory(bx, by, bz) {
 // 每帧动画（combat_ai.js combatUpdate 调用）
 function updateTerritoryFx(dt) {
   _territoryTime += dt;
-  var i, t, pulse;
+  var i, t, pulse, pr, frac, pa, angle;
   for (i = 0; i < _territoryList.length; i++) {
     t = _territoryList[i];
     pulse = Math.sin(_territoryTime * 2.2 + i * 1.3);
-    t.mesh.material.opacity    = 0.05 + 0.04 * pulse;   // 穹顶内壁微光脉动
-    t.meshOut.material.opacity = 0.30 + 0.20 * pulse;   // 线框脉动
+    t.mesh.material.opacity    = 0.05 + 0.04 * pulse;
+    t.meshOut.material.opacity = 0.30 + 0.20 * pulse;
     if (t.ring) t.ring.material.opacity = 0.5 + 0.25 * Math.sin(_territoryTime * 3.0 + i);
+
+    // 每 3 秒发射一次扩散脉冲环 + 周界粒子
+    t.pulseT = (t.pulseT || 3.0) - dt;
+    if (t.pulseT <= 0) {
+      t.pulseT = 3.0;
+      // 扩散脉冲环：从 0 缩放到 1（全尺寸）
+      var pGeo = new THREE.TorusGeometry(t.r, 0.3, 6, 64);
+      var pMat = new THREE.MeshBasicMaterial({ color: 0xc084fc, transparent: true, opacity: 0.7, depthWrite: false });
+      var pMesh = new THREE.Mesh(pGeo, pMat);
+      pMesh.rotation.x = Math.PI * 0.5;
+      pMesh.position.set(t.cx, t.mesh.position.y + 0.25, t.cz);
+      pMesh.scale.set(0.05, 1, 0.05);
+      scene.add(pMesh);
+      _pulseRings.push({ mesh: pMesh, t: 0, life: 1.6 });
+      // 周界 8 点粒子喷发
+      if (typeof spawnBurst === 'function') {
+        for (pa = 0; pa < 8; pa++) {
+          angle = (pa / 8) * Math.PI * 2;
+          spawnBurst(
+            t.cx + Math.cos(angle) * t.r,
+            t.mesh.position.y + 0.6,
+            t.cz + Math.sin(angle) * t.r,
+            { count: 6, color: 0x9333ea, speed: 2.5, size: 0.16, life: 0.9, up: 0.6 }
+          );
+        }
+      }
+    }
+  }
+
+  // 更新扩散脉冲环（缩放扩散 + 淡出）
+  for (i = _pulseRings.length - 1; i >= 0; i--) {
+    pr = _pulseRings[i];
+    pr.t += dt;
+    frac = pr.t / pr.life;
+    pr.mesh.scale.set(frac, 1, frac);
+    pr.mesh.material.opacity = 0.7 * (1 - frac);
+    if (pr.t >= pr.life) {
+      scene.remove(pr.mesh);
+      pr.mesh.geometry.dispose();
+      pr.mesh.material.dispose();
+      _pulseRings.splice(i, 1);
+    }
   }
 }
 
@@ -3329,24 +3382,23 @@ function battleProgress() {
 // ═══ src/combat_tower.js ═══
 // ─── combat_tower.js ──────────────────────────────────────────────────────────
 // 塔防系统：领地内可放置魔法塔。
-// 敌方优先向塔移动并攻击；塔自动射出魔法弹伤害范围内敌人；塔有 HP 可被摧毁。
+// 敌方优先向塔移动并攻击；塔闪电束瞬发伤害范围内敌人；塔有 HP 可被摧毁。
 
-var _towers = [];          // 活动防御塔列表 [{x,y,z,hp,maxHp,atkCd,group,dead,...}]
-var _towerOrbs = [];       // 飞行中的魔法弹
+var _towers = [];          // 活动防御塔列表
+var _lightningBeams = [];  // 淡出中的闪电束 [{line,t,life}]
+var _towerTime = 0;        // 动画累计时间
 
-// 塔配置（程序化模型，无外部 GLB）
+// 塔配置
 var TOWER_CFG = {
-  hp:      150,
-  range:   16,      // 攻击半径（米）
-  dmg:     6,
-  atkCd:   2.0,     // 攻击间隔（秒）
-  orbSpd:  14,      // 魔法弹速度
-  h:       7.5,     // 显示高度（HP 条用）
+  hp:      350,
+  range:   22,      // 攻击半径（米）
+  dmg:     15,
+  atkCd:   1.5,     // 攻击间隔（秒）
+  orbSpd:  14,
+  h:       7.5,
 };
 
-// ── 程序化魔法塔（升级版）────────────────────────────────────────────────────
-// 32 段圆滑石柱塔身 + 双腰线装饰带 + 12 雉堞 + 双锥菱形水晶 + 双光环。
-// 顶部水晶/光环存到 group.userData，updateTowers 每帧旋转做"充能"动效。
+// ── 程序化魔法塔 ──────────────────────────────────────────────────────────────
 function _makeProcTower() {
   var grp = new THREE.Group();
   var matStone = new THREE.MeshPhongMaterial({ color: 0x6b7280, shininess: 28, specular: 0x222222 });
@@ -3359,12 +3411,12 @@ function _makeProcTower() {
     m.position.y = y; return m;
   }
 
-  grp.add(cyl(1.20, 1.55, 1.50, 32, matDark,  0.75));   // 塔基
-  grp.add(cyl(1.28, 1.28, 0.22, 32, matStone, 1.55));   // 腰线 1
-  grp.add(cyl(0.98, 1.22, 2.20, 32, matStone, 2.75));   // 塔身下段
-  grp.add(cyl(1.06, 1.06, 0.22, 32, matDark,  3.86));   // 腰线 2
-  grp.add(cyl(1.12, 1.00, 1.40, 32, matStone, 4.66));   // 塔身上段
-  grp.add(cyl(1.28, 1.14, 0.50, 32, matDark,  5.61));   // 顶台
+  grp.add(cyl(1.20, 1.55, 1.50, 32, matDark,  0.75));
+  grp.add(cyl(1.28, 1.28, 0.22, 32, matStone, 1.55));
+  grp.add(cyl(0.98, 1.22, 2.20, 32, matStone, 2.75));
+  grp.add(cyl(1.06, 1.06, 0.22, 32, matDark,  3.86));
+  grp.add(cyl(1.12, 1.00, 1.40, 32, matStone, 4.66));
+  grp.add(cyl(1.28, 1.14, 0.50, 32, matDark,  5.61));
 
   // 12 个雉堞
   var bi, ba;
@@ -3375,16 +3427,16 @@ function _makeProcTower() {
     grp.add(cr);
   }
 
-  // 双锥菱形水晶（上锥深紫 + 下锥淡紫）
+  // 双锥菱形水晶（下移 0.5，嵌入顶台）
   var crystalTop = new THREE.Mesh(new THREE.ConeGeometry(0.38, 0.92, 6), matPurple);
-  crystalTop.position.y = 7.12;
+  crystalTop.position.y = 6.62;
   var crystalBot = new THREE.Mesh(new THREE.ConeGeometry(0.38, 0.92, 6), matLilac);
   crystalBot.rotation.x = Math.PI;
-  crystalBot.position.y = 6.44;
+  crystalBot.position.y = 5.94;
   grp.add(crystalTop);
   grp.add(crystalBot);
 
-  // 大水平光环（绕塔顶旋转）
+  // 大水平光环
   var ring = new THREE.Mesh(
     new THREE.TorusGeometry(1.1, 0.12, 8, 48),
     new THREE.MeshBasicMaterial({ color: 0xc084fc })
@@ -3393,24 +3445,32 @@ function _makeProcTower() {
   ring.position.y = 5.88;
   grp.add(ring);
 
-  // 小倾斜光环（绕水晶旋转，进动效果）
+  // 小倾斜光环（进动）
   var ring2 = new THREE.Mesh(
     new THREE.TorusGeometry(0.62, 0.08, 6, 32),
     new THREE.MeshBasicMaterial({ color: 0x9333ea })
   );
   ring2.rotation.z = Math.PI / 3.5;
-  ring2.position.y = 6.78;
+  ring2.position.y = 6.28;
   grp.add(ring2);
+
+  // 水晶外发光球（BackSide 朝外辉光，透明脉冲）
+  var glowSph = new THREE.Mesh(
+    new THREE.SphereGeometry(0.65, 10, 8),
+    new THREE.MeshBasicMaterial({ color: 0xc084fc, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.BackSide })
+  );
+  glowSph.position.y = 6.28;
+  grp.add(glowSph);
 
   grp.userData.crystal  = crystalTop;
   grp.userData.crystal2 = crystalBot;
   grp.userData.ring     = ring;
   grp.userData.ring2    = ring2;
+  grp.userData.glow     = glowSph;
   return grp;
 }
 
-// ── 放置防御塔（同步，程序化）─────────────────────────────────────────────────
-// silent=true：读档恢复时不弹提示、不触发再次存档。
+// ── 放置防御塔 ────────────────────────────────────────────────────────────────
 function placeTower(tx, tz, silent) {
   var grp = _makeProcTower();
   var gy = _groundY(Math.floor(tx), Math.floor(tz));
@@ -3420,7 +3480,7 @@ function placeTower(tx, tz, silent) {
   var tower = {
     x: tx, y: gy, z: tz,
     hp: TOWER_CFG.hp, maxHp: TOWER_CFG.hp,
-    atkCd: Math.random() * TOWER_CFG.atkCd,  // 随机偏移防止同帧齐射
+    atkCd: Math.random() * TOWER_CFG.atkCd,
     group: grp, dead: false,
     hpBar: null, _hpCv: null, _hpTex: null,
   };
@@ -3428,12 +3488,12 @@ function placeTower(tx, tz, silent) {
   _towers.push(tower);
   if (!silent) {
     battleToast('⚗️ 魔法塔已建立！');
-    if (typeof saveGame === 'function') saveGame();   // 立即落盘，防刷新丢塔
+    if (typeof saveGame === 'function') saveGame();
   }
   return tower;
 }
 
-// ── 塔血条（与单位血条相同风格，紫色）──────────────────────────────────────────
+// ── 塔血条 ────────────────────────────────────────────────────────────────────
 function _makeTowerHpBar(tower) {
   var cv = document.createElement('canvas');
   cv.width = 64; cv.height = 8;
@@ -3460,24 +3520,28 @@ function _updateTowerHpBar(tower) {
   tower._hpTex.needsUpdate = true;
 }
 
-// ── 魔法弹 ────────────────────────────────────────────────────────────────────
-function _shootOrb(tower, tgt) {
+// ── 闪电束攻击（瞬发伤害 + 0.12s 淡出线条）────────────────────────────────────
+function _shootLightning(tower, tgt) {
   battleSfx('atk_bow');
-  var geo = new THREE.SphereGeometry(0.22, 8, 8);
-  var mat = new THREE.MeshBasicMaterial({ color: 0x9333ea });
-  var mesh = new THREE.Mesh(geo, mat);
-  var sx = tower.x, sy = tower.y + TOWER_CFG.h * 0.88, sz = tower.z;
+
+  // 瞬发伤害
+  damageUnit(tgt, TOWER_CFG.dmg, null);
+
+  var sx = tower.x, sy = tower.y + TOWER_CFG.h * 0.90, sz = tower.z;
   var ex = tgt.x, ey = tgt.y + (tgt.t ? tgt.t.h * 0.5 : 1), ez = tgt.z;
-  var dx = ex - sx, dy = ey - sy, dz = ez - sz;
-  var dist = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
-  var spd = TOWER_CFG.orbSpd;
-  mesh.position.set(sx, sy, sz);
-  scene.add(mesh);
-  _towerOrbs.push({
-    mesh: mesh, x: sx, y: sy, z: sz,
-    vx: (dx/dist)*spd, vy: (dy/dist)*spd, vz: (dz/dist)*spd,
-    t: 0, life: dist/spd + 0.6, dmg: TOWER_CFG.dmg, tgt: tgt,
-  });
+
+  // 命中粒子迸溅
+  if (typeof spawnBurst === 'function') {
+    spawnBurst(ex, ey, ez, { count: 16, color: 0xc084fc, speed: 5, size: 0.18, life: 0.5, up: 0.4 });
+  }
+
+  // 闪电线条（淡紫色）
+  var pts = [new THREE.Vector3(sx, sy, sz), new THREE.Vector3(ex, ey, ez)];
+  var geo = new THREE.BufferGeometry().setFromPoints(pts);
+  var mat = new THREE.LineBasicMaterial({ color: 0xc084fc, transparent: true, opacity: 1.0 });
+  var line = new THREE.Line(geo, mat);
+  scene.add(line);
+  _lightningBeams.push({ line: line, t: 0, life: 0.12 });
 }
 
 // ── 塔受伤 ────────────────────────────────────────────────────────────────────
@@ -3492,29 +3556,32 @@ function damageTower(tower, dmg) {
     scene.remove(tower.group);
     var i = _towers.indexOf(tower);
     if (i >= 0) _towers.splice(i, 1);
-    // 摧毁特效：紫色魔力炸裂 + 灰色碎石
     if (typeof spawnBurst === 'function') {
       spawnBurst(tower.x, tower.y + 2.5, tower.z, { count: 40, color: 0x9333ea, speed: 8, size: 0.3, life: 1.0, up: 0.4 });
       spawnBurst(tower.x, tower.y + 1.2, tower.z, { count: 30, color: 0x6b7280, speed: 5, size: 0.25, life: 1.2, up: 0.2 });
     }
     battleToast('🏚️ 魔法塔被摧毁！');
-    if (typeof saveGame === 'function') saveGame();   // 塔没了，更新存档
+    if (typeof saveGame === 'function') saveGame();
   }
 }
 
 // ── 每帧更新（combat_ai.js combatUpdate 调用）────────────────────────────────
 function updateTowers(dt) {
-  var i, j, tower, u, dx, dz, d2, d, best, bd, orb;
+  _towerTime += dt;
+  var i, j, tower, u, dx, dz, d2, best, bd;
 
-  // 每座塔：扫描范围内敌人 → 射出魔法弹
   for (i = 0; i < _towers.length; i++) {
     tower = _towers[i];
     if (tower.dead) continue;
-    // 顶部水晶/光环充能动效
+    // 水晶/光环动效
     if (tower.group.userData.crystal)  tower.group.userData.crystal.rotation.y  += dt * 1.5;
     if (tower.group.userData.crystal2) tower.group.userData.crystal2.rotation.y += dt * 1.5;
     if (tower.group.userData.ring)     tower.group.userData.ring.rotation.z     += dt * 0.8;
     if (tower.group.userData.ring2)    tower.group.userData.ring2.rotation.y    += dt * 2.2;
+    // 发光球脉冲
+    if (tower.group.userData.glow) {
+      tower.group.userData.glow.material.opacity = 0.15 + 0.15 * Math.sin(_towerTime * 3.5 + i * 1.7);
+    }
     tower.atkCd -= dt;
     if (tower.atkCd <= 0) {
       best = null; bd = TOWER_CFG.range * TOWER_CFG.range;
@@ -3522,14 +3589,14 @@ function updateTowers(dt) {
         u = combatUnits[j];
         if (u.side !== 1 || u.state === 'DEAD') continue;
         dx = u.x - tower.x; dz = u.z - tower.z;
-        d2 = dx*dx + dz*dz;
+        d2 = dx * dx + dz * dz;
         if (d2 < bd) { bd = d2; best = u; }
       }
-      if (best) { _shootOrb(tower, best); tower.atkCd = TOWER_CFG.atkCd; }
+      if (best) { _shootLightning(tower, best); tower.atkCd = TOWER_CFG.atkCd; }
     }
   }
 
-  // 敌方近战打塔（接触判定，不走单位 FSM）
+  // 敌方近战打塔
   for (j = 0; j < combatUnits.length; j++) {
     u = combatUnits[j];
     if (u.side !== 1 || u.state === 'DEAD') continue;
@@ -3537,10 +3604,9 @@ function updateTowers(dt) {
     for (i = 0; i < _towers.length; i++) {
       tower = _towers[i]; if (tower.dead) continue;
       dx = tower.x - u.x; dz = tower.z - u.z;
-      if (dx*dx + dz*dz < 5.0) {   // 接触范围 ~2.2m
+      if (dx * dx + dz * dz < 5.0) {
         damageTower(tower, u.t.dmg);
         u._towerAtkCd = u.t.atkCd * 0.9;
-        // 触发攻击动画（不影响对单位的 atkCd）
         if (u.actT <= 0) {
           playAnim(u, Math.random() < 0.5 ? ANIM.atk1 : ANIM.atk2, 0.1, true);
           u.actT = 0.8;
@@ -3551,42 +3617,16 @@ function updateTowers(dt) {
     }
   }
 
-  // 更新魔法弹飞行
-  for (i = _towerOrbs.length - 1; i >= 0; i--) {
-    orb = _towerOrbs[i];
-    orb.t += dt;
-    orb.x += orb.vx * dt; orb.y += orb.vy * dt; orb.z += orb.vz * dt;
-    orb.mesh.position.set(orb.x, orb.y, orb.z);
-    orb.mesh.rotation.y += dt * 4;
-    // 飞行拖尾（约 15Hz 一次）
-    if (typeof spawnBurst === 'function') {
-      orb._trailT = (orb._trailT || 0) + dt;
-      if (orb._trailT > 0.066) {
-        orb._trailT = 0;
-        spawnBurst(orb.x, orb.y, orb.z, { count: 4, color: 0xc084fc, speed: 0.6, size: 0.1, life: 0.2, gravity: 1, up: 0 });
-      }
-    }
-
-    var hit = false;
-    if (orb.tgt && orb.tgt.state !== 'DEAD') {
-      var ex = orb.tgt.x - orb.x;
-      var ey = (orb.tgt.y + (orb.tgt.t ? orb.tgt.t.h * 0.5 : 1)) - orb.y;
-      var ez = orb.tgt.z - orb.z;
-      if (ex*ex + ey*ey + ez*ez < 0.9) {
-        damageUnit(orb.tgt, orb.dmg, null);
-        // 魔法弹命中：紫色魔力迸溅
-        if (typeof spawnBurst === 'function')
-          spawnBurst(orb.x, orb.y, orb.z, { count: 14, color: 0xc084fc, speed: 4, size: 0.18, life: 0.5, up: 0.3 });
-        hit = true;
-      }
-    } else if (!orb.tgt || orb.tgt.state === 'DEAD') {
-      hit = true;
-    }
-
-    if (hit || orb.t > orb.life || orb.y < -5) {
-      scene.remove(orb.mesh);
-      orb.mesh.geometry.dispose(); orb.mesh.material.dispose();
-      _towerOrbs.splice(i, 1);
+  // 闪电束淡出
+  for (i = _lightningBeams.length - 1; i >= 0; i--) {
+    var b = _lightningBeams[i];
+    b.t += dt;
+    b.line.material.opacity = 1.0 - b.t / b.life;
+    if (b.t >= b.life) {
+      scene.remove(b.line);
+      b.line.geometry.dispose();
+      b.line.material.dispose();
+      _lightningBeams.splice(i, 1);
     }
   }
 }
