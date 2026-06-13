@@ -715,19 +715,21 @@ function bootNext() {
       // 异步加载 GLTF 模型（不阻塞进入游戏；完成前玩家为盒子占位、无 NPC）
       loadPlayerModel();
       spawnNPCs();
-      // 预加载兵种模型并生成敌人城池初始守军（每种各 20 个，共 60 个被动骷髅）
+      // 预加载兵种模型并按固定岗位生成守军
       loadArmyModels(function () {
-        if (typeof _enemyStrongholdPos === 'undefined' || !_enemyStrongholdPos) return;
+        if (!_enemyStrongholdPos || !_enemyStrongholdPos.posts) return;
+        var posts = _enemyStrongholdPos.posts;
+        var pox = _enemyStrongholdPos.ox, poz = _enemyStrongholdPos.oz;
         var roster = [
           { k: 'skel_war', n: 20 },
           { k: 'skel_min', n: 20 },
-          { k: 'skel_rog', n: 20 }
+          { k: 'skel_rog', n: 15 }
         ];
+        var pi = 0;
         roster.forEach(function (r) {
-          for (var i = 0; i < r.n; i++) {
-            var sx = _enemyStrongholdPos.x + (Math.random() - 0.5) * 20;
-            var sz = _enemyStrongholdPos.z + (Math.random() - 0.5) * 20;
-            var u = spawnUnit(r.k, 1, sx, sz);
+          for (var i = 0; i < r.n && pi < posts.length; i++, pi++) {
+            var p = posts[pi];
+            var u = spawnUnit(r.k, 1, pox + p[0], poz + p[1]);
             if (u) u.passive = true;
           }
         });

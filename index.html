@@ -4431,39 +4431,50 @@ function placeSimpleCastle(ox, oz) {
 var _enemyStrongholdPos = null;
 
 function placeEnemyStronghold(ox, oz) {
-  var BY = SEA + 2;
+  var flatY = SEA + 2;  // 目标地表高度 = 14
   var W = 16, H = 4;
   var x, z, y, ccx, ccz;
 
-  // 先确保该区域所有区块已生成（setBlock 在区块不存在时静默失败）
-  var cxMin = Math.floor(ox / CHUNK_W) - 1;
-  var cxMax = Math.floor((ox + W) / CHUNK_W) + 1;
-  var czMin = Math.floor(oz / CHUNK_D) - 1;
-  var czMax = Math.floor((oz + W) / CHUNK_D) + 1;
+  // 先确保区块已生成（含 2 格边距）
+  var cxMin = Math.floor((ox - 2) / CHUNK_W) - 1;
+  var cxMax = Math.floor((ox + W + 2) / CHUNK_W) + 1;
+  var czMin = Math.floor((oz - 2) / CHUNK_D) - 1;
+  var czMax = Math.floor((oz + W + 2) / CHUNK_D) + 1;
   for (ccx = cxMin; ccx <= cxMax; ccx++) {
     for (ccz = czMin; ccz <= czMax; ccz++) {
       createChunk(ccx, ccz);
     }
   }
 
+  // 平整地形（含 2 格边距）
+  for (x = ox - 2; x < ox + W + 2; x++) {
+    for (z = oz - 2; z < oz + W + 2; z++) {
+      for (y = flatY + 1; y < flatY + 24; y++) setBlock(x, y, z, AIR); // 削山
+      for (y = flatY - 6; y < flatY; y++) {                              // 填谷
+        if (getBlock(x, y, z) === AIR) setBlock(x, y, z, DIRT);
+      }
+      setBlock(x, flatY, z, GRASS);  // 统一地表
+    }
+  }
+
   // 地面铺 GRAY_BRICK
   for (x = ox; x < ox + W; x++) {
     for (z = oz; z < oz + W; z++) {
-      setBlock(x, BY, z, GRAY_BRICK);
+      setBlock(x, flatY, z, GRAY_BRICK);
     }
   }
 
   // 四面围墙（COBBLE，高 H 格），南面留 2 格入口
   for (x = ox; x < ox + W; x++) {
     for (y = 1; y <= H; y++) {
-      setBlock(x, BY + y, oz, COBBLE);                                // 北墙
-      if (x < ox + 7 || x > ox + 8) setBlock(x, BY + y, oz + W - 1, COBBLE); // 南墙留门
+      setBlock(x, flatY + y, oz, COBBLE);
+      if (x < ox + 7 || x > ox + 8) setBlock(x, flatY + y, oz + W - 1, COBBLE);
     }
   }
   for (z = oz; z < oz + W; z++) {
     for (y = 1; y <= H; y++) {
-      setBlock(ox,         BY + y, z, COBBLE);   // 西墙
-      setBlock(ox + W - 1, BY + y, z, COBBLE);   // 东墙
+      setBlock(ox,         flatY + y, z, COBBLE);
+      setBlock(ox + W - 1, flatY + y, z, COBBLE);
     }
   }
 
@@ -4471,30 +4482,44 @@ function placeEnemyStronghold(ox, oz) {
   var corners = [[ox,oz],[ox+W-2,oz],[ox,oz+W-2],[ox+W-2,oz+W-2]];
   corners.forEach(function(c) {
     for (y = 1; y <= H + 2; y++) {
-      setBlock(c[0],   BY + y, c[1],   STONE);
-      setBlock(c[0]+1, BY + y, c[1],   STONE);
-      setBlock(c[0],   BY + y, c[1]+1, STONE);
-      setBlock(c[0]+1, BY + y, c[1]+1, STONE);
+      setBlock(c[0],   flatY + y, c[1],   STONE);
+      setBlock(c[0]+1, flatY + y, c[1],   STONE);
+      setBlock(c[0],   flatY + y, c[1]+1, STONE);
+      setBlock(c[0]+1, flatY + y, c[1]+1, STONE);
     }
   });
 
-  // 中心领主石（OBSIDIAN，高出地面 1 格，3×3 台座）
+  // 中心领主石（OBSIDIAN，高出地面 2 格，3×3 台座）
   var lcx = ox + 7, lcz = oz + 7;
   for (x = lcx - 1; x <= lcx + 1; x++) {
     for (z = lcz - 1; z <= lcz + 1; z++) {
-      setBlock(x, BY + 1, z, STONE);
+      setBlock(x, flatY + 1, z, STONE);
     }
   }
-  setBlock(lcx, BY + 2, lcz, OBSIDIAN);
+  setBlock(lcx, flatY + 2, lcz, OBSIDIAN);
 
-  // 重建该区域区块网格
+  // 守卫岗位（约 55 个固定站位）
+  var posts = [], ri, rj;
+  for (ri = 2; ri <= 13; ri += 2) { posts.push([1, ri]); posts.push([14, ri]); }  // 西+东墙内侧 12
+  for (ri = 2; ri <= 13; ri += 2) posts.push([ri, 1]);                            // 北墙 6
+  for (ri = 2; ri <= 13; ri += 2) { if (ri < 6 || ri > 9) posts.push([ri, 14]); }// 南墙（跳过门）4
+  posts.push([6,13]); posts.push([7,13]); posts.push([8,13]); posts.push([9,13]); // 城门口 4
+  posts.push([1,1]); posts.push([14,1]); posts.push([1,14]); posts.push([14,14]); // 四角 4
+  for (ri = 5; ri <= 9; ri++) { posts.push([ri, 5]); posts.push([ri, 9]); }       // 领主石外环 10
+  for (ri = 6; ri <= 8; ri++) { posts.push([5, ri]); posts.push([9, ri]); }       // 领主石侧环 6
+  for (ri = 3; ri <= 11; ri += 4) {                                                // 内部网格 9
+    for (rj = 3; rj <= 11; rj += 4) posts.push([ri, rj]);
+  }
+  // 总计 55 岗位
+
+  // 重建区块网格
   for (ccx = cxMin; ccx <= cxMax; ccx++) {
     for (ccz = czMin; ccz <= czMax; ccz++) {
       rebuildChunk(ccx, ccz);
     }
   }
 
-  _enemyStrongholdPos = { x: lcx, y: BY + 2, z: lcz };
+  _enemyStrongholdPos = { x: lcx, y: flatY + 2, z: lcz, ox: ox, oz: oz, posts: posts };
 }
 
 // 启动时调用：围绕出生地布置中式建筑村落
@@ -5355,19 +5380,21 @@ function bootNext() {
       // 异步加载 GLTF 模型（不阻塞进入游戏；完成前玩家为盒子占位、无 NPC）
       loadPlayerModel();
       spawnNPCs();
-      // 预加载兵种模型并生成敌人城池初始守军（每种各 20 个，共 60 个被动骷髅）
+      // 预加载兵种模型并按固定岗位生成守军
       loadArmyModels(function () {
-        if (typeof _enemyStrongholdPos === 'undefined' || !_enemyStrongholdPos) return;
+        if (!_enemyStrongholdPos || !_enemyStrongholdPos.posts) return;
+        var posts = _enemyStrongholdPos.posts;
+        var pox = _enemyStrongholdPos.ox, poz = _enemyStrongholdPos.oz;
         var roster = [
           { k: 'skel_war', n: 20 },
           { k: 'skel_min', n: 20 },
-          { k: 'skel_rog', n: 20 }
+          { k: 'skel_rog', n: 15 }
         ];
+        var pi = 0;
         roster.forEach(function (r) {
-          for (var i = 0; i < r.n; i++) {
-            var sx = _enemyStrongholdPos.x + (Math.random() - 0.5) * 20;
-            var sz = _enemyStrongholdPos.z + (Math.random() - 0.5) * 20;
-            var u = spawnUnit(r.k, 1, sx, sz);
+          for (var i = 0; i < r.n && pi < posts.length; i++, pi++) {
+            var p = posts[pi];
+            var u = spawnUnit(r.k, 1, pox + p[0], poz + p[1]);
             if (u) u.passive = true;
           }
         });
