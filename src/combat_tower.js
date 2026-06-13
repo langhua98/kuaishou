@@ -32,76 +32,75 @@ function _loadTowerGltf(cb) {
   });
 }
 
-// ── 程序化备用塔（GLB 失败时）────────────────────────────────────────────────
+// ── 程序化魔法塔 ──────────────────────────────────────────────────────────────
+// 下载的 magic_tower.glb 几何退化（Z 跨度 9125，自动缩放后塌成不可见薄片），
+// 改用程序化模型：石砌塔身 + 雉堞 + 发光紫色水晶 + 旋转光环，稳定可见。
+// 顶部水晶/光环存到 group.userData，updateTowers 每帧旋转做"充能"动效。
 function _makeProcTower() {
   var grp = new THREE.Group();
-  // 底座圆柱
-  var base = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.9, 1.2, 3.2, 8),
-    new THREE.MeshLambertMaterial({ color: 0x3d2b1f })
-  );
-  base.position.y = 1.6;
-  grp.add(base);
-  // 中段细柱
-  var mid = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.5, 0.9, 1.0, 8),
-    new THREE.MeshLambertMaterial({ color: 0x5a3e2c })
-  );
-  mid.position.y = 3.7;
-  grp.add(mid);
+  var stone = new THREE.MeshLambertMaterial({ color: 0x6b7280 });
+  var stoneDark = new THREE.MeshLambertMaterial({ color: 0x4b5563 });
+
+  // 塔基（粗）
+  var base = new THREE.Mesh(new THREE.CylinderGeometry(1.05, 1.35, 1.2, 10), stoneDark);
+  base.position.y = 0.6; grp.add(base);
+  // 塔身（高）
+  var body = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 1.05, 2.6, 10), stone);
+  body.position.y = 2.2; grp.add(body);
+  // 顶部平台
+  var top = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 0.9, 0.45, 10), stoneDark);
+  top.position.y = 3.7; grp.add(top);
+  // 雉堞（一圈小立方）
+  var bi, ba, br = 0.95;
+  for (bi = 0; bi < 8; bi++) {
+    ba = (bi / 8) * Math.PI * 2;
+    var cren = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.4, 0.28), stone);
+    cren.position.set(Math.cos(ba) * br, 4.1, Math.sin(ba) * br);
+    grp.add(cren);
+  }
   // 顶部魔法水晶（发光紫色八面体）
   var crystal = new THREE.Mesh(
-    new THREE.OctahedronGeometry(0.65, 0),
+    new THREE.OctahedronGeometry(0.62, 0),
     new THREE.MeshBasicMaterial({ color: 0x9333ea })
   );
-  crystal.position.y = 4.5;
+  crystal.position.y = 4.9;
   grp.add(crystal);
   // 顶部光环
   var ring = new THREE.Mesh(
-    new THREE.TorusGeometry(0.85, 0.07, 6, 16),
+    new THREE.TorusGeometry(0.8, 0.08, 6, 18),
     new THREE.MeshBasicMaterial({ color: 0xc084fc })
   );
   ring.rotation.x = Math.PI / 2;
-  ring.position.y = 4.0;
+  ring.position.y = 4.5;
   grp.add(ring);
+
+  grp.userData.crystal = crystal;
+  grp.userData.ring = ring;
   return grp;
 }
 
-// ── 放置防御塔 ────────────────────────────────────────────────────────────────
-function placeTower(tx, tz) {
-  _loadTowerGltf(function () {
-    var grp = new THREE.Group();
+// ── 放置防御塔（同步，程序化）─────────────────────────────────────────────────
+// silent=true：读档恢复时不弹提示、不触发再次存档。
+function placeTower(tx, tz, silent) {
+  var grp = _makeProcTower();
+  var gy = _groundY(Math.floor(tx), Math.floor(tz));
+  grp.position.set(tx, gy, tz);
+  scene.add(grp);
 
-    if (_towerGltf) {
-      var model = _towerGltf.scene.clone(true);
-      // 自动适配缩放
-      var box = new THREE.Box3().setFromObject(model);
-      var sz = box.getSize(new THREE.Vector3());
-      var scl = TOWER_CFG.scale / Math.max(sz.x, sz.y, sz.z);
-      model.scale.setScalar(scl);
-      // 对齐底部到地面
-      box.setFromObject(model);
-      model.position.y = -box.min.y;
-      grp.add(model);
-    } else {
-      grp.add(_makeProcTower());
-    }
-
-    var gy = _groundY(Math.floor(tx), Math.floor(tz));
-    grp.position.set(tx, gy, tz);
-    scene.add(grp);
-
-    var tower = {
-      x: tx, y: gy, z: tz,
-      hp: TOWER_CFG.hp, maxHp: TOWER_CFG.hp,
-      atkCd: Math.random() * TOWER_CFG.atkCd,  // 随机偏移防止同帧齐射
-      group: grp, dead: false,
-      hpBar: null, _hpCv: null, _hpTex: null,
-    };
-    _makeTowerHpBar(tower);
-    _towers.push(tower);
+  var tower = {
+    x: tx, y: gy, z: tz,
+    hp: TOWER_CFG.hp, maxHp: TOWER_CFG.hp,
+    atkCd: Math.random() * TOWER_CFG.atkCd,  // 随机偏移防止同帧齐射
+    group: grp, dead: false,
+    hpBar: null, _hpCv: null, _hpTex: null,
+  };
+  _makeTowerHpBar(tower);
+  _towers.push(tower);
+  if (!silent) {
     battleToast('⚗️ 魔法塔已建立！');
-  });
+    if (typeof saveGame === 'function') saveGame();   // 立即落盘，防刷新丢塔
+  }
+  return tower;
 }
 
 // ── 塔血条（与单位血条相同风格，紫色）──────────────────────────────────────────
@@ -175,6 +174,9 @@ function updateTowers(dt) {
   for (i = 0; i < _towers.length; i++) {
     tower = _towers[i];
     if (tower.dead) continue;
+    // 顶部水晶/光环充能动效
+    if (tower.group.userData.crystal) tower.group.userData.crystal.rotation.y += dt * 1.5;
+    if (tower.group.userData.ring)    tower.group.userData.ring.rotation.z    += dt * 0.8;
     tower.atkCd -= dt;
     if (tower.atkCd <= 0) {
       best = null; bd = TOWER_CFG.range * TOWER_CFG.range;

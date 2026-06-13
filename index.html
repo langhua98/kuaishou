@@ -918,12 +918,14 @@ function createChunk(cx, cz) {
   chunks[k] = { data: genTerrain(cx, cz), mesh: null };
 }
 
+// 卸载区块：只移除网格，保留方块数据。
+// 数据若删除，走远再回来会从噪声重新生成——建筑和玩家改动全部丢失。
+// 每块数据 16KB，常规游玩累计内存可忽略。
 function removeChunk(cx, cz) {
   var k = ckey(cx, cz);
   var ch = chunks[k];
   if (!ch) return;
-  if (ch.mesh) { scene.remove(ch.mesh); ch.mesh.geometry.dispose(); }
-  delete chunks[k];
+  if (ch.mesh) { scene.remove(ch.mesh); ch.mesh.geometry.dispose(); ch.mesh = null; }
 }
 
 
@@ -3275,76 +3277,75 @@ function _loadTowerGltf(cb) {
   });
 }
 
-// ── 程序化备用塔（GLB 失败时）────────────────────────────────────────────────
+// ── 程序化魔法塔 ──────────────────────────────────────────────────────────────
+// 下载的 magic_tower.glb 几何退化（Z 跨度 9125，自动缩放后塌成不可见薄片），
+// 改用程序化模型：石砌塔身 + 雉堞 + 发光紫色水晶 + 旋转光环，稳定可见。
+// 顶部水晶/光环存到 group.userData，updateTowers 每帧旋转做"充能"动效。
 function _makeProcTower() {
   var grp = new THREE.Group();
-  // 底座圆柱
-  var base = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.9, 1.2, 3.2, 8),
-    new THREE.MeshLambertMaterial({ color: 0x3d2b1f })
-  );
-  base.position.y = 1.6;
-  grp.add(base);
-  // 中段细柱
-  var mid = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.5, 0.9, 1.0, 8),
-    new THREE.MeshLambertMaterial({ color: 0x5a3e2c })
-  );
-  mid.position.y = 3.7;
-  grp.add(mid);
+  var stone = new THREE.MeshLambertMaterial({ color: 0x6b7280 });
+  var stoneDark = new THREE.MeshLambertMaterial({ color: 0x4b5563 });
+
+  // 塔基（粗）
+  var base = new THREE.Mesh(new THREE.CylinderGeometry(1.05, 1.35, 1.2, 10), stoneDark);
+  base.position.y = 0.6; grp.add(base);
+  // 塔身（高）
+  var body = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 1.05, 2.6, 10), stone);
+  body.position.y = 2.2; grp.add(body);
+  // 顶部平台
+  var top = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 0.9, 0.45, 10), stoneDark);
+  top.position.y = 3.7; grp.add(top);
+  // 雉堞（一圈小立方）
+  var bi, ba, br = 0.95;
+  for (bi = 0; bi < 8; bi++) {
+    ba = (bi / 8) * Math.PI * 2;
+    var cren = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.4, 0.28), stone);
+    cren.position.set(Math.cos(ba) * br, 4.1, Math.sin(ba) * br);
+    grp.add(cren);
+  }
   // 顶部魔法水晶（发光紫色八面体）
   var crystal = new THREE.Mesh(
-    new THREE.OctahedronGeometry(0.65, 0),
+    new THREE.OctahedronGeometry(0.62, 0),
     new THREE.MeshBasicMaterial({ color: 0x9333ea })
   );
-  crystal.position.y = 4.5;
+  crystal.position.y = 4.9;
   grp.add(crystal);
   // 顶部光环
   var ring = new THREE.Mesh(
-    new THREE.TorusGeometry(0.85, 0.07, 6, 16),
+    new THREE.TorusGeometry(0.8, 0.08, 6, 18),
     new THREE.MeshBasicMaterial({ color: 0xc084fc })
   );
   ring.rotation.x = Math.PI / 2;
-  ring.position.y = 4.0;
+  ring.position.y = 4.5;
   grp.add(ring);
+
+  grp.userData.crystal = crystal;
+  grp.userData.ring = ring;
   return grp;
 }
 
-// ── 放置防御塔 ────────────────────────────────────────────────────────────────
-function placeTower(tx, tz) {
-  _loadTowerGltf(function () {
-    var grp = new THREE.Group();
+// ── 放置防御塔（同步，程序化）─────────────────────────────────────────────────
+// silent=true：读档恢复时不弹提示、不触发再次存档。
+function placeTower(tx, tz, silent) {
+  var grp = _makeProcTower();
+  var gy = _groundY(Math.floor(tx), Math.floor(tz));
+  grp.position.set(tx, gy, tz);
+  scene.add(grp);
 
-    if (_towerGltf) {
-      var model = _towerGltf.scene.clone(true);
-      // 自动适配缩放
-      var box = new THREE.Box3().setFromObject(model);
-      var sz = box.getSize(new THREE.Vector3());
-      var scl = TOWER_CFG.scale / Math.max(sz.x, sz.y, sz.z);
-      model.scale.setScalar(scl);
-      // 对齐底部到地面
-      box.setFromObject(model);
-      model.position.y = -box.min.y;
-      grp.add(model);
-    } else {
-      grp.add(_makeProcTower());
-    }
-
-    var gy = _groundY(Math.floor(tx), Math.floor(tz));
-    grp.position.set(tx, gy, tz);
-    scene.add(grp);
-
-    var tower = {
-      x: tx, y: gy, z: tz,
-      hp: TOWER_CFG.hp, maxHp: TOWER_CFG.hp,
-      atkCd: Math.random() * TOWER_CFG.atkCd,  // 随机偏移防止同帧齐射
-      group: grp, dead: false,
-      hpBar: null, _hpCv: null, _hpTex: null,
-    };
-    _makeTowerHpBar(tower);
-    _towers.push(tower);
+  var tower = {
+    x: tx, y: gy, z: tz,
+    hp: TOWER_CFG.hp, maxHp: TOWER_CFG.hp,
+    atkCd: Math.random() * TOWER_CFG.atkCd,  // 随机偏移防止同帧齐射
+    group: grp, dead: false,
+    hpBar: null, _hpCv: null, _hpTex: null,
+  };
+  _makeTowerHpBar(tower);
+  _towers.push(tower);
+  if (!silent) {
     battleToast('⚗️ 魔法塔已建立！');
-  });
+    if (typeof saveGame === 'function') saveGame();   // 立即落盘，防刷新丢塔
+  }
+  return tower;
 }
 
 // ── 塔血条（与单位血条相同风格，紫色）──────────────────────────────────────────
@@ -3418,6 +3419,9 @@ function updateTowers(dt) {
   for (i = 0; i < _towers.length; i++) {
     tower = _towers[i];
     if (tower.dead) continue;
+    // 顶部水晶/光环充能动效
+    if (tower.group.userData.crystal) tower.group.userData.crystal.rotation.y += dt * 1.5;
+    if (tower.group.userData.ring)    tower.group.userData.ring.rotation.z    += dt * 0.8;
     tower.atkCd -= dt;
     if (tower.atkCd <= 0) {
       best = null; bd = TOWER_CFG.range * TOWER_CFG.range;
@@ -3605,6 +3609,19 @@ function placeSimpleCastle(ox, oz) {
   var x, z, y;
   var W = 22, WALL_H = 6, TOWER_H = 9;
 
+  // ── 平整场地（必须最先做）────────────────────────────────────────────────
+  // 城堡在出生平地（半径 64 格混合带）之外的纯丘陵区，AMP=14 的山丘会横穿城墙。
+  // 脚印 + 2 格裙边：地下填实地基（噪声谷底可低至 y≈0），上方清到丘陵最高点之上。
+  var M = 2;
+  for (x = -M; x < W + M; x++) {
+    for (z = -M; z < W + M; z++) {
+      raw(ox+x, BY, oz+z, GRASS);                              // 地表（内部稍后覆盖灰砖）
+      for (y = BY - 4; y < BY; y++)  raw(ox+x, y, oz+z, DIRT);  // 浅层泥土
+      for (y = 1; y < BY - 4; y++)   raw(ox+x, y, oz+z, STONE); // 深层石头地基
+      for (y = BY + 1; y <= SEA + AMP + 2; y++) raw(ox+x, y, oz+z, AIR);  // 清空山体
+    }
+  }
+
   // ── 庭院地面 ──────────────────────────────────────────────────────────────
   for (x = 1; x < W-1; x++) {
     for (z = 1; z < W-1; z++) {
@@ -3753,6 +3770,131 @@ function placeStructures() {
   placeStructure(STRUCT_TULOU, 30, BY, -90);   // 土楼·远东北
   placeStructure(STRUCT_FORT, -90, BY, -90);   // 堡垒·远西北
   placeStructure(STRUCT_TOMB, 10, BY, 90);   // 皇陵·远南
+}
+
+
+// ═══ src/save.js ═══
+// ─── save.js ──────────────────────────────────────────────────────────────────
+// 本地存档：玩家方块改动 + 位置/朝向/物品栏 + 防御塔，存 localStorage。
+//
+// 只持久化"玩家改动"——地形、开源建筑、城堡都是确定性生成（每次启动重放），
+// 无需入档；recordEdit 仅由 game.js 的破坏/放置路径调用。
+// 读档在启动序列末尾（建筑放置后）执行，确保玩家改动覆盖默认建筑。
+
+var SAVE_KEY = 'kuaishou_save_v1';
+var _edits = {};            // "wx,wy,wz" -> blockId（玩家改动相对生成地形的差异）
+var _autoSaveTimer = null;
+
+// 记录一次玩家改动（破坏=AIR / 放置=方块 ID）
+function recordEdit(wx, wy, wz, id) {
+  _edits[wx + ',' + wy + ',' + wz] = id;
+}
+
+// 写存档（静默，失败返回 false——隐私模式/容量满时不抛错打断游戏）
+function saveGame() {
+  try {
+    var towers = [];
+    if (typeof _towers !== 'undefined') {
+      for (var i = 0; i < _towers.length; i++) {
+        if (!_towers[i].dead) towers.push([
+          Math.round(_towers[i].x * 100) / 100,
+          Math.round(_towers[i].z * 100) / 100,
+        ]);
+      }
+    }
+    var data = {
+      v: 1,
+      p: { x: player.x, y: player.y, z: player.z,
+           yaw: player.yaw, pitch: player.pitch, slot: player.slot },
+      e: _edits,
+      t: towers,
+    };
+    localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+    return true;
+  } catch (e) { return false; }
+}
+
+// 直接把一条改动写进区块数据（区块缺失则先生成），返回受影响区块键
+function _applyEditToData(wx, wy, wz, id, dirty) {
+  if (wy < 0 || wy >= CHUNK_H) return;
+  var cx = Math.floor(wx / CHUNK_W), cz = Math.floor(wz / CHUNK_D);
+  var k = ckey(cx, cz);
+  if (!chunks[k]) chunks[k] = { data: genTerrain(cx, cz), mesh: null };
+  var lx = ((wx % CHUNK_W) + CHUNK_W) % CHUNK_W;
+  var lz = ((wz % CHUNK_D) + CHUNK_D) % CHUNK_D;
+  chunks[k].data[lx + wy * CHUNK_W + lz * CHUNK_W * CHUNK_H] = id;
+  dirty[k] = [cx, cz];
+  if (lx === 0)         dirty[ckey(cx-1,cz)] = [cx-1,cz];
+  if (lx === CHUNK_W-1) dirty[ckey(cx+1,cz)] = [cx+1,cz];
+  if (lz === 0)         dirty[ckey(cx,cz-1)] = [cx,cz-1];
+  if (lz === CHUNK_D-1) dirty[ckey(cx,cz+1)] = [cx,cz+1];
+}
+
+// 读存档并应用（启动末尾调用）。无存档则静默返回。
+function loadGame() {
+  var raw;
+  try { raw = localStorage.getItem(SAVE_KEY); } catch (e) { return; }
+  if (!raw) return;
+  var data;
+  try { data = JSON.parse(raw); } catch (e) { return; }
+  if (!data || data.v !== 1) return;
+
+  // 1) 重放方块改动 → 直接写数据，最后统一重建受影响区块
+  var dirty = {}, key, parts, wx, wy, wz, id, terr = [];
+  _edits = data.e || {};
+  for (key in _edits) {
+    if (!_edits.hasOwnProperty(key)) continue;
+    parts = key.split(',');
+    wx = +parts[0]; wy = +parts[1]; wz = +parts[2]; id = _edits[key];
+    _applyEditToData(wx, wy, wz, id, dirty);
+    // 结界：玩家放的领地石恢复结界；破坏(AIR)处移除可能存在的结界（覆盖城堡默认）
+    if (typeof TERRITORY_STONE !== 'undefined') {
+      if (id === TERRITORY_STONE) terr.push([wx, wy, wz, 1]);
+      else if (id === AIR)        terr.push([wx, wy, wz, 0]);
+    }
+  }
+  var k, cd;
+  for (k in dirty) { cd = dirty[k]; if (chunks[ckey(cd[0], cd[1])]) rebuildChunk(cd[0], cd[1]); }
+
+  // 2) 结界同步（在区块重建后，避免 _addTerritory 依赖的视觉无副作用问题）
+  var ti;
+  for (ti = 0; ti < terr.length; ti++) {
+    if (terr[ti][3] === 1) { if (typeof _addTerritory === 'function') _addTerritory(terr[ti][0], terr[ti][1], terr[ti][2]); }
+    else                   { if (typeof _removeTerritory === 'function') _removeTerritory(terr[ti][0], terr[ti][1], terr[ti][2]); }
+  }
+
+  // 3) 恢复玩家位置/朝向/物品栏
+  if (data.p) {
+    player.x = data.p.x; player.y = data.p.y; player.z = data.p.z;
+    player.yaw = data.p.yaw; player.pitch = data.p.pitch;
+    if (typeof data.p.slot === 'number') player.slot = data.p.slot;
+    // 预生成落点周围区块数据：物理 resolveAABB 在 updateChunks 之前跑，
+    // 缺数据会被判为 AIR 导致首帧坠落——这里先把 3×3 区块数据建好。
+    var pcx = Math.floor(player.x / CHUNK_W), pcz = Math.floor(player.z / CHUNK_D), gx, gz;
+    for (gx = -1; gx <= 1; gx++) {
+      for (gz = -1; gz <= 1; gz++) {
+        if (typeof createChunk === 'function') createChunk(pcx + gx, pcz + gz);
+      }
+    }
+  }
+
+  // 4) 恢复防御塔
+  if (data.t && typeof placeTower === 'function') {
+    for (ti = 0; ti < data.t.length; ti++) placeTower(data.t[ti][0], data.t[ti][1], true);
+  }
+
+  if (typeof battleToast === 'function') battleToast('💾 存档已读取');
+}
+
+// 自动存档：每 20s + 页面隐藏/关闭时（移动端切后台即触发）
+function initAutoSave() {
+  if (_autoSaveTimer) return;
+  _autoSaveTimer = setInterval(saveGame, 20000);
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'hidden') saveGame();
+  });
+  window.addEventListener('beforeunload', saveGame);
+  window.addEventListener('pagehide', saveGame);
 }
 
 
@@ -4075,6 +4217,7 @@ function tick(now) {
         var _brokenId = getBlock(hitB.x, hitB.y, hitB.z);
         digSound(_brokenId);   // 先取 ID 再清除
         setBlock(hitB.x, hitB.y, hitB.z, AIR);
+        if (typeof recordEdit === 'function') recordEdit(hitB.x, hitB.y, hitB.z, AIR);
         if (_brokenId === TERRITORY_STONE && typeof _removeTerritory === 'function') _removeTerritory(hitB.x, hitB.y, hitB.z);
         _lastBreak = nowS;
       }
@@ -4188,6 +4331,7 @@ function tick(now) {
         var _placedId = player.inv[player.slot];
         setBlock(pv.x, pv.y, pv.z, _placedId);
         digSound(_placedId);
+        if (typeof recordEdit === 'function') recordEdit(pv.x, pv.y, pv.z, _placedId);
         if (_placedId === TERRITORY_STONE && typeof _addTerritory === 'function') _addTerritory(pv.x, pv.y, pv.z);
         _lastPlace = nowS;
         // 学习放置方向：从第2块起才学（第1块 lastPos 为 null，不触发）
@@ -4354,6 +4498,7 @@ window.startGame = function () {
   if (uiEl)   uiEl.style.display   = 'block';
   buildHotbar();
   buildBattleUI();   // 开战 + 指挥按钮（combat_cmd.js）
+  if (typeof initAutoSave === 'function') initAutoSave();   // 自动存档（save.js）
   lastT = performance.now();
   requestAnimationFrame(tick);
 };
@@ -4415,7 +4560,8 @@ function bootNext() {
     } else if (bootStep === 9) {
       setProgress(94, '放置建筑...');
       placeStructures();
-      placeSimpleCastle(-10, -80);   // 城堡在寺庙正北，避免与现有建筑重叠
+      placeSimpleCastle(-10, -82);   // 城堡在寺庙正北（留 2 格间隙，避免平整裙边切到寺庙）
+      if (typeof loadGame === 'function') loadGame();   // 读取本地存档（玩家改动/位置/塔）
       bootStep = 10; requestAnimationFrame(bootNext);
 
     } else {

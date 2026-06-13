@@ -316,6 +316,7 @@ function tick(now) {
         var _brokenId = getBlock(hitB.x, hitB.y, hitB.z);
         digSound(_brokenId);   // 先取 ID 再清除
         setBlock(hitB.x, hitB.y, hitB.z, AIR);
+        if (typeof recordEdit === 'function') recordEdit(hitB.x, hitB.y, hitB.z, AIR);
         if (_brokenId === TERRITORY_STONE && typeof _removeTerritory === 'function') _removeTerritory(hitB.x, hitB.y, hitB.z);
         _lastBreak = nowS;
       }
@@ -429,6 +430,7 @@ function tick(now) {
         var _placedId = player.inv[player.slot];
         setBlock(pv.x, pv.y, pv.z, _placedId);
         digSound(_placedId);
+        if (typeof recordEdit === 'function') recordEdit(pv.x, pv.y, pv.z, _placedId);
         if (_placedId === TERRITORY_STONE && typeof _addTerritory === 'function') _addTerritory(pv.x, pv.y, pv.z);
         _lastPlace = nowS;
         // 学习放置方向：从第2块起才学（第1块 lastPos 为 null，不触发）
@@ -595,6 +597,7 @@ window.startGame = function () {
   if (uiEl)   uiEl.style.display   = 'block';
   buildHotbar();
   buildBattleUI();   // 开战 + 指挥按钮（combat_cmd.js）
+  if (typeof initAutoSave === 'function') initAutoSave();   // 自动存档（save.js）
   lastT = performance.now();
   requestAnimationFrame(tick);
 };
@@ -656,7 +659,8 @@ function bootNext() {
     } else if (bootStep === 9) {
       setProgress(94, '放置建筑...');
       placeStructures();
-      placeSimpleCastle(-10, -80);   // 城堡在寺庙正北，避免与现有建筑重叠
+      placeSimpleCastle(-10, -82);   // 城堡在寺庙正北（留 2 格间隙，避免平整裙边切到寺庙）
+      if (typeof loadGame === 'function') loadGame();   // 读取本地存档（玩家改动/位置/塔）
       bootStep = 10; requestAnimationFrame(bootNext);
 
     } else {

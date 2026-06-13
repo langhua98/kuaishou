@@ -100,10 +100,12 @@ function createChunk(cx, cz) {
   chunks[k] = { data: genTerrain(cx, cz), mesh: null };
 }
 
+// 卸载区块：只移除网格，保留方块数据。
+// 数据若删除，走远再回来会从噪声重新生成——建筑和玩家改动全部丢失。
+// 每块数据 16KB，常规游玩累计内存可忽略。
 function removeChunk(cx, cz) {
   var k = ckey(cx, cz);
   var ch = chunks[k];
   if (!ch) return;
-  if (ch.mesh) { scene.remove(ch.mesh); ch.mesh.geometry.dispose(); }
-  delete chunks[k];
+  if (ch.mesh) { scene.remove(ch.mesh); ch.mesh.geometry.dispose(); ch.mesh = null; }
 }

@@ -118,6 +118,19 @@ function placeSimpleCastle(ox, oz) {
   var x, z, y;
   var W = 22, WALL_H = 6, TOWER_H = 9;
 
+  // ── 平整场地（必须最先做）────────────────────────────────────────────────
+  // 城堡在出生平地（半径 64 格混合带）之外的纯丘陵区，AMP=14 的山丘会横穿城墙。
+  // 脚印 + 2 格裙边：地下填实地基（噪声谷底可低至 y≈0），上方清到丘陵最高点之上。
+  var M = 2;
+  for (x = -M; x < W + M; x++) {
+    for (z = -M; z < W + M; z++) {
+      raw(ox+x, BY, oz+z, GRASS);                              // 地表（内部稍后覆盖灰砖）
+      for (y = BY - 4; y < BY; y++)  raw(ox+x, y, oz+z, DIRT);  // 浅层泥土
+      for (y = 1; y < BY - 4; y++)   raw(ox+x, y, oz+z, STONE); // 深层石头地基
+      for (y = BY + 1; y <= SEA + AMP + 2; y++) raw(ox+x, y, oz+z, AIR);  // 清空山体
+    }
+  }
+
   // ── 庭院地面 ──────────────────────────────────────────────────────────────
   for (x = 1; x < W-1; x++) {
     for (z = 1; z < W-1; z++) {
