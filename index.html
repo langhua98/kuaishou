@@ -2386,6 +2386,10 @@ function makeMoraleBar(u) {
 
 function _updateMoraleBar(u) {
   if (!u.moraleBar || u.morale === undefined) return;
+  // 数值（取整 1%）与状态都没变则跳过重绘——避免每 tick 重传纹理（与血条同策略）
+  var sig = (u.moraleState || 'NORMAL') + '|' + (u.morale | 0);
+  if (u._mDraw === sig) return;
+  u._mDraw = sig;
   var ctx = u._moraleCv.getContext('2d');
   var w = 48, h = 4, r = u.morale / 100;
   ctx.clearRect(0, 0, w, h);
@@ -2476,6 +2480,21 @@ function updateMorale(dt) {
   _moraleAccum = 0;
 
   var i, u, j, o, dx, dz, d2, allies, enemies, dM, ns;
+
+  // 和平期快路径：任一阵营全灭即无战斗，跳过 O(n²) 邻居统计。
+  // 仅做恢复/衰减——招兵后大量友军站桩时不再每 tick 付出二次方代价。
+  if (countAlive(0) === 0 || countAlive(1) === 0) {
+    for (i = 0; i < combatUnits.length; i++) {
+      u = combatUnits[i];
+      if (u.morale === undefined || u.state === 'DEAD') continue;
+      u.morale = _clampM(u.morale + 8 * step);    // 脱战快速回士气
+      u.fear   = _clampM(u.fear - 8 * step);      // 恐惧消退
+      if (u.routing && u.morale > MORALE_ROUT + 12) u.routing = false;
+      u.moraleState = _moraleStateOf(u.morale);
+      _updateMoraleBar(u);   // 仅在数值/状态变化时真正重绘
+    }
+    return;
+  }
 
   // 第一轮：环境因素 + 恐惧衰减 + 状态分层
   for (i = 0; i < combatUnits.length; i++) {
