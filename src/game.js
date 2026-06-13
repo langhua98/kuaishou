@@ -380,14 +380,24 @@ function tick(now) {
       selHit.y === _place.lastPos.y &&
       selHit.z === _place.lastPos.z;
 
-    if (selHit && !_onLast) {
-      // 准星打到了其他方块 → 准星临时接管（允许随时切换方向）
+    // 准星命中的方块是否在建造方向的"身后"（dot < 0）：
+    // 竖向堆叠时准星俯视会打到柱身下方旧方块，若放任准星接管会把预览
+    // 算到旧方块的侧面/底部，第三块及以后完全失去预览。
+    // 身后旧块等价处理为 _onLast（忽略准星面信息，继续用方向预测）。
+    var _isBehind = !_onLast && selHit && (
+      (selHit.x - _place.lastPos.x) * _place.lastDir.x +
+      (selHit.y - _place.lastPos.y) * _place.lastDir.y +
+      (selHit.z - _place.lastPos.z) * _place.lastDir.z
+    ) < 0;
+
+    if (selHit && !_onLast && !_isBehind) {
+      // 准星打到了前方其他方块 → 准星临时接管（允许随时切换方向）
       _place.pos = selHit.prev ? selHit.prev : null;
       _idleInc = false;
     } else if (_ny >= 0) {
-      if (_onLast) {
-        // 准星打在上一个方块上 → 忽略面，强制用方向预测
-        // （防止俯视该方块顶面时预览跑到上方）
+      if (_onLast || _isBehind) {
+        // 准星打在上一个方块上，或命中了建造方向身后的旧块
+        // → 强制用方向预测（忽略面信息，防止竖向堆叠丢失预览）
         _place.pos = { x: _nx, y: _ny, z: _nz };
         _idleInc = false;
       } else {
