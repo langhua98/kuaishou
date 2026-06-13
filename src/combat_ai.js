@@ -518,7 +518,9 @@ function _aiUnit(u, dt, now) {
         else if (u.state === 'SEEK' || u.state === 'FIGHT') u.state = 'FOLLOW';
       }
     } else {
-      if (!u.target) u.target = _pickTarget(u);
+      if (!u.target) {
+        if (!u.passive) u.target = _pickTarget(u);  // 被动单位不主动扫描
+      }
       u.state = u.target ? 'SEEK' : 'IDLE';
     }
   }

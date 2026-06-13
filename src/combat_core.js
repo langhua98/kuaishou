@@ -173,6 +173,7 @@ function damageUnit(u, dmg, fromUnit) {
     return;
   }
   if (u.state === 'DEAD') return;
+  u.passive = false;   // 被攻击后解除被动，开始自主反击
   // 盾牌格挡：持盾兵种 30% 概率减半伤害（自己攻击动作中举不起盾）
   var blocked = false;
   if (u.t.shield && u.actT <= 0 && Math.random() < 0.3) {

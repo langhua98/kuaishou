@@ -80,8 +80,8 @@ function buildHotbar() {
   hbar.innerHTML = '';
 
   var i, id, slot;
-  // 全量渲染所有道具，热键栏横向滚动（不再限制为 HOTBAR_N 个）
-  for (i = 0; i < player.inv.length; i++) {
+  var n = Math.min(7, player.inv.length);
+  for (i = 0; i < n; i++) {
     id   = player.inv[i];
     slot = document.createElement('div');
     slot.className = 'slot' + (i === player.slot ? ' on' : '');
@@ -99,13 +99,28 @@ function buildHotbar() {
         if (prev) prev.classList.remove('on');
         player.slot = idx;
         slotEl.classList.add('on');
-        // 自动将选中槽滚入视野
-        slotEl.scrollIntoView({ inline: 'center', behavior: 'smooth' });
       }, { passive: false });
     }(i, slot));
 
     hbar.appendChild(slot);
   }
+
+  // 第 8 位：仓库按钮
+  var bagBtn = document.createElement('div');
+  bagBtn.className = 'slot bag-btn';
+  bagBtn.textContent = '📦';
+  bagBtn.addEventListener('touchstart', function (e) {
+    e.preventDefault();
+    _ensureBag();
+    _renderBag();
+    toggleBag();
+  }, { passive: false });
+  bagBtn.addEventListener('click', function () {
+    _ensureBag();
+    _renderBag();
+    toggleBag();
+  });
+  hbar.appendChild(bagBtn);
 }
 
 function _ensureBag() {
@@ -114,7 +129,9 @@ function _ensureBag() {
   _bagEl = document.createElement('div');
   _bagEl.id = 'bag';
   _bagEl.style.cssText = 'position:absolute;bottom:80px;left:50%;transform:translateX(-50%);' +
-    'display:none;gap:5px;padding:8px;background:rgba(0,0,0,.5);border-radius:10px;z-index:105';
+    'display:none;grid-template-columns:repeat(5,62px);gap:5px;padding:10px;' +
+    'background:rgba(0,0,0,.80);border-radius:12px;z-index:105;' +
+    'overflow-y:auto;max-height:55vh;-webkit-overflow-scrolling:touch';
   ui.appendChild(_bagEl);
 }
 
@@ -122,7 +139,7 @@ function _renderBag() {
   if (!_bagEl) return;
   _bagEl.innerHTML = '';
   var i;
-  for (i = HOTBAR_N; i < player.inv.length; i++) {
+  for (i = 7; i < player.inv.length; i++) {
     (function (idx) {
       var id = player.inv[idx];
       var el = document.createElement('div');
@@ -149,5 +166,5 @@ function _renderBag() {
 
 function toggleBag() {
   if (!_bagEl) return;
-  _bagEl.style.display = _bagEl.style.display === 'none' ? 'flex' : 'none';
+  _bagEl.style.display = _bagEl.style.display === 'none' ? 'grid' : 'none';
 }

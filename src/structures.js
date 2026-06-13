@@ -269,6 +269,66 @@ function placeSimpleCastle(ox, oz) {
   for (k in dirty) { cd = dirty[k]; rebuildChunk(cd[0], cd[1]); }
 }
 
+// 敌人要塞：16×16 围墙院落，中心放置领主石（OBSIDIAN）
+var _enemyStrongholdPos = null;
+
+function placeEnemyStronghold(ox, oz) {
+  var BY = SEA + 2;
+  var W = 16, H = 4;
+  var dirty = {}, x, z, y;
+
+  function raw(wx, wy, wz, id) {
+    setBlock(wx, wy, wz, id);
+    var ck = (wx >> 4) + ',' + (wz >> 4);
+    dirty[ck] = [wx >> 4, wz >> 4];
+  }
+
+  // 地面铺 GRAY_BRICK
+  for (x = ox; x < ox + W; x++) {
+    for (z = oz; z < oz + W; z++) {
+      raw(x, BY, z, GRAY_BRICK);
+    }
+  }
+
+  // 四面围墙（COBBLE，高 H 格），南面留 2 格入口
+  for (x = ox; x < ox + W; x++) {
+    for (y = 1; y <= H; y++) {
+      // 北墙
+      raw(x, BY + y, oz, COBBLE);
+      // 南墙（中间 2 格留门）
+      if (x < ox + 7 || x > ox + 8) raw(x, BY + y, oz + W - 1, COBBLE);
+    }
+  }
+  for (z = oz; z < oz + W; z++) {
+    for (y = 1; y <= H; y++) {
+      raw(ox,         BY + y, z, COBBLE);   // 西墙
+      raw(ox + W - 1, BY + y, z, COBBLE);   // 东墙
+    }
+  }
+
+  // 四角塔楼（STONE，高 H+2）
+  var corners = [[ox,oz],[ox+W-2,oz],[ox,oz+W-2],[ox+W-2,oz+W-2]];
+  corners.forEach(function(c) {
+    for (y = 1; y <= H + 2; y++) {
+      raw(c[0],   BY + y, c[1],   STONE);
+      raw(c[0]+1, BY + y, c[1],   STONE);
+      raw(c[0],   BY + y, c[1]+1, STONE);
+      raw(c[0]+1, BY + y, c[1]+1, STONE);
+    }
+  });
+
+  // 中心领主石（OBSIDIAN，高出地面 1 格，3×3 台座）
+  var cx = ox + 7, cz = oz + 7;
+  for (x = cx - 1; x <= cx + 1; x++) {
+    for (z = cz - 1; z <= cz + 1; z++) {
+      raw(x, BY + 1, z, STONE);
+    }
+  }
+  raw(cx, BY + 2, cz, OBSIDIAN);
+
+  _enemyStrongholdPos = { x: cx, y: BY + 2, z: cz };
+}
+
 // 启动时调用：围绕出生地布置中式建筑村落
 function placeStructures() {
   var BY = SEA + 2;   // 平地地表 = 14
@@ -280,4 +340,5 @@ function placeStructures() {
   placeStructure(STRUCT_TULOU, 30, BY, -90);   // 土楼·远东北
   placeStructure(STRUCT_FORT, -90, BY, -90);   // 堡垒·远西北
   placeStructure(STRUCT_TOMB, 10, BY, 90);   // 皇陵·远南
+  placeEnemyStronghold(100, 80);              // 敌人城池·东南方向约 128 格
 }

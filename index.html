@@ -73,6 +73,7 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
 .slot.on{border-color:#fff;background:rgba(255,255,255,.12);box-shadow:0 0 10px rgba(255,255,255,.2)}
 .slot-ic{width:34px;height:34px;border-radius:4px}
 .slot-lbl{color:#bcd;font-size:9px;font-family:monospace}
+.bag-btn{font-size:22px;line-height:1;color:#fff}
 </style>
 </head>
 <body>
@@ -1355,8 +1356,8 @@ function buildHotbar() {
   hbar.innerHTML = '';
 
   var i, id, slot;
-  // 全量渲染所有道具，热键栏横向滚动（不再限制为 HOTBAR_N 个）
-  for (i = 0; i < player.inv.length; i++) {
+  var n = Math.min(7, player.inv.length);
+  for (i = 0; i < n; i++) {
     id   = player.inv[i];
     slot = document.createElement('div');
     slot.className = 'slot' + (i === player.slot ? ' on' : '');
@@ -1374,13 +1375,28 @@ function buildHotbar() {
         if (prev) prev.classList.remove('on');
         player.slot = idx;
         slotEl.classList.add('on');
-        // 自动将选中槽滚入视野
-        slotEl.scrollIntoView({ inline: 'center', behavior: 'smooth' });
       }, { passive: false });
     }(i, slot));
 
     hbar.appendChild(slot);
   }
+
+  // 第 8 位：仓库按钮
+  var bagBtn = document.createElement('div');
+  bagBtn.className = 'slot bag-btn';
+  bagBtn.textContent = '📦';
+  bagBtn.addEventListener('touchstart', function (e) {
+    e.preventDefault();
+    _ensureBag();
+    _renderBag();
+    toggleBag();
+  }, { passive: false });
+  bagBtn.addEventListener('click', function () {
+    _ensureBag();
+    _renderBag();
+    toggleBag();
+  });
+  hbar.appendChild(bagBtn);
 }
 
 function _ensureBag() {
@@ -1389,7 +1405,9 @@ function _ensureBag() {
   _bagEl = document.createElement('div');
   _bagEl.id = 'bag';
   _bagEl.style.cssText = 'position:absolute;bottom:80px;left:50%;transform:translateX(-50%);' +
-    'display:none;gap:5px;padding:8px;background:rgba(0,0,0,.5);border-radius:10px;z-index:105';
+    'display:none;grid-template-columns:repeat(5,62px);gap:5px;padding:10px;' +
+    'background:rgba(0,0,0,.80);border-radius:12px;z-index:105;' +
+    'overflow-y:auto;max-height:55vh;-webkit-overflow-scrolling:touch';
   ui.appendChild(_bagEl);
 }
 
@@ -1397,7 +1415,7 @@ function _renderBag() {
   if (!_bagEl) return;
   _bagEl.innerHTML = '';
   var i;
-  for (i = HOTBAR_N; i < player.inv.length; i++) {
+  for (i = 7; i < player.inv.length; i++) {
     (function (idx) {
       var id = player.inv[idx];
       var el = document.createElement('div');
@@ -1424,7 +1442,7 @@ function _renderBag() {
 
 function toggleBag() {
   if (!_bagEl) return;
-  _bagEl.style.display = _bagEl.style.display === 'none' ? 'flex' : 'none';
+  _bagEl.style.display = _bagEl.style.display === 'none' ? 'grid' : 'none';
 }
 
 
@@ -2119,6 +2137,7 @@ function damageUnit(u, dmg, fromUnit) {
     return;
   }
   if (u.state === 'DEAD') return;
+  u.passive = false;   // 被攻击后解除被动，开始自主反击
   // 盾牌格挡：持盾兵种 30% 概率减半伤害（自己攻击动作中举不起盾）
   var blocked = false;
   if (u.t.shield && u.actT <= 0 && Math.random() < 0.3) {
@@ -3375,7 +3394,9 @@ function _aiUnit(u, dt, now) {
         else if (u.state === 'SEEK' || u.state === 'FIGHT') u.state = 'FOLLOW';
       }
     } else {
-      if (!u.target) u.target = _pickTarget(u);
+      if (!u.target) {
+        if (!u.passive) u.target = _pickTarget(u);  // 被动单位不主动扫描
+      }
       u.state = u.target ? 'SEEK' : 'IDLE';
     }
   }
@@ -4394,6 +4415,66 @@ function placeSimpleCastle(ox, oz) {
   for (k in dirty) { cd = dirty[k]; rebuildChunk(cd[0], cd[1]); }
 }
 
+// 敌人要塞：16×16 围墙院落，中心放置领主石（OBSIDIAN）
+var _enemyStrongholdPos = null;
+
+function placeEnemyStronghold(ox, oz) {
+  var BY = SEA + 2;
+  var W = 16, H = 4;
+  var dirty = {}, x, z, y;
+
+  function raw(wx, wy, wz, id) {
+    setBlock(wx, wy, wz, id);
+    var ck = (wx >> 4) + ',' + (wz >> 4);
+    dirty[ck] = [wx >> 4, wz >> 4];
+  }
+
+  // 地面铺 GRAY_BRICK
+  for (x = ox; x < ox + W; x++) {
+    for (z = oz; z < oz + W; z++) {
+      raw(x, BY, z, GRAY_BRICK);
+    }
+  }
+
+  // 四面围墙（COBBLE，高 H 格），南面留 2 格入口
+  for (x = ox; x < ox + W; x++) {
+    for (y = 1; y <= H; y++) {
+      // 北墙
+      raw(x, BY + y, oz, COBBLE);
+      // 南墙（中间 2 格留门）
+      if (x < ox + 7 || x > ox + 8) raw(x, BY + y, oz + W - 1, COBBLE);
+    }
+  }
+  for (z = oz; z < oz + W; z++) {
+    for (y = 1; y <= H; y++) {
+      raw(ox,         BY + y, z, COBBLE);   // 西墙
+      raw(ox + W - 1, BY + y, z, COBBLE);   // 东墙
+    }
+  }
+
+  // 四角塔楼（STONE，高 H+2）
+  var corners = [[ox,oz],[ox+W-2,oz],[ox,oz+W-2],[ox+W-2,oz+W-2]];
+  corners.forEach(function(c) {
+    for (y = 1; y <= H + 2; y++) {
+      raw(c[0],   BY + y, c[1],   STONE);
+      raw(c[0]+1, BY + y, c[1],   STONE);
+      raw(c[0],   BY + y, c[1]+1, STONE);
+      raw(c[0]+1, BY + y, c[1]+1, STONE);
+    }
+  });
+
+  // 中心领主石（OBSIDIAN，高出地面 1 格，3×3 台座）
+  var cx = ox + 7, cz = oz + 7;
+  for (x = cx - 1; x <= cx + 1; x++) {
+    for (z = cz - 1; z <= cz + 1; z++) {
+      raw(x, BY + 1, z, STONE);
+    }
+  }
+  raw(cx, BY + 2, cz, OBSIDIAN);
+
+  _enemyStrongholdPos = { x: cx, y: BY + 2, z: cz };
+}
+
 // 启动时调用：围绕出生地布置中式建筑村落
 function placeStructures() {
   var BY = SEA + 2;   // 平地地表 = 14
@@ -4405,6 +4486,7 @@ function placeStructures() {
   placeStructure(STRUCT_TULOU, 30, BY, -90);   // 土楼·远东北
   placeStructure(STRUCT_FORT, -90, BY, -90);   // 堡垒·远西北
   placeStructure(STRUCT_TOMB, 10, BY, 90);   // 皇陵·远南
+  placeEnemyStronghold(100, 80);              // 敌人城池·东南方向约 128 格
 }
 
 
@@ -4850,6 +4932,14 @@ function tick(now) {
         setBlock(hitB.x, hitB.y, hitB.z, AIR);
         if (typeof recordEdit === 'function') recordEdit(hitB.x, hitB.y, hitB.z, AIR);
         if (_brokenId === TERRITORY_STONE && typeof _removeTerritory === 'function') _removeTerritory(hitB.x, hitB.y, hitB.z);
+        // 摧毁领主石 → 城池全体守军解除被动
+        if (_brokenId === OBSIDIAN && typeof _enemyStrongholdPos !== 'undefined' && _enemyStrongholdPos &&
+            hitB.x === _enemyStrongholdPos.x && hitB.y === _enemyStrongholdPos.y && hitB.z === _enemyStrongholdPos.z) {
+          for (var _si = 0; _si < combatUnits.length; _si++) {
+            if (combatUnits[_si].side === 1 && combatUnits[_si].passive) combatUnits[_si].passive = false;
+          }
+          _enemyStrongholdPos = null;
+        }
         _lastBreak = nowS;
       }
     }
@@ -5243,6 +5333,23 @@ function bootNext() {
       // 异步加载 GLTF 模型（不阻塞进入游戏；完成前玩家为盒子占位、无 NPC）
       loadPlayerModel();
       spawnNPCs();
+      // 预加载兵种模型并生成敌人城池初始守军（每种各 20 个，共 60 个被动骷髅）
+      loadArmyModels(function () {
+        if (typeof _enemyStrongholdPos === 'undefined' || !_enemyStrongholdPos) return;
+        var roster = [
+          { k: 'skel_war', n: 20 },
+          { k: 'skel_min', n: 20 },
+          { k: 'skel_rog', n: 20 }
+        ];
+        roster.forEach(function (r) {
+          for (var i = 0; i < r.n; i++) {
+            var sx = _enemyStrongholdPos.x + (Math.random() - 0.5) * 20;
+            var sz = _enemyStrongholdPos.z + (Math.random() - 0.5) * 20;
+            var u = spawnUnit(r.k, 1, sx, sz);
+            if (u) u.passive = true;
+          }
+        });
+      }, function () {});
     }
   } catch (e) {
     setProgress(0, '错误: ' + (e.message || String(e)));

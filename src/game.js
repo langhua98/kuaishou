@@ -314,6 +314,14 @@ function tick(now) {
         setBlock(hitB.x, hitB.y, hitB.z, AIR);
         if (typeof recordEdit === 'function') recordEdit(hitB.x, hitB.y, hitB.z, AIR);
         if (_brokenId === TERRITORY_STONE && typeof _removeTerritory === 'function') _removeTerritory(hitB.x, hitB.y, hitB.z);
+        // 摧毁领主石 → 城池全体守军解除被动
+        if (_brokenId === OBSIDIAN && typeof _enemyStrongholdPos !== 'undefined' && _enemyStrongholdPos &&
+            hitB.x === _enemyStrongholdPos.x && hitB.y === _enemyStrongholdPos.y && hitB.z === _enemyStrongholdPos.z) {
+          for (var _si = 0; _si < combatUnits.length; _si++) {
+            if (combatUnits[_si].side === 1 && combatUnits[_si].passive) combatUnits[_si].passive = false;
+          }
+          _enemyStrongholdPos = null;
+        }
         _lastBreak = nowS;
       }
     }
@@ -707,6 +715,23 @@ function bootNext() {
       // 异步加载 GLTF 模型（不阻塞进入游戏；完成前玩家为盒子占位、无 NPC）
       loadPlayerModel();
       spawnNPCs();
+      // 预加载兵种模型并生成敌人城池初始守军（每种各 20 个，共 60 个被动骷髅）
+      loadArmyModels(function () {
+        if (typeof _enemyStrongholdPos === 'undefined' || !_enemyStrongholdPos) return;
+        var roster = [
+          { k: 'skel_war', n: 20 },
+          { k: 'skel_min', n: 20 },
+          { k: 'skel_rog', n: 20 }
+        ];
+        roster.forEach(function (r) {
+          for (var i = 0; i < r.n; i++) {
+            var sx = _enemyStrongholdPos.x + (Math.random() - 0.5) * 20;
+            var sz = _enemyStrongholdPos.z + (Math.random() - 0.5) * 20;
+            var u = spawnUnit(r.k, 1, sx, sz);
+            if (u) u.passive = true;
+          }
+        });
+      }, function () {});
     }
   } catch (e) {
     setProgress(0, '错误: ' + (e.message || String(e)));
