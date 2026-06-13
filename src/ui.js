@@ -63,7 +63,8 @@ function _drawBlockIcon(cv, id) {
 function _makeSlotIcon(id) {
   var cv = document.createElement('canvas');
   cv.width = 34; cv.height = 34;
-  cv.className = 'slot-ic';
+  // 必须用 inline style 强制尺寸，canvas 默认 300×150 会撑坏布局
+  cv.style.cssText = 'display:block;width:34px;height:34px;border-radius:4px;flex-shrink:0';
   _drawBlockIcon(cv, id);
   return cv;
 }
