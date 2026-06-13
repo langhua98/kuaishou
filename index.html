@@ -469,7 +469,7 @@ if (window.visualViewport) {
 // 雨：相机周围圆柱体内 300 条短线段下落循环，仅雨强 >0 时更新和显示。
 
 var DAY_LEN = 600;          // 一整天 600 秒（10 分钟）
-var skyTime = 0.32;         // 出生在上午
+var skyTime = 0.42;         // 固定在下午（昼夜循环已关闭）
 
 // ── 天空穹顶（顶点色渐变，每帧重算）────────────────────────────────────────────
 var _domeGeo = new THREE.SphereGeometry(170, 16, 9);
@@ -587,7 +587,7 @@ function _nextWeather() {
 
 // ── 每帧更新（game.js tick 调用）──────────────────────────────────────────────
 function updateSky(dt) {
-  skyTime = (skyTime + dt / DAY_LEN) % 1;
+  // skyTime 已固定，无昼夜循环
   var ang  = (skyTime - 0.25) * Math.PI * 2;
   var elev = Math.sin(ang);                          // 太阳仰角 -1..1
 
@@ -2008,31 +2008,42 @@ function countAlive(side) {
 // 上下坡：跟随地形列高度，差 ≤1 格直接走上（体素世界天然台阶）。
 
 // ── 领地结界系统 ──────────────────────────────────────────────────────────────
-// 每块领地石放置时创建 R=25m 保护圈；敌方无法进入。
-// 双层紫色线框（内层实线 + 外层虚框）+ 脉冲透明度动画。
+// 每块领地石放置时创建 R=25m 圆形穹顶保护圈；敌方无法进入。
+// 半球形穹顶：内壁半透明 + 经纬线框 + 底部圆环 + 脉冲动画。
 
-var _territoryList = [];   // [{cx,cz,r,mesh,meshOut,_t}]
+var _territoryList = [];   // [{cx,cz,r,mesh,meshOut,ring}]
 var _territoryTime = 0;    // 动画时间（updateTerritoryFx 累加）
 
 function _addTerritory(bx, by, bz) {
-  var R = 25, H = 18;
+  var R = 25;
   var cx = bx + 0.5, cz = bz + 0.5;
 
-  // 内层：主边框（亮紫色）
-  var geo1 = new THREE.BoxGeometry(R * 2, H, R * 2);
-  var mat1 = new THREE.LineBasicMaterial({ color: 0x9333ea, transparent: true, opacity: 0.9 });
-  var mesh1 = new THREE.LineSegments(new THREE.EdgesGeometry(geo1), mat1);
-  mesh1.position.set(cx, by + H / 2, cz);
-  scene.add(mesh1);
+  // 穹顶内壁（半透明紫色，BackSide 从内部可见）
+  var geoInner = new THREE.SphereGeometry(R, 48, 24, 0, Math.PI * 2, 0, Math.PI * 0.5);
+  var matInner = new THREE.MeshBasicMaterial({
+    color: 0x9333ea, transparent: true, opacity: 0.07,
+    side: THREE.BackSide, depthWrite: false
+  });
+  var meshInner = new THREE.Mesh(geoInner, matInner);
+  meshInner.position.set(cx, by, cz);
+  scene.add(meshInner);
 
-  // 外层：略大虚框（淡紫色，稍慢反向旋转）
-  var geo2 = new THREE.BoxGeometry(R * 2.08, H * 1.12, R * 2.08);
-  var mat2 = new THREE.LineBasicMaterial({ color: 0xc084fc, transparent: true, opacity: 0.3 });
-  var mesh2 = new THREE.LineSegments(new THREE.EdgesGeometry(geo2), mat2);
-  mesh2.position.set(cx, by + H / 2, cz);
-  scene.add(mesh2);
+  // 穹顶经纬线框（稀疏格，穹顶形态清晰）
+  var geoWire = new THREE.SphereGeometry(R * 1.005, 18, 9, 0, Math.PI * 2, 0, Math.PI * 0.5);
+  var matWire = new THREE.LineBasicMaterial({ color: 0xc084fc, transparent: true, opacity: 0.45 });
+  var meshWire = new THREE.LineSegments(new THREE.WireframeGeometry(geoWire), matWire);
+  meshWire.position.set(cx, by, cz);
+  scene.add(meshWire);
 
-  _territoryList.push({ cx: cx, cz: cz, r: R, mesh: mesh1, meshOut: mesh2 });
+  // 底部圆环地基（落地光圈）
+  var geoRing = new THREE.TorusGeometry(R, 0.18, 6, 72);
+  var matRing = new THREE.MeshBasicMaterial({ color: 0xc084fc, transparent: true, opacity: 0.6 });
+  var meshRing = new THREE.Mesh(geoRing, matRing);
+  meshRing.rotation.x = Math.PI * 0.5;
+  meshRing.position.set(cx, by + 0.15, cz);
+  scene.add(meshRing);
+
+  _territoryList.push({ cx: cx, cz: cz, r: R, mesh: meshInner, meshOut: meshWire, ring: meshRing });
 }
 
 function _removeTerritory(bx, by, bz) {
@@ -2040,8 +2051,9 @@ function _removeTerritory(bx, by, bz) {
   for (i = _territoryList.length - 1; i >= 0; i--) {
     var t = _territoryList[i];
     if (Math.abs(t.cx - cx) < 0.5 && Math.abs(t.cz - cz) < 0.5) {
-      scene.remove(t.mesh); t.mesh.material.dispose();
-      scene.remove(t.meshOut); t.meshOut.material.dispose();
+      scene.remove(t.mesh); t.mesh.geometry.dispose(); t.mesh.material.dispose();
+      scene.remove(t.meshOut); t.meshOut.geometry.dispose(); t.meshOut.material.dispose();
+      if (t.ring) { scene.remove(t.ring); t.ring.geometry.dispose(); t.ring.material.dispose(); }
       _territoryList.splice(i, 1);
       return;
     }
@@ -2054,20 +2066,20 @@ function updateTerritoryFx(dt) {
   var i, t, pulse;
   for (i = 0; i < _territoryList.length; i++) {
     t = _territoryList[i];
-    pulse = 0.55 + 0.38 * Math.sin(_territoryTime * 2.2 + i * 1.3);
-    t.mesh.material.opacity = pulse;
-    t.meshOut.material.opacity = pulse * 0.35;
-    t.mesh.rotation.y    += dt * 0.04;
-    t.meshOut.rotation.y -= dt * 0.025;
+    pulse = Math.sin(_territoryTime * 2.2 + i * 1.3);
+    t.mesh.material.opacity    = 0.05 + 0.04 * pulse;   // 穹顶内壁微光脉动
+    t.meshOut.material.opacity = 0.30 + 0.20 * pulse;   // 线框脉动
+    if (t.ring) t.ring.material.opacity = 0.5 + 0.25 * Math.sin(_territoryTime * 3.0 + i);
   }
 }
 
-// 判断 (x,z) 是否在任意领地保护范围内（R=25 AABB）
+// 判断 (x,z) 是否在任意领地保护范围内（圆形精确判定）
 function _inTerritory(x, z) {
-  var i, t;
+  var i, t, dx, dz;
   for (i = 0; i < _territoryList.length; i++) {
     t = _territoryList[i];
-    if (Math.abs(x - t.cx) <= t.r && Math.abs(z - t.cz) <= t.r) return true;
+    dx = x - t.cx; dz = z - t.cz;
+    if (dx * dx + dz * dz <= t.r * t.r) return true;
   }
   return false;
 }
@@ -2930,8 +2942,8 @@ function _aiUnit(u, dt, now) {
         if (ntw) {
           var twd = Math.sqrt((ntw.x-u.x)*(ntw.x-u.x)+(ntw.z-u.z)*(ntw.z-u.z));
           if (twd > 2.2) {
-            steerMove(u, ntw.x, ntw.z, t.spd, dt);
-            if (u.actT <= 0) playAnim(u, ANIM.run, 0.2);
+            var twMoved = steerMove(u, ntw.x, ntw.z, t.spd, dt);
+            if (u.actT <= 0) playAnim(u, twMoved ? ANIM.run : ANIM.idle, 0.2);
           } else {
             faceTo(u, ntw.x, ntw.z, dt);
             if (u.atkCd <= 0 && u.actT <= 0) {
@@ -2962,8 +2974,8 @@ function _aiUnit(u, dt, now) {
         }
       } else {
         if (d > t.range) {
-          steerMove(u, tgt.x, tgt.z, t.spd, dt);
-          if (u.actT <= 0) playAnim(u, ANIM.run, 0.2);
+          var skMoved = steerMove(u, tgt.x, tgt.z, t.spd, dt);
+          if (u.actT <= 0) playAnim(u, skMoved ? ANIM.run : ANIM.idle, 0.2);
         } else {
           u.state = 'FIGHT';
         }
@@ -3251,53 +3263,71 @@ var TOWER_CFG = {
   dmg:     6,
   atkCd:   2.0,     // 攻击间隔（秒）
   orbSpd:  14,      // 魔法弹速度
-  h:       4.5,     // 显示高度（HP 条用）
+  h:       7.5,     // 显示高度（HP 条用）
 };
 
-// ── 程序化魔法塔 ──────────────────────────────────────────────────────────────
-// 下载的 magic_tower.glb 几何退化（Z 跨度 9125，自动缩放后塌成不可见薄片），
-// 改用程序化模型：石砌塔身 + 雉堞 + 发光紫色水晶 + 旋转光环，稳定可见。
+// ── 程序化魔法塔（升级版）────────────────────────────────────────────────────
+// 32 段圆滑石柱塔身 + 双腰线装饰带 + 12 雉堞 + 双锥菱形水晶 + 双光环。
 // 顶部水晶/光环存到 group.userData，updateTowers 每帧旋转做"充能"动效。
 function _makeProcTower() {
   var grp = new THREE.Group();
-  var stone = new THREE.MeshLambertMaterial({ color: 0x6b7280 });
-  var stoneDark = new THREE.MeshLambertMaterial({ color: 0x4b5563 });
+  var matStone = new THREE.MeshPhongMaterial({ color: 0x6b7280, shininess: 28, specular: 0x222222 });
+  var matDark  = new THREE.MeshPhongMaterial({ color: 0x4b5563, shininess: 18, specular: 0x111111 });
+  var matPurple = new THREE.MeshBasicMaterial({ color: 0x9333ea });
+  var matLilac  = new THREE.MeshBasicMaterial({ color: 0xc084fc });
 
-  // 塔基（粗）
-  var base = new THREE.Mesh(new THREE.CylinderGeometry(1.05, 1.35, 1.2, 10), stoneDark);
-  base.position.y = 0.6; grp.add(base);
-  // 塔身（高）
-  var body = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 1.05, 2.6, 10), stone);
-  body.position.y = 2.2; grp.add(body);
-  // 顶部平台
-  var top = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 0.9, 0.45, 10), stoneDark);
-  top.position.y = 3.7; grp.add(top);
-  // 雉堞（一圈小立方）
-  var bi, ba, br = 0.95;
-  for (bi = 0; bi < 8; bi++) {
-    ba = (bi / 8) * Math.PI * 2;
-    var cren = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.4, 0.28), stone);
-    cren.position.set(Math.cos(ba) * br, 4.1, Math.sin(ba) * br);
-    grp.add(cren);
+  function cyl(rt, rb, h, seg, mat, y) {
+    var m = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, seg), mat);
+    m.position.y = y; return m;
   }
-  // 顶部魔法水晶（发光紫色八面体）
-  var crystal = new THREE.Mesh(
-    new THREE.OctahedronGeometry(0.62, 0),
-    new THREE.MeshBasicMaterial({ color: 0x9333ea })
-  );
-  crystal.position.y = 4.9;
-  grp.add(crystal);
-  // 顶部光环
+
+  grp.add(cyl(1.20, 1.55, 1.50, 32, matDark,  0.75));   // 塔基
+  grp.add(cyl(1.28, 1.28, 0.22, 32, matStone, 1.55));   // 腰线 1
+  grp.add(cyl(0.98, 1.22, 2.20, 32, matStone, 2.75));   // 塔身下段
+  grp.add(cyl(1.06, 1.06, 0.22, 32, matDark,  3.86));   // 腰线 2
+  grp.add(cyl(1.12, 1.00, 1.40, 32, matStone, 4.66));   // 塔身上段
+  grp.add(cyl(1.28, 1.14, 0.50, 32, matDark,  5.61));   // 顶台
+
+  // 12 个雉堞
+  var bi, ba;
+  for (bi = 0; bi < 12; bi++) {
+    ba = (bi / 12) * Math.PI * 2;
+    var cr = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.44, 0.22), matStone);
+    cr.position.set(Math.cos(ba) * 1.12, 6.12, Math.sin(ba) * 1.12);
+    grp.add(cr);
+  }
+
+  // 双锥菱形水晶（上锥深紫 + 下锥淡紫）
+  var crystalTop = new THREE.Mesh(new THREE.ConeGeometry(0.38, 0.92, 6), matPurple);
+  crystalTop.position.y = 7.12;
+  var crystalBot = new THREE.Mesh(new THREE.ConeGeometry(0.38, 0.92, 6), matLilac);
+  crystalBot.rotation.x = Math.PI;
+  crystalBot.position.y = 6.44;
+  grp.add(crystalTop);
+  grp.add(crystalBot);
+
+  // 大水平光环（绕塔顶旋转）
   var ring = new THREE.Mesh(
-    new THREE.TorusGeometry(0.8, 0.08, 6, 18),
+    new THREE.TorusGeometry(1.1, 0.12, 8, 48),
     new THREE.MeshBasicMaterial({ color: 0xc084fc })
   );
-  ring.rotation.x = Math.PI / 2;
-  ring.position.y = 4.5;
+  ring.rotation.x = Math.PI * 0.5;
+  ring.position.y = 5.88;
   grp.add(ring);
 
-  grp.userData.crystal = crystal;
-  grp.userData.ring = ring;
+  // 小倾斜光环（绕水晶旋转，进动效果）
+  var ring2 = new THREE.Mesh(
+    new THREE.TorusGeometry(0.62, 0.08, 6, 32),
+    new THREE.MeshBasicMaterial({ color: 0x9333ea })
+  );
+  ring2.rotation.z = Math.PI / 3.5;
+  ring2.position.y = 6.78;
+  grp.add(ring2);
+
+  grp.userData.crystal  = crystalTop;
+  grp.userData.crystal2 = crystalBot;
+  grp.userData.ring     = ring;
+  grp.userData.ring2    = ring2;
   return grp;
 }
 
@@ -3403,8 +3433,10 @@ function updateTowers(dt) {
     tower = _towers[i];
     if (tower.dead) continue;
     // 顶部水晶/光环充能动效
-    if (tower.group.userData.crystal) tower.group.userData.crystal.rotation.y += dt * 1.5;
-    if (tower.group.userData.ring)    tower.group.userData.ring.rotation.z    += dt * 0.8;
+    if (tower.group.userData.crystal)  tower.group.userData.crystal.rotation.y  += dt * 1.5;
+    if (tower.group.userData.crystal2) tower.group.userData.crystal2.rotation.y += dt * 1.5;
+    if (tower.group.userData.ring)     tower.group.userData.ring.rotation.z     += dt * 0.8;
+    if (tower.group.userData.ring2)    tower.group.userData.ring2.rotation.y    += dt * 2.2;
     tower.atkCd -= dt;
     if (tower.atkCd <= 0) {
       best = null; bd = TOWER_CFG.range * TOWER_CFG.range;
@@ -3448,6 +3480,14 @@ function updateTowers(dt) {
     orb.x += orb.vx * dt; orb.y += orb.vy * dt; orb.z += orb.vz * dt;
     orb.mesh.position.set(orb.x, orb.y, orb.z);
     orb.mesh.rotation.y += dt * 4;
+    // 飞行拖尾（约 15Hz 一次）
+    if (typeof spawnBurst === 'function') {
+      orb._trailT = (orb._trailT || 0) + dt;
+      if (orb._trailT > 0.066) {
+        orb._trailT = 0;
+        spawnBurst(orb.x, orb.y, orb.z, { count: 4, color: 0xc084fc, speed: 0.6, size: 0.1, life: 0.2, gravity: 1, up: 0 });
+      }
+    }
 
     var hit = false;
     if (orb.tgt && orb.tgt.state !== 'DEAD') {
@@ -3517,7 +3557,7 @@ function spawnBurst(x, y, z, opts) {
   var pts = new THREE.Points(geo, mat);
   pts.frustumCulled = false;
   scene.add(pts);
-  _bursts.push({ pts: pts, vel: vel, t: 0, life: life, grav: grav, n: n });
+  _bursts.push({ pts: pts, vel: vel, t: 0, life: life, grav: grav, n: n, _sz: size });
 }
 
 // 每帧推进所有粒子簇（combat_ai.js combatUpdate 调用）
@@ -3535,7 +3575,9 @@ function updateParticles(dt) {
       pos[k+2] += b.vel[k+2] * dt;
     }
     b.pts.geometry.attributes.position.needsUpdate = true;
-    b.pts.material.opacity = Math.max(0, 1 - b.t / b.life);
+    var frac = Math.max(0, 1 - b.t / b.life);
+    b.pts.material.opacity = frac;
+    b.pts.material.size    = b._sz * (0.25 + 0.75 * frac);
     if (b.t >= b.life) {
       scene.remove(b.pts);
       b.pts.geometry.dispose();

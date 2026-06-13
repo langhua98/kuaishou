@@ -12,53 +12,71 @@ var TOWER_CFG = {
   dmg:     6,
   atkCd:   2.0,     // 攻击间隔（秒）
   orbSpd:  14,      // 魔法弹速度
-  h:       4.5,     // 显示高度（HP 条用）
+  h:       7.5,     // 显示高度（HP 条用）
 };
 
-// ── 程序化魔法塔 ──────────────────────────────────────────────────────────────
-// 下载的 magic_tower.glb 几何退化（Z 跨度 9125，自动缩放后塌成不可见薄片），
-// 改用程序化模型：石砌塔身 + 雉堞 + 发光紫色水晶 + 旋转光环，稳定可见。
+// ── 程序化魔法塔（升级版）────────────────────────────────────────────────────
+// 32 段圆滑石柱塔身 + 双腰线装饰带 + 12 雉堞 + 双锥菱形水晶 + 双光环。
 // 顶部水晶/光环存到 group.userData，updateTowers 每帧旋转做"充能"动效。
 function _makeProcTower() {
   var grp = new THREE.Group();
-  var stone = new THREE.MeshLambertMaterial({ color: 0x6b7280 });
-  var stoneDark = new THREE.MeshLambertMaterial({ color: 0x4b5563 });
+  var matStone = new THREE.MeshPhongMaterial({ color: 0x6b7280, shininess: 28, specular: 0x222222 });
+  var matDark  = new THREE.MeshPhongMaterial({ color: 0x4b5563, shininess: 18, specular: 0x111111 });
+  var matPurple = new THREE.MeshBasicMaterial({ color: 0x9333ea });
+  var matLilac  = new THREE.MeshBasicMaterial({ color: 0xc084fc });
 
-  // 塔基（粗）
-  var base = new THREE.Mesh(new THREE.CylinderGeometry(1.05, 1.35, 1.2, 10), stoneDark);
-  base.position.y = 0.6; grp.add(base);
-  // 塔身（高）
-  var body = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 1.05, 2.6, 10), stone);
-  body.position.y = 2.2; grp.add(body);
-  // 顶部平台
-  var top = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 0.9, 0.45, 10), stoneDark);
-  top.position.y = 3.7; grp.add(top);
-  // 雉堞（一圈小立方）
-  var bi, ba, br = 0.95;
-  for (bi = 0; bi < 8; bi++) {
-    ba = (bi / 8) * Math.PI * 2;
-    var cren = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.4, 0.28), stone);
-    cren.position.set(Math.cos(ba) * br, 4.1, Math.sin(ba) * br);
-    grp.add(cren);
+  function cyl(rt, rb, h, seg, mat, y) {
+    var m = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, seg), mat);
+    m.position.y = y; return m;
   }
-  // 顶部魔法水晶（发光紫色八面体）
-  var crystal = new THREE.Mesh(
-    new THREE.OctahedronGeometry(0.62, 0),
-    new THREE.MeshBasicMaterial({ color: 0x9333ea })
-  );
-  crystal.position.y = 4.9;
-  grp.add(crystal);
-  // 顶部光环
+
+  grp.add(cyl(1.20, 1.55, 1.50, 32, matDark,  0.75));   // 塔基
+  grp.add(cyl(1.28, 1.28, 0.22, 32, matStone, 1.55));   // 腰线 1
+  grp.add(cyl(0.98, 1.22, 2.20, 32, matStone, 2.75));   // 塔身下段
+  grp.add(cyl(1.06, 1.06, 0.22, 32, matDark,  3.86));   // 腰线 2
+  grp.add(cyl(1.12, 1.00, 1.40, 32, matStone, 4.66));   // 塔身上段
+  grp.add(cyl(1.28, 1.14, 0.50, 32, matDark,  5.61));   // 顶台
+
+  // 12 个雉堞
+  var bi, ba;
+  for (bi = 0; bi < 12; bi++) {
+    ba = (bi / 12) * Math.PI * 2;
+    var cr = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.44, 0.22), matStone);
+    cr.position.set(Math.cos(ba) * 1.12, 6.12, Math.sin(ba) * 1.12);
+    grp.add(cr);
+  }
+
+  // 双锥菱形水晶（上锥深紫 + 下锥淡紫）
+  var crystalTop = new THREE.Mesh(new THREE.ConeGeometry(0.38, 0.92, 6), matPurple);
+  crystalTop.position.y = 7.12;
+  var crystalBot = new THREE.Mesh(new THREE.ConeGeometry(0.38, 0.92, 6), matLilac);
+  crystalBot.rotation.x = Math.PI;
+  crystalBot.position.y = 6.44;
+  grp.add(crystalTop);
+  grp.add(crystalBot);
+
+  // 大水平光环（绕塔顶旋转）
   var ring = new THREE.Mesh(
-    new THREE.TorusGeometry(0.8, 0.08, 6, 18),
+    new THREE.TorusGeometry(1.1, 0.12, 8, 48),
     new THREE.MeshBasicMaterial({ color: 0xc084fc })
   );
-  ring.rotation.x = Math.PI / 2;
-  ring.position.y = 4.5;
+  ring.rotation.x = Math.PI * 0.5;
+  ring.position.y = 5.88;
   grp.add(ring);
 
-  grp.userData.crystal = crystal;
-  grp.userData.ring = ring;
+  // 小倾斜光环（绕水晶旋转，进动效果）
+  var ring2 = new THREE.Mesh(
+    new THREE.TorusGeometry(0.62, 0.08, 6, 32),
+    new THREE.MeshBasicMaterial({ color: 0x9333ea })
+  );
+  ring2.rotation.z = Math.PI / 3.5;
+  ring2.position.y = 6.78;
+  grp.add(ring2);
+
+  grp.userData.crystal  = crystalTop;
+  grp.userData.crystal2 = crystalBot;
+  grp.userData.ring     = ring;
+  grp.userData.ring2    = ring2;
   return grp;
 }
 
@@ -164,8 +182,10 @@ function updateTowers(dt) {
     tower = _towers[i];
     if (tower.dead) continue;
     // 顶部水晶/光环充能动效
-    if (tower.group.userData.crystal) tower.group.userData.crystal.rotation.y += dt * 1.5;
-    if (tower.group.userData.ring)    tower.group.userData.ring.rotation.z    += dt * 0.8;
+    if (tower.group.userData.crystal)  tower.group.userData.crystal.rotation.y  += dt * 1.5;
+    if (tower.group.userData.crystal2) tower.group.userData.crystal2.rotation.y += dt * 1.5;
+    if (tower.group.userData.ring)     tower.group.userData.ring.rotation.z     += dt * 0.8;
+    if (tower.group.userData.ring2)    tower.group.userData.ring2.rotation.y    += dt * 2.2;
     tower.atkCd -= dt;
     if (tower.atkCd <= 0) {
       best = null; bd = TOWER_CFG.range * TOWER_CFG.range;
@@ -209,6 +229,14 @@ function updateTowers(dt) {
     orb.x += orb.vx * dt; orb.y += orb.vy * dt; orb.z += orb.vz * dt;
     orb.mesh.position.set(orb.x, orb.y, orb.z);
     orb.mesh.rotation.y += dt * 4;
+    // 飞行拖尾（约 15Hz 一次）
+    if (typeof spawnBurst === 'function') {
+      orb._trailT = (orb._trailT || 0) + dt;
+      if (orb._trailT > 0.066) {
+        orb._trailT = 0;
+        spawnBurst(orb.x, orb.y, orb.z, { count: 4, color: 0xc084fc, speed: 0.6, size: 0.1, life: 0.2, gravity: 1, up: 0 });
+      }
+    }
 
     var hit = false;
     if (orb.tgt && orb.tgt.state !== 'DEAD') {

@@ -40,7 +40,7 @@ function spawnBurst(x, y, z, opts) {
   var pts = new THREE.Points(geo, mat);
   pts.frustumCulled = false;
   scene.add(pts);
-  _bursts.push({ pts: pts, vel: vel, t: 0, life: life, grav: grav, n: n });
+  _bursts.push({ pts: pts, vel: vel, t: 0, life: life, grav: grav, n: n, _sz: size });
 }
 
 // 每帧推进所有粒子簇（combat_ai.js combatUpdate 调用）
@@ -58,7 +58,9 @@ function updateParticles(dt) {
       pos[k+2] += b.vel[k+2] * dt;
     }
     b.pts.geometry.attributes.position.needsUpdate = true;
-    b.pts.material.opacity = Math.max(0, 1 - b.t / b.life);
+    var frac = Math.max(0, 1 - b.t / b.life);
+    b.pts.material.opacity = frac;
+    b.pts.material.size    = b._sz * (0.25 + 0.75 * frac);
     if (b.t >= b.life) {
       scene.remove(b.pts);
       b.pts.geometry.dispose();

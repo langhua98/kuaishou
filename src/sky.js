@@ -15,7 +15,7 @@
 // 雨：相机周围圆柱体内 300 条短线段下落循环，仅雨强 >0 时更新和显示。
 
 var DAY_LEN = 600;          // 一整天 600 秒（10 分钟）
-var skyTime = 0.32;         // 出生在上午
+var skyTime = 0.42;         // 固定在下午（昼夜循环已关闭）
 
 // ── 天空穹顶（顶点色渐变，每帧重算）────────────────────────────────────────────
 var _domeGeo = new THREE.SphereGeometry(170, 16, 9);
@@ -133,7 +133,7 @@ function _nextWeather() {
 
 // ── 每帧更新（game.js tick 调用）──────────────────────────────────────────────
 function updateSky(dt) {
-  skyTime = (skyTime + dt / DAY_LEN) % 1;
+  // skyTime 已固定，无昼夜循环
   var ang  = (skyTime - 0.25) * Math.PI * 2;
   var elev = Math.sin(ang);                          // 太阳仰角 -1..1
 

@@ -552,8 +552,8 @@ function _aiUnit(u, dt, now) {
         if (ntw) {
           var twd = Math.sqrt((ntw.x-u.x)*(ntw.x-u.x)+(ntw.z-u.z)*(ntw.z-u.z));
           if (twd > 2.2) {
-            steerMove(u, ntw.x, ntw.z, t.spd, dt);
-            if (u.actT <= 0) playAnim(u, ANIM.run, 0.2);
+            var twMoved = steerMove(u, ntw.x, ntw.z, t.spd, dt);
+            if (u.actT <= 0) playAnim(u, twMoved ? ANIM.run : ANIM.idle, 0.2);
           } else {
             faceTo(u, ntw.x, ntw.z, dt);
             if (u.atkCd <= 0 && u.actT <= 0) {
@@ -584,8 +584,8 @@ function _aiUnit(u, dt, now) {
         }
       } else {
         if (d > t.range) {
-          steerMove(u, tgt.x, tgt.z, t.spd, dt);
-          if (u.actT <= 0) playAnim(u, ANIM.run, 0.2);
+          var skMoved = steerMove(u, tgt.x, tgt.z, t.spd, dt);
+          if (u.actT <= 0) playAnim(u, skMoved ? ANIM.run : ANIM.idle, 0.2);
         } else {
           u.state = 'FIGHT';
         }

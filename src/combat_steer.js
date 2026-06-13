@@ -6,31 +6,42 @@
 // 上下坡：跟随地形列高度，差 ≤1 格直接走上（体素世界天然台阶）。
 
 // ── 领地结界系统 ──────────────────────────────────────────────────────────────
-// 每块领地石放置时创建 R=25m 保护圈；敌方无法进入。
-// 双层紫色线框（内层实线 + 外层虚框）+ 脉冲透明度动画。
+// 每块领地石放置时创建 R=25m 圆形穹顶保护圈；敌方无法进入。
+// 半球形穹顶：内壁半透明 + 经纬线框 + 底部圆环 + 脉冲动画。
 
-var _territoryList = [];   // [{cx,cz,r,mesh,meshOut,_t}]
+var _territoryList = [];   // [{cx,cz,r,mesh,meshOut,ring}]
 var _territoryTime = 0;    // 动画时间（updateTerritoryFx 累加）
 
 function _addTerritory(bx, by, bz) {
-  var R = 25, H = 18;
+  var R = 25;
   var cx = bx + 0.5, cz = bz + 0.5;
 
-  // 内层：主边框（亮紫色）
-  var geo1 = new THREE.BoxGeometry(R * 2, H, R * 2);
-  var mat1 = new THREE.LineBasicMaterial({ color: 0x9333ea, transparent: true, opacity: 0.9 });
-  var mesh1 = new THREE.LineSegments(new THREE.EdgesGeometry(geo1), mat1);
-  mesh1.position.set(cx, by + H / 2, cz);
-  scene.add(mesh1);
+  // 穹顶内壁（半透明紫色，BackSide 从内部可见）
+  var geoInner = new THREE.SphereGeometry(R, 48, 24, 0, Math.PI * 2, 0, Math.PI * 0.5);
+  var matInner = new THREE.MeshBasicMaterial({
+    color: 0x9333ea, transparent: true, opacity: 0.07,
+    side: THREE.BackSide, depthWrite: false
+  });
+  var meshInner = new THREE.Mesh(geoInner, matInner);
+  meshInner.position.set(cx, by, cz);
+  scene.add(meshInner);
 
-  // 外层：略大虚框（淡紫色，稍慢反向旋转）
-  var geo2 = new THREE.BoxGeometry(R * 2.08, H * 1.12, R * 2.08);
-  var mat2 = new THREE.LineBasicMaterial({ color: 0xc084fc, transparent: true, opacity: 0.3 });
-  var mesh2 = new THREE.LineSegments(new THREE.EdgesGeometry(geo2), mat2);
-  mesh2.position.set(cx, by + H / 2, cz);
-  scene.add(mesh2);
+  // 穹顶经纬线框（稀疏格，穹顶形态清晰）
+  var geoWire = new THREE.SphereGeometry(R * 1.005, 18, 9, 0, Math.PI * 2, 0, Math.PI * 0.5);
+  var matWire = new THREE.LineBasicMaterial({ color: 0xc084fc, transparent: true, opacity: 0.45 });
+  var meshWire = new THREE.LineSegments(new THREE.WireframeGeometry(geoWire), matWire);
+  meshWire.position.set(cx, by, cz);
+  scene.add(meshWire);
 
-  _territoryList.push({ cx: cx, cz: cz, r: R, mesh: mesh1, meshOut: mesh2 });
+  // 底部圆环地基（落地光圈）
+  var geoRing = new THREE.TorusGeometry(R, 0.18, 6, 72);
+  var matRing = new THREE.MeshBasicMaterial({ color: 0xc084fc, transparent: true, opacity: 0.6 });
+  var meshRing = new THREE.Mesh(geoRing, matRing);
+  meshRing.rotation.x = Math.PI * 0.5;
+  meshRing.position.set(cx, by + 0.15, cz);
+  scene.add(meshRing);
+
+  _territoryList.push({ cx: cx, cz: cz, r: R, mesh: meshInner, meshOut: meshWire, ring: meshRing });
 }
 
 function _removeTerritory(bx, by, bz) {
@@ -38,8 +49,9 @@ function _removeTerritory(bx, by, bz) {
   for (i = _territoryList.length - 1; i >= 0; i--) {
     var t = _territoryList[i];
     if (Math.abs(t.cx - cx) < 0.5 && Math.abs(t.cz - cz) < 0.5) {
-      scene.remove(t.mesh); t.mesh.material.dispose();
-      scene.remove(t.meshOut); t.meshOut.material.dispose();
+      scene.remove(t.mesh); t.mesh.geometry.dispose(); t.mesh.material.dispose();
+      scene.remove(t.meshOut); t.meshOut.geometry.dispose(); t.meshOut.material.dispose();
+      if (t.ring) { scene.remove(t.ring); t.ring.geometry.dispose(); t.ring.material.dispose(); }
       _territoryList.splice(i, 1);
       return;
     }
@@ -52,20 +64,20 @@ function updateTerritoryFx(dt) {
   var i, t, pulse;
   for (i = 0; i < _territoryList.length; i++) {
     t = _territoryList[i];
-    pulse = 0.55 + 0.38 * Math.sin(_territoryTime * 2.2 + i * 1.3);
-    t.mesh.material.opacity = pulse;
-    t.meshOut.material.opacity = pulse * 0.35;
-    t.mesh.rotation.y    += dt * 0.04;
-    t.meshOut.rotation.y -= dt * 0.025;
+    pulse = Math.sin(_territoryTime * 2.2 + i * 1.3);
+    t.mesh.material.opacity    = 0.05 + 0.04 * pulse;   // 穹顶内壁微光脉动
+    t.meshOut.material.opacity = 0.30 + 0.20 * pulse;   // 线框脉动
+    if (t.ring) t.ring.material.opacity = 0.5 + 0.25 * Math.sin(_territoryTime * 3.0 + i);
   }
 }
 
-// 判断 (x,z) 是否在任意领地保护范围内（R=25 AABB）
+// 判断 (x,z) 是否在任意领地保护范围内（圆形精确判定）
 function _inTerritory(x, z) {
-  var i, t;
+  var i, t, dx, dz;
   for (i = 0; i < _territoryList.length; i++) {
     t = _territoryList[i];
-    if (Math.abs(x - t.cx) <= t.r && Math.abs(z - t.cz) <= t.r) return true;
+    dx = x - t.cx; dz = z - t.cz;
+    if (dx * dx + dz * dz <= t.r * t.r) return true;
   }
   return false;
 }
