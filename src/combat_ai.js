@@ -345,9 +345,9 @@ function _aiCavalry(u, dt, now) {
       if (cdd > 0.01) { u.vx = (ctx / cdd) * u.speed; u.vz = (ctz / cdd) * u.speed; }
       // 地形跟随移动；撞墙/悬崖累积停滞时间，>0.8s 判冲锋失败（需求文档 §4.4 速度跌破阈值）
       var cnx = u.x + u.vx * dt, cnz = u.z + u.vz * dt;
-      var cgy = _groundY(Math.floor(cnx), Math.floor(cnz));
-      if (cgy - u.y <= 1.5 && u.y - cgy <= 4) {
-        u.x = cnx; u.z = cnz; u.y += (cgy - u.y) * Math.min(1, 10 * dt);
+      var cgy = _walkHeight(cnx, cnz, u.y);
+      if (cgy !== null) {
+        u.x = cnx; u.z = cnz; u.y = cgy;   // 地面直接吸附（与步兵一致）
         u._stallT = 0;
       } else {
         u._stallT = (u._stallT || 0) + dt;
@@ -659,6 +659,8 @@ function combatUpdate(dt, now) {
   updateFloats(dt);   // 伤害飘字
   if (!combatUnits.length) return;
   var i, u;
+  // 空间哈希重建：AI 移动中的分离力查询用（碰撞解算内部会再建一次反映移动后位置）
+  if (typeof _rebuildGrid === 'function') _rebuildGrid();
   // 第一段：AI 决策与移动（可能更新 x/z）
   for (i = combatUnits.length - 1; i >= 0; i--) {
     _aiUnit(combatUnits[i], dt, now);

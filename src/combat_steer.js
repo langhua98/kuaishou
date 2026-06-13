@@ -82,72 +82,137 @@ function _inTerritory(x, z) {
   return false;
 }
 
+// ── 空间哈希网格（O(n²)→O(n·邻居)，支撑大规模战场分离/碰撞）──────────────────
+// 每帧重建一次：把活动单位按 2.5m 网格分桶。邻域查询只扫 3×3 桶，避免全表遍历。
+var _CELL = 2.5;
+var _grid = {};
+var _nbrBuf = [];   // 复用缓冲，避免每次查询分配数组/闭包（GC 抖动是密集战场掉帧主因）
+
+function _rebuildGrid() {
+  _grid = {};
+  var i, u, k;
+  for (i = 0; i < combatUnits.length; i++) {
+    u = combatUnits[i];
+    if (u.state === 'DEAD') continue;
+    k = Math.floor(u.x / _CELL) + ',' + Math.floor(u.z / _CELL);
+    if (_grid[k]) _grid[k].push(u); else _grid[k] = [u];
+  }
+}
+
+// 填充 _nbrBuf 为 (x,z) 半径内所有单位（含调用者自身，调用方自行排除），返回该缓冲
+function _queryNeighbors(x, z, radius) {
+  _nbrBuf.length = 0;
+  var c = Math.ceil(radius / _CELL); if (c < 1) c = 1;
+  var bx = Math.floor(x / _CELL), bz = Math.floor(z / _CELL), gx, gz, arr, i;
+  for (gx = -c; gx <= c; gx++) for (gz = -c; gz <= c; gz++) {
+    arr = _grid[(bx + gx) + ',' + (bz + gz)];
+    if (!arr) continue;
+    for (i = 0; i < arr.length; i++) _nbrBuf.push(arr[i]);
+  }
+  return _nbrBuf;
+}
+
+// ── 地形可走性（台阶感知）─────────────────────────────────────────────────────
+// 从 fromY 出发，目标列 (nx,nz) 是否可站立：
+//   抬升 ≤1 格可上（台阶），下落 ≤4 格可下（再深算悬崖不走），且站立格+头顶格无实心。
+// 返回可站立的地面高度；不可走返回 null。
+function _walkHeight(nx, nz, fromY) {
+  var gx = Math.floor(nx), gz = Math.floor(nz);
+  var gy = _groundY(gx, gz);
+  if (gy - fromY > 1.05) return null;     // 高于 1 格：当墙挡住
+  if (fromY - gy > 4) return null;        // 落差 >4 格：当悬崖不走
+  var b0 = getBlock(gx, gy, gz);          // 站立格（脚部）
+  var b1 = getBlock(gx, gy + 1, gz);      // 头顶格
+  if ((b0 !== AIR && b0 !== WATER) || (b1 !== AIR && b1 !== WATER)) return null;
+  return gy;
+}
+
+// 方向可走探测：沿 (dx,dz) 探 3 步，台阶高度逐步累进（楼梯可连续攀爬）
 function _dirClear(x, y, z, dx, dz) {
-  var i, cx, cz, by = Math.floor(y);
-  for (i = 1; i <= 4; i++) {
-    cx = Math.floor(x + dx * i * 0.5);
-    cz = Math.floor(z + dz * i * 0.5);
-    // 检查胸高 + 头顶第二格，覆盖城墙/建筑多层高度
-    var b1 = getBlock(cx, by + 1, cz);
-    var b2 = getBlock(cx, by + 2, cz);
-    if ((b1 !== AIR && b1 !== WATER) || (b2 !== AIR && b2 !== WATER)) return false;
+  var i, gy, fromY = y;
+  for (i = 1; i <= 3; i++) {
+    gy = _walkHeight(x + dx * i * 0.6, z + dz * i * 0.6, fromY);
+    if (gy === null) return false;
+    fromY = gy;
   }
   return true;
 }
 
-// 朝 (tx,tz) 移动；返回实际是否在移动
+// 朝 (tx,tz) 移动；返回本帧是否真的位移。
+// 含：空间哈希分离力 + 台阶感知避障 + 绕行侧迟滞（贴墙绕路）+ 卡死检测与脱困。
+var _STEER_OFF = [0, 0.5, 1.0, 1.6, 2.2, 2.8];   // 偏转角档位（绝对值，按 sign 取侧）
+
 function steerMove(u, tx, tz, spd, dt) {
   var dx = tx - u.x, dz = tz - u.z;
   var d = Math.sqrt(dx * dx + dz * dz);
   if (d < 0.05) return false;
   dx /= d; dz /= d;
 
-  // 分离力：邻近同阵营单位排斥（平方反比近似）
-  var i, o, ox, oz, od;
-  for (i = 0; i < combatUnits.length; i++) {
-    o = combatUnits[i];
+  // 分离力：3×3 桶邻域排斥（平方反比近似），仅扫附近单位
+  var nbrs = _queryNeighbors(u.x, u.z, BTL.sepR), i, o, ox, oz, od, w;
+  for (i = 0; i < nbrs.length; i++) {
+    o = nbrs[i];
     if (o === u || o.state === 'DEAD') continue;
-    ox = u.x - o.x; oz = u.z - o.z;
-    od = ox * ox + oz * oz;
+    ox = u.x - o.x; oz = u.z - o.z; od = ox * ox + oz * oz;
     if (od < BTL.sepR * BTL.sepR && od > 0.0001) {
-      od = Math.sqrt(od);
-      dx += (ox / od) * (1 - od / BTL.sepR) * 1.4;
-      dz += (oz / od) * (1 - od / BTL.sepR) * 1.4;
+      od = Math.sqrt(od); w = (1 - od / BTL.sepR) * 1.3;
+      dx += (ox / od) * w; dz += (oz / od) * w;
     }
   }
   var dl = Math.sqrt(dx * dx + dz * dz);
+  if (dl < 0.0001) { dx = (tx - u.x); dz = (tz - u.z); dl = Math.sqrt(dx*dx+dz*dz) || 1; }
   dx /= dl; dz /= dl;
 
-  // 避障：原方向 → ±30° → ±60° → ±90° → ±120° → ±150°（建筑角绕路必须覆盖更大角度）
-  var ANG = [0, 0.52, -0.52, 1.05, -1.05, 1.57, -1.57, 2.09, -2.09];
-  var best = null, a, ca, sa, ndx, ndz;
-  for (i = 0; i < ANG.length; i++) {
-    a = ANG[i]; ca = Math.cos(a); sa = Math.sin(a);
-    ndx = dx * ca - dz * sa; ndz = dx * sa + dz * ca;
-    if (_dirClear(u.x, u.y, u.z, ndx, ndz)) { best = [ndx, ndz]; break; }
-  }
-  if (!best) return false;   // 全堵（被夹角卡死）：停止等待，不再顶着墙蹭
+  // 脱困绕行：被卡时强制走存储的垂直逃逸方向一小段
+  if ((u._detourT || 0) > 0) { u._detourT -= dt; dx = u._detourDx; dz = u._detourDz; }
 
-  var mv = Math.min(spd * dt, d);
-  var nx = u.x + best[0] * mv, nz = u.z + best[1] * mv;
-
-  // 领地结界：敌方不得进入保护区（直接停住，保持在边界外）
-  if (u.side === 1 && _inTerritory(nx, nz)) return false;
-
-  // 地形跟随：目标列地面高度差 ≤1.2 格可走，悬崖/高墙不走
-  var gy = _groundY(Math.floor(nx), Math.floor(nz));
-  if (gy - u.y <= 1.2 && u.y - gy <= 4) {
-    u.x = nx; u.z = nz;
-    u.y += (gy - u.y) * Math.min(1, 10 * dt);
+  // 避障：先直行，再按"上次成功绕行侧"优先逐档偏转，找第一个可走方向（贴墙绕路）
+  var sign = u._turnSign || 1;
+  var best = null, chosenA = 0, k, a, ca, sa, ndx, ndz, ti, tries;
+  for (k = 0; k < _STEER_OFF.length; k++) {
+    tries = (_STEER_OFF[k] === 0) ? [0] : [_STEER_OFF[k] * sign, -_STEER_OFF[k] * sign];
+    for (ti = 0; ti < tries.length; ti++) {
+      a = tries[ti]; ca = Math.cos(a); sa = Math.sin(a);
+      ndx = dx * ca - dz * sa; ndz = dx * sa + dz * ca;
+      if (_dirClear(u.x, u.y, u.z, ndx, ndz)) { best = [ndx, ndz]; chosenA = a; break; }
+    }
+    if (best) break;
   }
 
-  // 朝向平滑转向移动方向
-  var tyaw = Math.atan2(best[0], best[1]);
-  var dy = tyaw - u.yaw;
-  while (dy > Math.PI)  dy -= Math.PI * 2;
-  while (dy < -Math.PI) dy += Math.PI * 2;
-  u.yaw += dy * Math.min(1, 10 * dt);
-  return true;
+  var moved = false;
+  if (best) {
+    if (chosenA !== 0) u._turnSign = chosenA > 0 ? 1 : -1;   // 记住绕行侧，下帧延续
+    var mv = Math.min(spd * dt, d);
+    var nx = u.x + best[0] * mv, nz = u.z + best[1] * mv;
+    // 领地结界：敌方不得进入（停在边界外）；否则按台阶高度落地，y 直接吸附地面
+    if (!(u.side === 1 && _inTerritory(nx, nz))) {
+      var gy = _walkHeight(nx, nz, u.y);
+      if (gy !== null) { u.x = nx; u.z = nz; u.y = gy; moved = true; }
+    }
+    var tyaw = Math.atan2(best[0], best[1]);
+    var dy = tyaw - u.yaw;
+    while (dy > Math.PI)  dy -= Math.PI * 2;
+    while (dy < -Math.PI) dy += Math.PI * 2;
+    u.yaw += dy * Math.min(1, 10 * dt);
+  }
+
+  // 卡死检测：本帧推进 < 期望的 30% 累计停滞，>0.7s 触发一次垂直绕行脱困
+  if (u._lastX === undefined) { u._lastX = u.x; u._lastZ = u.z; }
+  var mdx = u.x - u._lastX, mdz = u.z - u._lastZ;
+  var need = spd * dt * 0.3;
+  if (mdx * mdx + mdz * mdz < need * need) u._stuckT = (u._stuckT || 0) + dt;
+  else u._stuckT = 0;
+  u._lastX = u.x; u._lastZ = u.z;
+  if ((u._stuckT || 0) > 0.7 && (u._detourT || 0) <= 0) {
+    u._stuckT = 0; u._detourT = 0.5;
+    var s = (Math.random() < 0.5) ? 1 : -1;
+    u._turnSign = s;
+    var gx = tx - u.x, gz = tz - u.z, gl = Math.sqrt(gx * gx + gz * gz) || 1;
+    gx /= gl; gz /= gl;
+    u._detourDx = -gz * s; u._detourDz = gx * s;   // 垂直于目标方向，随机一侧
+  }
+
+  return moved;
 }
 
 // ── 硬碰撞解算（每帧，AI 移动之后、渲染同步之前）────────────────────────────
@@ -159,42 +224,42 @@ var UNIT_R = 0.45;
 
 function _tryShift(u, sx, sz) {
   var nx = u.x + sx, nz = u.z + sz;
-  var gy = _groundY(Math.floor(nx), Math.floor(nz));
-  if (Math.abs(gy - u.y) > 1.2) return;                       // 落差过大：不推
-  var head = getBlock(Math.floor(nx), Math.floor(u.y) + 1, Math.floor(nz));
-  if (head !== AIR && head !== WATER) return;                 // 推进墙里：不推
-  u.x = nx; u.z = nz;
-  u.y += (gy - u.y) * 0.5;
+  var gy = _walkHeight(nx, nz, u.y);
+  if (gy === null) return;        // 推进墙里/推下悬崖：不推
+  u.x = nx; u.z = nz; u.y = gy;   // 地面直接吸附（与移动一致，杜绝悬浮/抖动）
 }
 
+// 硬碰撞解算：空间哈希 3×3 邻域逐对推挤（O(n·邻居)），单帧推力封顶抑制密集抖动
 function resolveUnitCollisions() {
-  var n = combatUnits.length, i, j, a, b, dx, dz, d2, d, min, push;
+  _rebuildGrid();
+  var n = combatUnits.length, i, a, b, nbrs, k, dx, dz, d2, d, push;
+  var min = UNIT_R * 2, mm = min * min;
   for (i = 0; i < n; i++) {
     a = combatUnits[i];
     if (a.state === 'DEAD') continue;
 
-    for (j = i + 1; j < n; j++) {
-      b = combatUnits[j];
-      if (b.state === 'DEAD') continue;
-      dx = b.x - a.x; dz = b.z - a.z;
-      d2 = dx * dx + dz * dz;
-      min = UNIT_R * 2;
-      if (d2 >= min * min) continue;
-      if (d2 < 0.0001) { dx = 0.02 * (i - j); dz = 0.017; d2 = dx * dx + dz * dz; }  // 完全重合：固定方向錯开
+    nbrs = _queryNeighbors(a.x, a.z, min);
+    for (k = 0; k < nbrs.length; k++) {
+      b = nbrs[k];
+      if (b === a || b.state === 'DEAD' || b.id <= a.id) continue;   // 每对仅算一次（id 去重）
+      dx = b.x - a.x; dz = b.z - a.z; d2 = dx * dx + dz * dz;
+      if (d2 >= mm) continue;
+      if (d2 < 0.0001) { dx = 0.02 * (a.id - b.id); dz = 0.017; d2 = dx * dx + dz * dz; }
       d = Math.sqrt(d2);
       push = (min - d) * 0.5;
+      if (push > 0.25) push = 0.25;   // 单帧推力上限：防止爆冲来回弹（鬼畜）
       dx /= d; dz /= d;
       _tryShift(a, -dx * push, -dz * push);
       _tryShift(b,  dx * push,  dz * push);
     }
 
     // 与玩家推挤（单方向：推单位）
-    dx = a.x - player.x; dz = a.z - player.z;
-    d2 = dx * dx + dz * dz;
-    min = UNIT_R + 0.42;
-    if (d2 < min * min && d2 > 0.0001) {
+    dx = a.x - player.x; dz = a.z - player.z; d2 = dx * dx + dz * dz;
+    var pm = UNIT_R + 0.42;
+    if (d2 < pm * pm && d2 > 0.0001) {
       d = Math.sqrt(d2);
-      _tryShift(a, (dx / d) * (min - d), (dz / d) * (min - d));
+      push = pm - d; if (push > 0.3) push = 0.3;
+      _tryShift(a, (dx / d) * push, (dz / d) * push);
     }
   }
 }
