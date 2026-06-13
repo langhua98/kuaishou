@@ -4596,47 +4596,27 @@ camera.add(armGroupL);
 
 scene.add(camera);   // camera 有子节点时必须加入场景树
 
-// ── 破坏目标框（selBox）：套在准星瞄准的实心方块上 ────────────────────────────
-var selBox = (function () {
-  var geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.004, 1.004, 1.004));
-  var mat = new THREE.LineDashedMaterial({ color: 0x00ff66, dashSize: 0.10, gapSize: 0.06, linewidth: 2 });
-  var ls  = new THREE.LineSegments(geo, mat);
+// 生成虚线边框 LineSegments（EdgesGeometry + LineDashedMaterial）
+function _makeDashBox(color, size, dashSize, gapSize, opacity) {
+  var geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(size, size, size));
+  var mat = new THREE.LineDashedMaterial({
+    color: color, dashSize: dashSize, gapSize: gapSize,
+    transparent: true, opacity: opacity
+  });
+  var ls = new THREE.LineSegments(geo, mat);
   ls.computeLineDistances();
   ls.visible = false;
   scene.add(ls);
   return ls;
-}());
-
-// 立体边框：12 条细长方块拼出方块轮廓（WebGL 忽略 linewidth，线框永远 1px 太细，
-// 改用实体细条才能得到真正可调的"扁线"粗度）。返回 Group，用法同 LineSegments（position/visible）。
-function _makeFrameBox(color, t, size, opacity) {
-  var g = new THREE.Group();
-  var mat = new THREE.MeshBasicMaterial({
-    color: color, transparent: true, opacity: opacity, depthWrite: false
-  });
-  var h = size / 2;
-  var geoX = new THREE.BoxGeometry(size + t, t, t);   // 沿 X 的棱
-  var geoY = new THREE.BoxGeometry(t, size + t, t);   // 沿 Y 的棱
-  var geoZ = new THREE.BoxGeometry(t, t, size + t);   // 沿 Z 的棱
-  var sgn = [-h, h], i, j, bx, by, bz;
-  for (i = 0; i < 2; i++) {
-    for (j = 0; j < 2; j++) {
-      bx = new THREE.Mesh(geoX, mat); bx.position.set(0, sgn[i], sgn[j]); g.add(bx);
-      by = new THREE.Mesh(geoY, mat); by.position.set(sgn[i], 0, sgn[j]); g.add(by);
-      bz = new THREE.Mesh(geoZ, mat); bz.position.set(sgn[i], sgn[j], 0); g.add(bz);
-    }
-  }
-  return g;
 }
 
-// 放置预览框（placeBox）：始终跟随准星命中方块的前一格
-// 准星朝天 / 朝空 → 无预览 → 无法放置，行为自然一致。
-var placeBox = (function () {
-  var g = _makeFrameBox(0x44ffaa, 0.07, 1.0, 0.85);   // 扁线粗度 0.07
-  g.visible = false;
-  scene.add(g);
-  return g;
-}());
+// ── 破坏目标框（selBox）：套在准星瞄准的实心方块上 ────────────────────────────
+var selBox = _makeDashBox(0x00ff66, 1.004, 0.10, 0.06, 1.0);
+
+// 放置预览框（placeBox）：有效放置位置，绿色虚线
+var placeBox    = _makeDashBox(0x44ffaa, 1.007, 0.14, 0.07, 0.85);
+// 非法放置框（invalidBox）：与玩家重叠不可放置，红色虚线
+var invalidBox  = _makeDashBox(0xff3333, 1.007, 0.14, 0.07, 0.85);
 
 var _place = {
   lastPos: null,   // 上一次放置的方块坐标
@@ -4775,7 +4755,7 @@ function tick(now) {
     if (tryPlayerAttack()) {                 // 前方有敌人：挥剑，不挖方块
       _lastBreak = nowS;
     } else {
-      var hitB = raycast(6);
+      var hitB = raycast(12);
       if (hitB) {
         var _brokenId = getBlock(hitB.x, hitB.y, hitB.z);
         digSound(_brokenId);   // 先取 ID 再清除
@@ -4788,7 +4768,7 @@ function tick(now) {
   }
 
   // ── 破坏目标框：每帧 raycast，套在准星瞄准的实心方块上 ──────────────────────
-  var selHit = raycast(6);
+  var selHit = raycast(12);
   if (selHit) {
     selBox.visible = true;
     selBox.position.set(selHit.x + 0.5, selHit.y + 0.5, selHit.z + 0.5);
@@ -4874,7 +4854,7 @@ function tick(now) {
   // 超时清除方向记忆（连续 7 秒无有效预览）
   if (_idleInc) {
     _place.idleT += dt;
-    if (_place.idleT > 7) {
+    if (_place.idleT > 5) {
       _place.lastPos = null;
       _place.lastDir = null;
       _place.idleT   = 0;
@@ -4884,10 +4864,25 @@ function tick(now) {
   }
 
   if (_place.pos) {
-    placeBox.position.set(_place.pos.x + 0.5, _place.pos.y + 0.5, _place.pos.z + 0.5);
-    placeBox.visible = true;
+    var _ppx0 = Math.floor(player.x - PR), _ppx1 = Math.floor(player.x + PR);
+    var _ppz0 = Math.floor(player.z - PR), _ppz1 = Math.floor(player.z + PR);
+    var _ppy0 = Math.floor(player.y),      _ppy1 = Math.floor(player.y + PH - 0.01);
+    var _pp = _place.pos;
+    var _placeBlocked = !(_pp.x < _ppx0 || _pp.x > _ppx1 ||
+                          _pp.y < _ppy0 || _pp.y > _ppy1 ||
+                          _pp.z < _ppz0 || _pp.z > _ppz1);
+    if (_placeBlocked) {
+      invalidBox.position.set(_pp.x + 0.5, _pp.y + 0.5, _pp.z + 0.5);
+      invalidBox.visible = true;
+      placeBox.visible   = false;
+    } else {
+      placeBox.position.set(_pp.x + 0.5, _pp.y + 0.5, _pp.z + 0.5);
+      placeBox.visible   = true;
+      invalidBox.visible = false;
+    }
   } else {
-    placeBox.visible = false;
+    placeBox.visible   = false;
+    invalidBox.visible = false;
   }
 
   // ── 放置（单次 + 长按节流）─────────────────────────────────────────────────
