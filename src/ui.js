@@ -1,37 +1,91 @@
 // ─── ui.js ────────────────────────────────────────────────────────────────────
 // 游戏 UI：热键栏渲染、槽位选择、仓库面板。
-//
-// 热键栏：只显示 player.inv 前 HOTBAR_N 个，末尾附 📦 仓库开关。
-//   每个槽位显示方块颜色（用 BCOL 顶面色生成内联背景色）和中文名。
-//   点击/触摸切换 player.slot，更新 .on 样式类。
-// 仓库：inv 其余方块收进面板（热键栏上方展开）；
-//   点仓库方块 = 与当前选中的热键槽互换，双向刷新并同步手持模型。
+// 每个槽位用 canvas 绘制等轴测微型方块图标（三面：顶/左/右），逼真展示方块外观。
 
 var HOTBAR_N = 8;
 var _bagEl = null;
+
+// 在 34×34 canvas 上绘制等轴测方块图标
+function _drawBlockIcon(cv, id) {
+  var ctx = cv.getContext('2d');
+  ctx.clearRect(0, 0, 34, 34);
+  var cs = BCOL[id];
+  if (!cs) return;
+
+  var s = 11, cx = 17, cy = 7;
+  // 三面颜色
+  var tR = Math.round(cs[0]*255), tG = Math.round(cs[1]*255), tB = Math.round(cs[2]*255);
+  var sR = Math.round(cs[6]*255), sG = Math.round(cs[7]*255), sB = Math.round(cs[8]*255);
+
+  // 右面（最暗）
+  ctx.beginPath();
+  ctx.moveTo(cx,   cy+s);
+  ctx.lineTo(cx+s, cy+s*0.5);
+  ctx.lineTo(cx+s, cy+s*1.5);
+  ctx.lineTo(cx,   cy+s*2);
+  ctx.closePath();
+  ctx.fillStyle = 'rgb('+Math.round(sR*0.52)+','+Math.round(sG*0.52)+','+Math.round(sB*0.52)+')';
+  ctx.fill();
+
+  // 左面（中等亮度）
+  ctx.beginPath();
+  ctx.moveTo(cx-s, cy+s*0.5);
+  ctx.lineTo(cx,   cy+s);
+  ctx.lineTo(cx,   cy+s*2);
+  ctx.lineTo(cx-s, cy+s*1.5);
+  ctx.closePath();
+  ctx.fillStyle = 'rgb('+Math.round(sR*0.72)+','+Math.round(sG*0.72)+','+Math.round(sB*0.72)+')';
+  ctx.fill();
+
+  // 顶面（最亮）
+  ctx.beginPath();
+  ctx.moveTo(cx,   cy);
+  ctx.lineTo(cx+s, cy+s*0.5);
+  ctx.lineTo(cx,   cy+s);
+  ctx.lineTo(cx-s, cy+s*0.5);
+  ctx.closePath();
+  ctx.fillStyle = 'rgb('+tR+','+tG+','+tB+')';
+  ctx.fill();
+
+  // 棱线描边
+  ctx.strokeStyle = 'rgba(0,0,0,0.28)';
+  ctx.lineWidth = 0.7;
+  ctx.beginPath();
+  ctx.moveTo(cx-s, cy+s*0.5); ctx.lineTo(cx, cy);
+  ctx.lineTo(cx+s, cy+s*0.5); ctx.lineTo(cx, cy+s); ctx.lineTo(cx-s, cy+s*0.5);
+  ctx.moveTo(cx, cy+s);  ctx.lineTo(cx, cy+s*2);
+  ctx.moveTo(cx, cy+s);  ctx.lineTo(cx+s, cy+s*0.5);
+  ctx.moveTo(cx, cy+s*2); ctx.lineTo(cx+s, cy+s*1.5);
+  ctx.moveTo(cx, cy+s*2); ctx.lineTo(cx-s, cy+s*1.5);
+  ctx.stroke();
+}
+
+function _makeSlotIcon(id) {
+  var cv = document.createElement('canvas');
+  cv.width = 34; cv.height = 34;
+  cv.className = 'slot-ic';
+  _drawBlockIcon(cv, id);
+  return cv;
+}
 
 function buildHotbar() {
   var hbar = document.getElementById('hotbar');
   if (!hbar) return;
   hbar.innerHTML = '';
 
-  var i, id, slot, cs, r, g, b;
+  var i, id, slot;
   var n = Math.min(HOTBAR_N, player.inv.length);
   for (i = 0; i < n; i++) {
     id   = player.inv[i];
-    cs   = BCOL[id];
-    r    = Math.round(cs[0] * 255);
-    g    = Math.round(cs[1] * 255);
-    b    = Math.round(cs[2] * 255);
-
     slot = document.createElement('div');
     slot.className = 'slot' + (i === player.slot ? ' on' : '');
     slot.id = 'slot-' + i;
-    slot.innerHTML =
-      '<div class="slot-ic" style="background:rgb(' + r + ',' + g + ',' + b + ')"></div>' +
-      '<div class="slot-lbl">' + BNAMES[id] + '</div>';
+    slot.appendChild(_makeSlotIcon(id));
+    var lbl = document.createElement('div');
+    lbl.className = 'slot-lbl';
+    lbl.textContent = BNAMES[id];
+    slot.appendChild(lbl);
 
-    // 闭包捕获 i 和 slot 元素，避免循环变量陷阱
     (function (idx, slotEl) {
       slotEl.addEventListener('touchstart', function (e) {
         e.preventDefault();
@@ -48,9 +102,15 @@ function buildHotbar() {
   // 仓库开关
   var bagBtn = document.createElement('div');
   bagBtn.className = 'slot';
-  bagBtn.innerHTML =
-    '<div class="slot-ic" style="background:transparent;font-size:26px;line-height:34px;text-align:center">📦</div>' +
-    '<div class="slot-lbl">仓库</div>';
+  var bagIc = document.createElement('div');
+  bagIc.className = 'slot-ic';
+  bagIc.style.cssText = 'background:transparent;font-size:26px;line-height:34px;text-align:center';
+  bagIc.textContent = '📦';
+  var bagLbl = document.createElement('div');
+  bagLbl.className = 'slot-lbl';
+  bagLbl.textContent = '仓库';
+  bagBtn.appendChild(bagIc);
+  bagBtn.appendChild(bagLbl);
   bagBtn.addEventListener('touchstart', function (e) { e.preventDefault(); toggleBag(); }, { passive: false });
   bagBtn.addEventListener('click', function () { toggleBag(); });
   hbar.appendChild(bagBtn);
@@ -75,16 +135,16 @@ function _renderBag() {
   var i;
   for (i = HOTBAR_N; i < player.inv.length; i++) {
     (function (idx) {
-      var id = player.inv[idx], cs = BCOL[id];
+      var id = player.inv[idx];
       var el = document.createElement('div');
       el.className = 'slot';
-      el.innerHTML =
-        '<div class="slot-ic" style="background:rgb(' +
-        Math.round(cs[0] * 255) + ',' + Math.round(cs[1] * 255) + ',' + Math.round(cs[2] * 255) +
-        ')"></div><div class="slot-lbl">' + BNAMES[id] + '</div>';
+      el.appendChild(_makeSlotIcon(id));
+      var lbl = document.createElement('div');
+      lbl.className = 'slot-lbl';
+      lbl.textContent = BNAMES[id];
+      el.appendChild(lbl);
       function pick(e) {
         if (e && e.preventDefault) e.preventDefault();
-        // 与当前选中的热键槽互换，热键栏与仓库都重渲染
         var tmp = player.inv[player.slot];
         player.inv[player.slot] = player.inv[idx];
         player.inv[idx] = tmp;

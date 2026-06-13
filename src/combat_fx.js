@@ -44,10 +44,21 @@ function shootArrow(u, tgt) {
     mesh = g.scene.clone(true);
     mesh.scale.setScalar(1.4);
   } else {
-    mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(0.04, 0.04, 0.7),
+    // 箭杆（细圆柱，Y 轴为长轴，旋转后对齐飞行方向）
+    var arrowGrp = new THREE.Group();
+    var shaft = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.025, 0.025, 0.65, 4),
       new THREE.MeshBasicMaterial({ color: 0x8a6a3a })
     );
+    // 箭头（小圆锥，Y+ 向上即为箭头方向）
+    var head = new THREE.Mesh(
+      new THREE.ConeGeometry(0.055, 0.15, 4),
+      new THREE.MeshBasicMaterial({ color: 0x4a4a2a })
+    );
+    head.position.y = 0.4;
+    arrowGrp.add(shaft);
+    arrowGrp.add(head);
+    mesh = arrowGrp;
   }
   var sx = u.x, sy = u.y + u.t.h * 0.75, sz = u.z;
   var dx = tgt.x - sx, dz = tgt.z - sz;
@@ -72,7 +83,11 @@ function updateArrows(dt) {
     a.vy -= G * dt;
     a.x += a.vx * dt; a.y += a.vy * dt; a.z += a.vz * dt;
     a.mesh.position.set(a.x, a.y, a.z);
-    a.mesh.lookAt(a.x + a.vx, a.y + a.vy, a.z + a.vz);
+    // 箭杆默认 Y 轴为长轴，旋转使 Y+ 朝向飞行方向 (vx,vy,vz)
+    var _sxz = Math.sqrt(a.vx * a.vx + a.vz * a.vz);
+    a.mesh.rotation.order = 'YXZ';
+    a.mesh.rotation.y = Math.atan2(a.vx, a.vz);
+    a.mesh.rotation.x = Math.PI / 2 - Math.atan2(a.vy, _sxz);
 
     var hit = false;
     // 命中敌对单位（半径 0.7）。玩家免伤：箭矢直接穿过玩家

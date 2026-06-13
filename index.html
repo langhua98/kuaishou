@@ -1224,38 +1224,92 @@ tapBtn('b-fly', function () {
 // ═══ src/ui.js ═══
 // ─── ui.js ────────────────────────────────────────────────────────────────────
 // 游戏 UI：热键栏渲染、槽位选择、仓库面板。
-//
-// 热键栏：只显示 player.inv 前 HOTBAR_N 个，末尾附 📦 仓库开关。
-//   每个槽位显示方块颜色（用 BCOL 顶面色生成内联背景色）和中文名。
-//   点击/触摸切换 player.slot，更新 .on 样式类。
-// 仓库：inv 其余方块收进面板（热键栏上方展开）；
-//   点仓库方块 = 与当前选中的热键槽互换，双向刷新并同步手持模型。
+// 每个槽位用 canvas 绘制等轴测微型方块图标（三面：顶/左/右），逼真展示方块外观。
 
 var HOTBAR_N = 8;
 var _bagEl = null;
+
+// 在 34×34 canvas 上绘制等轴测方块图标
+function _drawBlockIcon(cv, id) {
+  var ctx = cv.getContext('2d');
+  ctx.clearRect(0, 0, 34, 34);
+  var cs = BCOL[id];
+  if (!cs) return;
+
+  var s = 11, cx = 17, cy = 7;
+  // 三面颜色
+  var tR = Math.round(cs[0]*255), tG = Math.round(cs[1]*255), tB = Math.round(cs[2]*255);
+  var sR = Math.round(cs[6]*255), sG = Math.round(cs[7]*255), sB = Math.round(cs[8]*255);
+
+  // 右面（最暗）
+  ctx.beginPath();
+  ctx.moveTo(cx,   cy+s);
+  ctx.lineTo(cx+s, cy+s*0.5);
+  ctx.lineTo(cx+s, cy+s*1.5);
+  ctx.lineTo(cx,   cy+s*2);
+  ctx.closePath();
+  ctx.fillStyle = 'rgb('+Math.round(sR*0.52)+','+Math.round(sG*0.52)+','+Math.round(sB*0.52)+')';
+  ctx.fill();
+
+  // 左面（中等亮度）
+  ctx.beginPath();
+  ctx.moveTo(cx-s, cy+s*0.5);
+  ctx.lineTo(cx,   cy+s);
+  ctx.lineTo(cx,   cy+s*2);
+  ctx.lineTo(cx-s, cy+s*1.5);
+  ctx.closePath();
+  ctx.fillStyle = 'rgb('+Math.round(sR*0.72)+','+Math.round(sG*0.72)+','+Math.round(sB*0.72)+')';
+  ctx.fill();
+
+  // 顶面（最亮）
+  ctx.beginPath();
+  ctx.moveTo(cx,   cy);
+  ctx.lineTo(cx+s, cy+s*0.5);
+  ctx.lineTo(cx,   cy+s);
+  ctx.lineTo(cx-s, cy+s*0.5);
+  ctx.closePath();
+  ctx.fillStyle = 'rgb('+tR+','+tG+','+tB+')';
+  ctx.fill();
+
+  // 棱线描边
+  ctx.strokeStyle = 'rgba(0,0,0,0.28)';
+  ctx.lineWidth = 0.7;
+  ctx.beginPath();
+  ctx.moveTo(cx-s, cy+s*0.5); ctx.lineTo(cx, cy);
+  ctx.lineTo(cx+s, cy+s*0.5); ctx.lineTo(cx, cy+s); ctx.lineTo(cx-s, cy+s*0.5);
+  ctx.moveTo(cx, cy+s);  ctx.lineTo(cx, cy+s*2);
+  ctx.moveTo(cx, cy+s);  ctx.lineTo(cx+s, cy+s*0.5);
+  ctx.moveTo(cx, cy+s*2); ctx.lineTo(cx+s, cy+s*1.5);
+  ctx.moveTo(cx, cy+s*2); ctx.lineTo(cx-s, cy+s*1.5);
+  ctx.stroke();
+}
+
+function _makeSlotIcon(id) {
+  var cv = document.createElement('canvas');
+  cv.width = 34; cv.height = 34;
+  cv.className = 'slot-ic';
+  _drawBlockIcon(cv, id);
+  return cv;
+}
 
 function buildHotbar() {
   var hbar = document.getElementById('hotbar');
   if (!hbar) return;
   hbar.innerHTML = '';
 
-  var i, id, slot, cs, r, g, b;
+  var i, id, slot;
   var n = Math.min(HOTBAR_N, player.inv.length);
   for (i = 0; i < n; i++) {
     id   = player.inv[i];
-    cs   = BCOL[id];
-    r    = Math.round(cs[0] * 255);
-    g    = Math.round(cs[1] * 255);
-    b    = Math.round(cs[2] * 255);
-
     slot = document.createElement('div');
     slot.className = 'slot' + (i === player.slot ? ' on' : '');
     slot.id = 'slot-' + i;
-    slot.innerHTML =
-      '<div class="slot-ic" style="background:rgb(' + r + ',' + g + ',' + b + ')"></div>' +
-      '<div class="slot-lbl">' + BNAMES[id] + '</div>';
+    slot.appendChild(_makeSlotIcon(id));
+    var lbl = document.createElement('div');
+    lbl.className = 'slot-lbl';
+    lbl.textContent = BNAMES[id];
+    slot.appendChild(lbl);
 
-    // 闭包捕获 i 和 slot 元素，避免循环变量陷阱
     (function (idx, slotEl) {
       slotEl.addEventListener('touchstart', function (e) {
         e.preventDefault();
@@ -1272,9 +1326,15 @@ function buildHotbar() {
   // 仓库开关
   var bagBtn = document.createElement('div');
   bagBtn.className = 'slot';
-  bagBtn.innerHTML =
-    '<div class="slot-ic" style="background:transparent;font-size:26px;line-height:34px;text-align:center">📦</div>' +
-    '<div class="slot-lbl">仓库</div>';
+  var bagIc = document.createElement('div');
+  bagIc.className = 'slot-ic';
+  bagIc.style.cssText = 'background:transparent;font-size:26px;line-height:34px;text-align:center';
+  bagIc.textContent = '📦';
+  var bagLbl = document.createElement('div');
+  bagLbl.className = 'slot-lbl';
+  bagLbl.textContent = '仓库';
+  bagBtn.appendChild(bagIc);
+  bagBtn.appendChild(bagLbl);
   bagBtn.addEventListener('touchstart', function (e) { e.preventDefault(); toggleBag(); }, { passive: false });
   bagBtn.addEventListener('click', function () { toggleBag(); });
   hbar.appendChild(bagBtn);
@@ -1299,16 +1359,16 @@ function _renderBag() {
   var i;
   for (i = HOTBAR_N; i < player.inv.length; i++) {
     (function (idx) {
-      var id = player.inv[idx], cs = BCOL[id];
+      var id = player.inv[idx];
       var el = document.createElement('div');
       el.className = 'slot';
-      el.innerHTML =
-        '<div class="slot-ic" style="background:rgb(' +
-        Math.round(cs[0] * 255) + ',' + Math.round(cs[1] * 255) + ',' + Math.round(cs[2] * 255) +
-        ')"></div><div class="slot-lbl">' + BNAMES[id] + '</div>';
+      el.appendChild(_makeSlotIcon(id));
+      var lbl = document.createElement('div');
+      lbl.className = 'slot-lbl';
+      lbl.textContent = BNAMES[id];
+      el.appendChild(lbl);
       function pick(e) {
         if (e && e.preventDefault) e.preventDefault();
-        // 与当前选中的热键槽互换，热键栏与仓库都重渲染
         var tmp = player.inv[player.slot];
         player.inv[player.slot] = player.inv[idx];
         player.inv[idx] = tmp;
@@ -2257,10 +2317,21 @@ function shootArrow(u, tgt) {
     mesh = g.scene.clone(true);
     mesh.scale.setScalar(1.4);
   } else {
-    mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(0.04, 0.04, 0.7),
+    // 箭杆（细圆柱，Y 轴为长轴，旋转后对齐飞行方向）
+    var arrowGrp = new THREE.Group();
+    var shaft = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.025, 0.025, 0.65, 4),
       new THREE.MeshBasicMaterial({ color: 0x8a6a3a })
     );
+    // 箭头（小圆锥，Y+ 向上即为箭头方向）
+    var head = new THREE.Mesh(
+      new THREE.ConeGeometry(0.055, 0.15, 4),
+      new THREE.MeshBasicMaterial({ color: 0x4a4a2a })
+    );
+    head.position.y = 0.4;
+    arrowGrp.add(shaft);
+    arrowGrp.add(head);
+    mesh = arrowGrp;
   }
   var sx = u.x, sy = u.y + u.t.h * 0.75, sz = u.z;
   var dx = tgt.x - sx, dz = tgt.z - sz;
@@ -2285,7 +2356,11 @@ function updateArrows(dt) {
     a.vy -= G * dt;
     a.x += a.vx * dt; a.y += a.vy * dt; a.z += a.vz * dt;
     a.mesh.position.set(a.x, a.y, a.z);
-    a.mesh.lookAt(a.x + a.vx, a.y + a.vy, a.z + a.vz);
+    // 箭杆默认 Y 轴为长轴，旋转使 Y+ 朝向飞行方向 (vx,vy,vz)
+    var _sxz = Math.sqrt(a.vx * a.vx + a.vz * a.vz);
+    a.mesh.rotation.order = 'YXZ';
+    a.mesh.rotation.y = Math.atan2(a.vx, a.vz);
+    a.mesh.rotation.x = Math.PI / 2 - Math.atan2(a.vy, _sxz);
 
     var hit = false;
     // 命中敌对单位（半径 0.7）。玩家免伤：箭矢直接穿过玩家
@@ -3071,6 +3146,7 @@ var _recruitPanel = null, _orderPanel = null;
 var _recruitOpen = false, _orderOpen = false;
 var _hadEnemies = false;
 var _castleCourtyard = null;  // 城堡广场中心，placeSimpleCastle 设定后生效
+var _castleGatePos   = null;  // 城堡南门外集结点，招兵时在门外生成（避免卡在城堡内）
 
 // 魔法塔已移到背包作为可放置道具（TOWER_ITEM），不再在招兵面板。
 var _RECRUIT = [
@@ -3206,11 +3282,12 @@ function spawnKind(kind, count) {
 
   for (n = 0; n < count; n++) {
     if (side === 0) {
-      if (_castleCourtyard && _inTerritory(player.x, player.z)) {
+      if (_castleGatePos && _inTerritory(player.x, player.z)) {
+        // 在城堡南门外集结，避免单位被城墙困住
         a = Math.random() * Math.PI * 2;
-        r = 1.5 + Math.random() * 4;
-        x = _castleCourtyard.x + Math.sin(a) * r;
-        z = _castleCourtyard.z + Math.cos(a) * r;
+        r = 1.2 + Math.random() * 3;
+        x = _castleGatePos.x + Math.sin(a) * r;
+        z = _castleGatePos.z + Math.cos(a) * r;
       } else {
         a = Math.random() * Math.PI * 2;
         r = 2 + Math.random() * 2.5;
@@ -3848,8 +3925,9 @@ function placeSimpleCastle(ox, oz) {
   raw(ox+7,  BY+1, oz+9,   RED_PILLAR);
   raw(ox+14, BY+1, oz+9,   RED_PILLAR);
 
-  // ── 城堡广场中心（供招兵系统使用）────────────────────────────────────────
+  // ── 城堡广场中心 + 南门外集结点（供招兵系统使用）──────────────────────────
   _castleCourtyard = { x: ox + 11, z: oz + 15 };
+  _castleGatePos   = { x: ox + 10.5, z: oz + W + 2 };  // 南门外 2 格
 
   // 领地石放于广场中心，激活 R=25 结界
   raw(ox+11, BY+1, oz+11, TERRITORY_STONE);

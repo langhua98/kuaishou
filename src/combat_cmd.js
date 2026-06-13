@@ -10,6 +10,7 @@ var _recruitPanel = null, _orderPanel = null;
 var _recruitOpen = false, _orderOpen = false;
 var _hadEnemies = false;
 var _castleCourtyard = null;  // 城堡广场中心，placeSimpleCastle 设定后生效
+var _castleGatePos   = null;  // 城堡南门外集结点，招兵时在门外生成（避免卡在城堡内）
 
 // 魔法塔已移到背包作为可放置道具（TOWER_ITEM），不再在招兵面板。
 var _RECRUIT = [
@@ -145,11 +146,12 @@ function spawnKind(kind, count) {
 
   for (n = 0; n < count; n++) {
     if (side === 0) {
-      if (_castleCourtyard && _inTerritory(player.x, player.z)) {
+      if (_castleGatePos && _inTerritory(player.x, player.z)) {
+        // 在城堡南门外集结，避免单位被城墙困住
         a = Math.random() * Math.PI * 2;
-        r = 1.5 + Math.random() * 4;
-        x = _castleCourtyard.x + Math.sin(a) * r;
-        z = _castleCourtyard.z + Math.cos(a) * r;
+        r = 1.2 + Math.random() * 3;
+        x = _castleGatePos.x + Math.sin(a) * r;
+        z = _castleGatePos.z + Math.cos(a) * r;
       } else {
         a = Math.random() * Math.PI * 2;
         r = 2 + Math.random() * 2.5;

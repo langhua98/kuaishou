@@ -257,8 +257,9 @@ function placeSimpleCastle(ox, oz) {
   raw(ox+7,  BY+1, oz+9,   RED_PILLAR);
   raw(ox+14, BY+1, oz+9,   RED_PILLAR);
 
-  // ── 城堡广场中心（供招兵系统使用）────────────────────────────────────────
+  // ── 城堡广场中心 + 南门外集结点（供招兵系统使用）──────────────────────────
   _castleCourtyard = { x: ox + 11, z: oz + 15 };
+  _castleGatePos   = { x: ox + 10.5, z: oz + W + 2 };  // 南门外 2 格
 
   // 领地石放于广场中心，激活 R=25 结界
   raw(ox+11, BY+1, oz+11, TERRITORY_STONE);
