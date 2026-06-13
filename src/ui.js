@@ -5,14 +5,14 @@
 var HOTBAR_N = 8;
 var _bagEl = null;
 
-// 在 34×34 canvas 上绘制等轴测方块图标
+// 在 68×68 离屏 canvas 上绘制等轴测方块图标（2× 超采样，显示时缩到 34）
 function _drawBlockIcon(cv, id) {
   var ctx = cv.getContext('2d');
-  ctx.clearRect(0, 0, 34, 34);
+  ctx.clearRect(0, 0, 68, 68);
   var cs = BCOL[id];
   if (!cs) return;
 
-  var s = 11, cx = 17, cy = 7;
+  var s = 22, cx = 34, cy = 14;
   // 三面颜色
   var tR = Math.round(cs[0]*255), tG = Math.round(cs[1]*255), tB = Math.round(cs[2]*255);
   var sR = Math.round(cs[6]*255), sG = Math.round(cs[7]*255), sB = Math.round(cs[8]*255);
@@ -49,7 +49,7 @@ function _drawBlockIcon(cv, id) {
 
   // 棱线描边
   ctx.strokeStyle = 'rgba(0,0,0,0.28)';
-  ctx.lineWidth = 0.7;
+  ctx.lineWidth = 1.4;
   ctx.beginPath();
   ctx.moveTo(cx-s, cy+s*0.5); ctx.lineTo(cx, cy);
   ctx.lineTo(cx+s, cy+s*0.5); ctx.lineTo(cx, cy+s); ctx.lineTo(cx-s, cy+s*0.5);
@@ -60,13 +60,18 @@ function _drawBlockIcon(cv, id) {
   ctx.stroke();
 }
 
+// 返回固定尺寸 <img>（而非 <canvas>）：img 的 width/height 属性是硬约束，
+// 任何移动端浏览器都不会让它溢出撑坏热键栏（canvas 的 CSS 尺寸在部分 WebView 里失效）。
 function _makeSlotIcon(id) {
   var cv = document.createElement('canvas');
-  cv.width = 34; cv.height = 34;
-  // 必须用 inline style 强制尺寸，canvas 默认 300×150 会撑坏布局
-  cv.style.cssText = 'display:block;width:34px;height:34px;border-radius:4px;flex-shrink:0';
+  cv.width = 68; cv.height = 68;     // 2× 离屏画布，仅用于绘制
   _drawBlockIcon(cv, id);
-  return cv;
+  var img = document.createElement('img');
+  img.width = 34; img.height = 34;   // 硬属性约束，绝不溢出
+  img.src = cv.toDataURL();
+  img.style.cssText = 'display:block;width:34px;height:34px;max-width:34px;max-height:34px;' +
+    'border-radius:4px;flex-shrink:0;pointer-events:none';
+  return img;
 }
 
 function buildHotbar() {
