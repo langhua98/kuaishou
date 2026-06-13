@@ -9,9 +9,8 @@
 // 每块领地石放置时创建 R=25m 圆形穹顶保护圈；敌方无法进入。
 // 半球形穹顶：内壁半透明 + 经纬线框 + 底部圆环 + 脉冲动画。
 
-var _territoryList = [];   // [{cx,cz,r,mesh,meshOut,ring,pulseT}]
+var _territoryList = [];   // [{cx,cz,r,mesh,meshOut,ring,pulseRing,pulseT,pulseFrac}]
 var _territoryTime = 0;    // 动画时间（updateTerritoryFx 累加）
-var _pulseRings = [];      // 扩散脉冲环 [{mesh,t,life}]
 
 function _addTerritory(bx, by, bz) {
   var R = 25;
@@ -42,7 +41,18 @@ function _addTerritory(bx, by, bz) {
   meshRing.position.set(cx, by + 0.15, cz);
   scene.add(meshRing);
 
-  _territoryList.push({ cx: cx, cz: cz, r: R, mesh: meshInner, meshOut: meshWire, ring: meshRing });
+  // 预分配脉冲扩散环（单个可复用 Mesh，每 3 秒重置动画；避免每次 new TorusGeometry）
+  var prGeo  = new THREE.TorusGeometry(R, 0.3, 6, 48);
+  var prMat  = new THREE.MeshBasicMaterial({ color: 0xc084fc, transparent: true, opacity: 0, depthWrite: false });
+  var prMesh = new THREE.Mesh(prGeo, prMat);
+  prMesh.rotation.x = Math.PI * 0.5;
+  prMesh.position.set(cx, by + 0.25, cz);
+  prMesh.visible = false;
+  scene.add(prMesh);
+
+  _territoryList.push({ cx: cx, cz: cz, r: R,
+    mesh: meshInner, meshOut: meshWire, ring: meshRing,
+    pulseRing: prMesh, pulseT: 3.0, pulseFrac: 1.0 });
 }
 
 function _removeTerritory(bx, by, bz) {
@@ -53,6 +63,7 @@ function _removeTerritory(bx, by, bz) {
       scene.remove(t.mesh); t.mesh.geometry.dispose(); t.mesh.material.dispose();
       scene.remove(t.meshOut); t.meshOut.geometry.dispose(); t.meshOut.material.dispose();
       if (t.ring) { scene.remove(t.ring); t.ring.geometry.dispose(); t.ring.material.dispose(); }
+      if (t.pulseRing) { scene.remove(t.pulseRing); t.pulseRing.geometry.dispose(); t.pulseRing.material.dispose(); }
       _territoryList.splice(i, 1);
       return;
     }
@@ -62,7 +73,7 @@ function _removeTerritory(bx, by, bz) {
 // 每帧动画（combat_ai.js combatUpdate 调用）
 function updateTerritoryFx(dt) {
   _territoryTime += dt;
-  var i, t, pulse, pr, frac, pa, angle;
+  var i, t, pulse, frac;
   for (i = 0; i < _territoryList.length; i++) {
     t = _territoryList[i];
     pulse = Math.sin(_territoryTime * 2.2 + i * 1.3);
@@ -70,46 +81,28 @@ function updateTerritoryFx(dt) {
     t.meshOut.material.opacity = 0.30 + 0.20 * pulse;
     if (t.ring) t.ring.material.opacity = 0.5 + 0.25 * Math.sin(_territoryTime * 3.0 + i);
 
-    // 每 3 秒发射一次扩散脉冲环 + 周界粒子
-    t.pulseT = (t.pulseT || 3.0) - dt;
+    // 每 3 秒触发一次脉冲扩散动画（复用预分配 Mesh，不分配新几何体）
+    t.pulseT -= dt;
     if (t.pulseT <= 0) {
       t.pulseT = 3.0;
-      // 扩散脉冲环：从 0 缩放到 1（全尺寸）
-      var pGeo = new THREE.TorusGeometry(t.r, 0.3, 6, 64);
-      var pMat = new THREE.MeshBasicMaterial({ color: 0xc084fc, transparent: true, opacity: 0.7, depthWrite: false });
-      var pMesh = new THREE.Mesh(pGeo, pMat);
-      pMesh.rotation.x = Math.PI * 0.5;
-      pMesh.position.set(t.cx, t.mesh.position.y + 0.25, t.cz);
-      pMesh.scale.set(0.05, 1, 0.05);
-      scene.add(pMesh);
-      _pulseRings.push({ mesh: pMesh, t: 0, life: 1.6 });
-      // 周界 8 点粒子喷发
-      if (typeof spawnBurst === 'function') {
-        for (pa = 0; pa < 8; pa++) {
-          angle = (pa / 8) * Math.PI * 2;
-          spawnBurst(
-            t.cx + Math.cos(angle) * t.r,
-            t.mesh.position.y + 0.6,
-            t.cz + Math.sin(angle) * t.r,
-            { count: 6, color: 0x9333ea, speed: 2.5, size: 0.16, life: 0.9, up: 0.6 }
-          );
-        }
+      t.pulseFrac = 0.0;
+      if (t.pulseRing) {
+        t.pulseRing.visible = true;
+        t.pulseRing.scale.set(0.05, 1, 0.05);
+        t.pulseRing.material.opacity = 0.7;
       }
     }
-  }
 
-  // 更新扩散脉冲环（缩放扩散 + 淡出）
-  for (i = _pulseRings.length - 1; i >= 0; i--) {
-    pr = _pulseRings[i];
-    pr.t += dt;
-    frac = pr.t / pr.life;
-    pr.mesh.scale.set(frac, 1, frac);
-    pr.mesh.material.opacity = 0.7 * (1 - frac);
-    if (pr.t >= pr.life) {
-      scene.remove(pr.mesh);
-      pr.mesh.geometry.dispose();
-      pr.mesh.material.dispose();
-      _pulseRings.splice(i, 1);
+    // 每帧推进脉冲动画
+    if (t.pulseRing && t.pulseRing.visible) {
+      t.pulseFrac += dt / 1.6;   // life = 1.6s
+      if (t.pulseFrac >= 1.0) {
+        t.pulseRing.visible = false;
+      } else {
+        frac = t.pulseFrac;
+        t.pulseRing.scale.set(frac < 0.05 ? 0.05 : frac, 1, frac < 0.05 ? 0.05 : frac);
+        t.pulseRing.material.opacity = 0.7 * (1 - frac);
+      }
     }
   }
 }
@@ -171,7 +164,7 @@ function steerMove(u, tx, tz, spd, dt) {
   }
   if (!best) return false;   // 全堵（被夹角卡死）：停止等待，不再顶着墙蹭
 
-  var mv = Math.min(spd * slow * dt, d);
+  var mv = Math.min(spd * dt, d);
   var nx = u.x + best[0] * mv, nz = u.z + best[1] * mv;
 
   // 领地结界：敌方不得进入保护区（直接停住，保持在边界外）

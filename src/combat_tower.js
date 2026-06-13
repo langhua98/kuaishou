@@ -104,14 +104,36 @@ function placeTower(tx, tz, silent) {
     atkCd: Math.random() * TOWER_CFG.atkCd,
     group: grp, dead: false,
     hpBar: null, _hpCv: null, _hpTex: null,
+    _sparkT: 0, _spkPts: null, _spkPos: null, _spkVel: null, _spkAge: null, _spkN: 0, _spkHead: 0,
   };
   _makeTowerHpBar(tower);
+  _makeTowerSparkle(tower);
   _towers.push(tower);
   if (!silent) {
     battleToast('⚗️ 魔法塔已建立！');
     if (typeof saveGame === 'function') saveGame();
   }
   return tower;
+}
+
+// ── 塔粒子（常驻循环槽，不分配 GPU 缓冲区）──────────────────────────────────────
+function _makeTowerSparkle(tower) {
+  var n = 6, i;
+  var pos = new Float32Array(n * 3);
+  var vel = new Float32Array(n * 3);
+  var age = new Float32Array(n);
+  for (i = 0; i < n; i++) pos[i * 3 + 1] = -999;   // 沉入地下（初始不可见）
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  var mat = new THREE.PointsMaterial({
+    color: 0xc084fc, size: 0.12, transparent: true, opacity: 1.0,
+    depthWrite: false, sizeAttenuation: true,
+  });
+  var pts = new THREE.Points(geo, mat);
+  pts.frustumCulled = false;
+  scene.add(pts);
+  tower._spkPts = pts; tower._spkPos = pos; tower._spkVel = vel;
+  tower._spkAge = age; tower._spkN = n;
 }
 
 // ── 塔血条 ────────────────────────────────────────────────────────────────────
@@ -175,6 +197,12 @@ function damageTower(tower, dmg) {
   if (tower.hp <= 0) {
     tower.dead = true;
     scene.remove(tower.group);
+    if (tower._spkPts) {
+      scene.remove(tower._spkPts);
+      tower._spkPts.geometry.dispose();
+      tower._spkPts.material.dispose();
+      tower._spkPts = null;
+    }
     var i = _towers.indexOf(tower);
     if (i >= 0) _towers.splice(i, 1);
     if (typeof spawnBurst === 'function') {
@@ -203,12 +231,35 @@ function updateTowers(dt) {
     if (tower.group.userData.glow) {
       tower.group.userData.glow.material.opacity = 0.15 + 0.15 * Math.sin(_towerTime * 3.5 + i * 1.7);
     }
-    // 水晶常驻粒子喷发（0.35s 一次，2 粒上升）
-    tower._sparkT = (tower._sparkT || 0) + dt;
-    if (tower._sparkT > 0.35 && typeof spawnBurst === 'function') {
+    // 水晶常驻粒子（循环 6 槽；直接写已有 GPU 缓冲区，不分配新几何体）
+    tower._sparkT += dt;
+    if (tower._sparkT > 0.35) {
       tower._sparkT = 0;
-      spawnBurst(tower.x, tower.y + TOWER_CFG.h * 0.88, tower.z,
-        { count: 3, color: 0xc084fc, speed: 1.2, size: 0.10, life: 0.7, up: 1.2 });
+      var sy0 = tower.y + TOWER_CFG.h * 0.88, sa, si;
+      for (var sp = 0; sp < 3; sp++) {
+        si = tower._spkHead++ % tower._spkN;
+        sa = Math.random() * Math.PI * 2;
+        tower._spkPos[si*3]   = tower.x + Math.cos(sa) * 0.2;
+        tower._spkPos[si*3+1] = sy0;
+        tower._spkPos[si*3+2] = tower.z + Math.sin(sa) * 0.2;
+        tower._spkVel[si*3]   = (Math.random() - 0.5) * 0.7;
+        tower._spkVel[si*3+1] = 1.0 + Math.random() * 1.2;
+        tower._spkVel[si*3+2] = (Math.random() - 0.5) * 0.7;
+        tower._spkAge[si] = 0.7;
+      }
+    }
+    if (tower._spkPts) {
+      for (var sk = 0; sk < tower._spkN; sk++) {
+        if (tower._spkAge[sk] > 0) {
+          tower._spkAge[sk] -= dt;
+          if (tower._spkAge[sk] <= 0) { tower._spkPos[sk*3+1] = -999; continue; }
+          tower._spkPos[sk*3]   += tower._spkVel[sk*3]   * dt;
+          tower._spkPos[sk*3+1] += tower._spkVel[sk*3+1] * dt;
+          tower._spkPos[sk*3+2] += tower._spkVel[sk*3+2] * dt;
+          tower._spkVel[sk*3+1] -= 9 * dt;
+        }
+      }
+      tower._spkPts.geometry.attributes.position.needsUpdate = true;
     }
     tower.atkCd -= dt;
     if (tower.atkCd <= 0) {
