@@ -4918,9 +4918,14 @@ function tick(now) {
     ) < 0;
 
     if (selHit && !_onLast && !_isBehind) {
-      // 准星打到了前方其他方块 → 准星临时接管（允许随时切换方向）
+      // 准星打到了前方其他方块 → 准星临时接管
       _place.pos = selHit.prev ? selHit.prev : null;
-      _idleInc = false;
+      // 只有命中方块距上次放置位置 ≤4 格才抑制超时计时；
+      // 玩家走远后准星仍有 selHit，但超时照常累积直到清除方向记忆
+      var _hd = Math.abs(selHit.x - _place.lastPos.x) +
+                Math.abs(selHit.y - _place.lastPos.y) +
+                Math.abs(selHit.z - _place.lastPos.z);
+      if (_hd <= 4) _idleInc = false;
     } else if (_ny >= 0) {
       if (_onLast || _isBehind) {
         // 准星打在上一个方块上，或命中了建造方向身后的旧块
