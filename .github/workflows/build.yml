@@ -1,0 +1,37 @@
+name: Build Check
+
+# 该仓库的部署由 GitHub Pages 默认的"从分支部署"（main / 根目录）完成，
+# index.html 由 `node inline.cjs` 从 src/*.js 拼接生成并提交到根目录。
+# 本工作流不负责部署，只校验提交的 index.html 与 src/ 保持同步——
+# 防止有人改了 src/ 却忘记重新构建（旧 deploy.yml 跑 node inline.js + dist/ 全是错的）。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # inline.cjs 只用 Node 内置 fs，无需 npm install
+      - name: Build index.html from src/
+        run: node inline.cjs
+
+      - name: Verify index.html is committed in sync with src/
+        run: |
+          if ! git diff --quiet index.html; then
+            echo "::error::index.html 与 src/ 不同步。请运行 'node inline.cjs' 并提交 index.html。"
+            git diff --stat index.html
+            exit 1
+          fi
+          echo "index.html 与 src/ 同步 ✓"
