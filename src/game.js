@@ -159,19 +159,35 @@ var selBox = (function () {
   return ls;
 }());
 
+// 立体边框：12 条细长方块拼出方块轮廓（WebGL 忽略 linewidth，线框永远 1px 太细，
+// 改用实体细条才能得到真正可调的"扁线"粗度）。返回 Group，用法同 LineSegments（position/visible）。
+function _makeFrameBox(color, t, size, opacity) {
+  var g = new THREE.Group();
+  var mat = new THREE.MeshBasicMaterial({
+    color: color, transparent: true, opacity: opacity, depthWrite: false
+  });
+  var h = size / 2;
+  var geoX = new THREE.BoxGeometry(size + t, t, t);   // 沿 X 的棱
+  var geoY = new THREE.BoxGeometry(t, size + t, t);   // 沿 Y 的棱
+  var geoZ = new THREE.BoxGeometry(t, t, size + t);   // 沿 Z 的棱
+  var sgn = [-h, h], i, j, bx, by, bz;
+  for (i = 0; i < 2; i++) {
+    for (j = 0; j < 2; j++) {
+      bx = new THREE.Mesh(geoX, mat); bx.position.set(0, sgn[i], sgn[j]); g.add(bx);
+      by = new THREE.Mesh(geoY, mat); by.position.set(sgn[i], 0, sgn[j]); g.add(by);
+      bz = new THREE.Mesh(geoZ, mat); bz.position.set(sgn[i], sgn[j], 0); g.add(bz);
+    }
+  }
+  return g;
+}
+
 // 放置预览框（placeBox）：始终跟随准星命中方块的前一格
 // 准星朝天 / 朝空 → 无预览 → 无法放置，行为自然一致。
 var placeBox = (function () {
-  var geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.007, 1.007, 1.007));
-  var mat = new THREE.LineDashedMaterial({
-    color: 0x44ffaa, dashSize: 0.18, gapSize: 0.10, linewidth: 2,
-    opacity: 0.75, transparent: true
-  });
-  var ls = new THREE.LineSegments(geo, mat);
-  ls.computeLineDistances();
-  ls.visible = false;
-  scene.add(ls);
-  return ls;
+  var g = _makeFrameBox(0x44ffaa, 0.07, 1.0, 0.85);   // 扁线粗度 0.07
+  g.visible = false;
+  scene.add(g);
+  return g;
 }());
 
 var _place = {

@@ -90,12 +90,19 @@ function _groundY(wx, wz) {
 }
 
 // 通用：缩放到目标高度、脚底对齐、转向 -Z
+// 两段测量：先按原始包围盒求缩放，应用缩放/旋转并刷新世界矩阵后，
+// 再量一次缩放后的世界包围盒把脚底精确归零——单段测量在 GLTF 嵌套骨架/
+// 世界矩阵未刷新时会得到偏低的 min.y，导致模型整体被抬高（悬空）。
 function _prepModel(model, targetH) {
+  model.updateMatrixWorld(true);
   var bbox = new THREE.Box3().setFromObject(model);
   var s = targetH / (bbox.max.y - bbox.min.y);
   model.scale.set(s, s, s);
-  model.position.y = -bbox.min.y * s;
   model.rotation.y = Math.PI;
+  model.position.y = 0;
+  model.updateMatrixWorld(true);
+  bbox = new THREE.Box3().setFromObject(model);   // 缩放后世界空间脚底
+  model.position.y = -bbox.min.y;                  // 脚底精确对齐 group 原点
   return model;
 }
 
