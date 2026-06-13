@@ -135,6 +135,7 @@ function spawnUnit(kind, side, x, z) {
     group: group, model: model, mixer: mixer, anims: anims, curAnim: '',
     horseMixer: horseMixer, hpBar: null, blobShadow: blobShadow,
   };
+  if (typeof initMorale === 'function') initMorale(u);   // 注入士气/恐惧/纪律
   playAnim(u, ANIM.idle, 0);
   makeHpBar(u);
   combatUnits.push(u);
@@ -199,6 +200,7 @@ function damageUnit(u, dmg, fromUnit) {
 }
 
 function killUnit(u) {
+  if (typeof onUnitDeath === 'function') onUnitDeath(u);   // 队友阵亡：周围士气崩
   u.state = 'DEAD';
   u.deadT = 0;
   u.target = null;

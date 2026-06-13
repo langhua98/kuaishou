@@ -240,6 +240,9 @@ function _aiCavalry(u, dt, now) {
     return;
   }
 
+  // 士气溃逃：骑兵同样会崩（纪律高，较少触发）
+  if (u.routing && typeof moraleFlee === 'function') { moraleFlee(u, dt); return; }
+
   // 待结算伤害（同步 MELEE 帧判定）
   if (u._pendHit && u.actT <= u._pendHitAt) {
     var tg = u._pendHit; u._pendHit = null;
@@ -358,8 +361,11 @@ function _aiCavalry(u, dt, now) {
       if (u.actT <= 0) playAnim(u, ANIM.run, 0.1);
       // 接触：冲锋伤害（速度越高伤害越大）
       if (d < t.range + 1.2) {
+        var _impact = (t.chargeDmg || t.dmg * 2) * (u.speed / t.spd);
         if (tgt.state !== 'DEAD') {
-          damageUnit(tgt, Math.round((t.chargeDmg || t.dmg * 2) * (u.speed / t.spd)), u);
+          damageUnit(tgt, Math.round(_impact), u);
+          // 冲锋心理冲击：直击恐惧 + 命中点一片震慑（士气层）
+          if (typeof onCavalryImpact === 'function') onCavalryImpact(tgt, _impact);
         }
         battleSfx('atk_clang');
         // 冲锋撞击火花
@@ -471,6 +477,9 @@ function _aiUnit(u, dt, now) {
     if (u.deadT > BTL.corpseT) _removeUnit(u);
     return;
   }
+
+  // 士气溃逃：morale<20 时 AI 只会逃跑、无视命令、不攻击（士气层写入 u.routing）
+  if (u.routing && typeof moraleFlee === 'function') { moraleFlee(u, dt); return; }
 
   // 攻击动作中：判定帧结算伤害（_pendHit 由 FIGHT 设置）
   if (u._pendHit && u.actT <= u._pendHitAt) {
@@ -656,6 +665,8 @@ function combatUpdate(dt, now) {
   }
   // 第二段：硬碰撞解算（单位↔单位、单位↔玩家，combat_steer.js）
   resolveUnitCollisions();
+  // 士气反馈：必须在物理/战斗之后（AI→Formation→Physics→Combat→Morale）
+  if (typeof updateMorale === 'function') updateMorale(dt);
   // 第三段：同步渲染（碰撞修正后的最终位置）
   for (i = 0; i < combatUnits.length; i++) {
     u = combatUnits[i];

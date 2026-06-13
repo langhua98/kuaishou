@@ -42,6 +42,12 @@ var CAV = {
 // 骑兵目标评分权重（需求文档 §4.3）
 var SCORE_ENEMY = { skel_rog: 90, skel_war: 40, skel_min: 30, knight: 50, barbarian: 45, ranger: 80 };
 
+// 士气系统：各兵种纪律值（0-100，越高越抗崩溃）。重甲/骑士最稳，杂兵最易溃。
+var DISCIPLINE = {
+  knight: 82, barbarian: 58, ranger: 50, cavalry: 76,
+  skel_war: 62, skel_min: 34, skel_rog: 46,
+};
+
 // 战斗调参（需求文档 §2 节流 + P1 步兵参数）
 var BTL = {
   decideIv: 0.2,        // 决策更新间隔（秒）

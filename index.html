@@ -1820,6 +1820,12 @@ var CAV = {
 // 骑兵目标评分权重（需求文档 §4.3）
 var SCORE_ENEMY = { skel_rog: 90, skel_war: 40, skel_min: 30, knight: 50, barbarian: 45, ranger: 80 };
 
+// 士气系统：各兵种纪律值（0-100，越高越抗崩溃）。重甲/骑士最稳，杂兵最易溃。
+var DISCIPLINE = {
+  knight: 82, barbarian: 58, ranger: 50, cavalry: 76,
+  skel_war: 62, skel_min: 34, skel_rog: 46,
+};
+
 // 战斗调参（需求文档 §2 节流 + P1 步兵参数）
 var BTL = {
   decideIv: 0.2,        // 决策更新间隔（秒）
@@ -1984,6 +1990,7 @@ function spawnUnit(kind, side, x, z) {
     group: group, model: model, mixer: mixer, anims: anims, curAnim: '',
     horseMixer: horseMixer, hpBar: null, blobShadow: blobShadow,
   };
+  if (typeof initMorale === 'function') initMorale(u);   // 注入士气/恐惧/纪律
   playAnim(u, ANIM.idle, 0);
   makeHpBar(u);
   combatUnits.push(u);
@@ -2048,6 +2055,7 @@ function damageUnit(u, dmg, fromUnit) {
 }
 
 function killUnit(u) {
+  if (typeof onUnitDeath === 'function') onUnitDeath(u);   // 队友阵亡：周围士气崩
   u.state = 'DEAD';
   u.deadT = 0;
   u.target = null;
@@ -2326,6 +2334,154 @@ function faceTo(u, tx, tz, dt) {
   while (dy > Math.PI)  dy -= Math.PI * 2;
   while (dy < -Math.PI) dy += Math.PI * 2;
   u.yaw += dy * Math.min(1, 12 * dt);
+}
+
+
+// ═══ src/combat_morale.js ═══
+// ─── combat_morale.js ─────────────────────────────────────────────────────────
+// 士气层（士气=战争的"隐藏物理引擎"）。在 物理/战斗 之后、渲染 之前更新，
+// 形成闭环：被冲锋/队友阵亡/被包围 → 士气↓ → morale<阈值 进入 ROUT 溃逃 →
+//           溃逃者向邻近队友传播恐惧 → 一个跑→一片跑→连锁崩溃。
+//
+// 每单位三维心理量（spawnUnit 时 initMorale 注入）：
+//   morale 士气 0-100   fear 恐惧 0-100   discipline 纪律（兵种固定，抗崩溃）
+//
+// 关键：AI 不直接判断"我要逃"，只读 u.routing 标志（updateMorale 写入）。
+
+// 状态阈值（需求文档 §6.1）
+var MORALE_ROUT = 20, MORALE_PRESSURE = 40, MORALE_UNEASY = 60, MORALE_CONFIDENT = 80;
+
+// 士气更新节流 ~10Hz（需求文档 §10.3：Morale 10-20Hz）
+var _moraleAccum = 0;
+var _MORALE_IV = 0.1;
+
+function _clampM(v) { return v < 0 ? 0 : (v > 100 ? 100 : v); }
+
+// 初始化（combat_core.spawnUnit 调用）
+function initMorale(u) {
+  u.discipline  = (DISCIPLINE[u.kind] !== undefined) ? DISCIPLINE[u.kind] : 60;
+  u.morale      = 70 + Math.random() * 20;   // 70~90
+  u.fear        = 10 + Math.random() * 20;   // 10~30
+  u.moraleState = 'NORMAL';
+  u.routing     = false;
+}
+
+// 士气数值 → 状态分层
+function _moraleStateOf(m) {
+  if (m >= MORALE_CONFIDENT) return 'CONFIDENT';
+  if (m >= MORALE_UNEASY)    return 'NORMAL';
+  if (m >= MORALE_PRESSURE)  return 'UNEASY';
+  if (m >= MORALE_ROUT)      return 'RETREAT_PRESSURE';
+  return 'ROUT';
+}
+
+// ── 事件钩子 ──────────────────────────────────────────────────────────────────
+
+// 骑兵冲锋冲击（combat_ai CHARGE 命中时调用）：直击目标 + 命中点周围一片震慑
+function onCavalryImpact(target, impact) {
+  if (target.fear !== undefined) {
+    target.fear   = _clampM(target.fear + impact * 0.8);
+    target.morale = _clampM(target.morale - impact * 0.6);
+  }
+  // 冲击波及命中点 5m 内同阵营敌军（"骑兵冲一次 → 一片后退"）
+  var i, o, dx, dz;
+  for (i = 0; i < combatUnits.length; i++) {
+    o = combatUnits[i];
+    if (o === target || o.state === 'DEAD' || o.morale === undefined) continue;
+    if (target.side !== undefined && o.side !== target.side) continue;
+    dx = o.x - target.x; dz = o.z - target.z;
+    if (dx * dx + dz * dz > 25) continue;
+    o.fear   = _clampM(o.fear + impact * 0.3);
+    o.morale = _clampM(o.morale - impact * 0.25);
+  }
+}
+
+// 单位阵亡（combat_core.killUnit 调用）：10m 内同阵营士气↓恐惧↑，纪律高者抗性强
+function onUnitDeath(dead) {
+  if (dead.side === undefined) return;
+  var i, o, dx, dz, d2, R2 = 100, k, resist;
+  for (i = 0; i < combatUnits.length; i++) {
+    o = combatUnits[i];
+    if (o === dead || o.side !== dead.side || o.state === 'DEAD' || o.morale === undefined) continue;
+    dx = o.x - dead.x; dz = o.z - dead.z; d2 = dx * dx + dz * dz;
+    if (d2 > R2) continue;
+    k = 1 - Math.sqrt(d2) / 10;                   // 越近影响越大
+    resist = o.discipline / 100;
+    o.morale = _clampM(o.morale - (3 + 5 * k) * (1.2 - resist * 0.5));
+    o.fear   = _clampM(o.fear + (2 + 3 * k));
+  }
+}
+
+// ── 溃逃移动（AI 在 u.routing 时调用，覆盖正常 FSM；不再扣计时器，FSM 已扣）──
+function moraleFlee(u, dt) {
+  var cx = 0, cz = 0, n = 0, i, o, dx, dz;
+  for (i = 0; i < combatUnits.length; i++) {
+    o = combatUnits[i];
+    if (o.side === u.side || o.state === 'DEAD') continue;
+    dx = o.x - u.x; dz = o.z - u.z;
+    if (dx * dx + dz * dz < 900) { cx += dx; cz += dz; n++; }   // 30m 内敌军重心
+  }
+  var tx, tz;
+  if (n > 0) { tx = u.x - (cx / n) * 8; tz = u.z - (cz / n) * 8; }
+  else       { tx = u.x; tz = u.z + 8; }
+  steerMove(u, tx, tz, u.t.spd * 1.05, dt);        // 逃跑略快于常速
+  if (u.actT <= 0) playAnim(u, ANIM.run, 0.2);
+}
+
+// ── 每帧更新（combat_ai.combatUpdate 调用，节流 10Hz）────────────────────────
+function updateMorale(dt) {
+  _moraleAccum += dt;
+  if (_moraleAccum < _MORALE_IV) return;
+  var step = _moraleAccum;       // 实际经过时间（用于积分）
+  _moraleAccum = 0;
+
+  var i, u, j, o, dx, dz, d2, allies, enemies, dM, ns;
+
+  // 第一轮：环境因素 + 恐惧衰减 + 状态分层
+  for (i = 0; i < combatUnits.length; i++) {
+    u = combatUnits[i];
+    if (u.morale === undefined || u.state === 'DEAD') continue;
+
+    allies  = _countNear(u, 8, u.side);
+    enemies = _countNear(u, 8, 1 - u.side);
+
+    dM = 0;
+    dM += allies * 0.6 * step;             // 身边友军壮胆（§4.1）
+    dM -= enemies * 0.8 * step;            // 被包围怯场（§4.2）
+    if (enemies === 0) dM += 5 * step;     // 脱战恢复
+    if (u.hp / u.t.hp < 0.35) dM -= 3 * step;   // 残血压力
+
+    u.morale = _clampM(u.morale + dM);
+    u.fear   = _clampM(u.fear - 5 * step);      // 恐惧自然衰减
+    if (u.fear > 50) u.morale = _clampM(u.morale - (u.fear - 50) * 0.1 * step);
+
+    ns = _moraleStateOf(u.morale);
+    if (ns === 'ROUT' && !u.routing) {
+      u.routing = true;
+      u.target = null;
+      if (typeof spawnBurst === 'function')   // 溃逃瞬间：白色恐惧气泡
+        spawnBurst(u.x, u.y + u.t.h * 0.6, u.z,
+          { count: 10, color: 0xe5e5e5, speed: 2, size: 0.12, life: 0.7, up: 0.9 });
+    } else if (u.routing && u.morale > MORALE_ROUT + 12) {
+      u.routing = false;       // 回血迟滞（+12 缓冲），避免在阈值处抖动
+    }
+    u.moraleState = ns;
+  }
+
+  // 第二轮：溃逃者向 10m 内同阵营传播恐惧（连锁崩溃，§8.2）
+  // 单独成轮，避免本轮新崩的单位在同一遍里二次级联放大
+  for (i = 0; i < combatUnits.length; i++) {
+    u = combatUnits[i];
+    if (u.morale === undefined || u.state === 'DEAD' || u.moraleState !== 'ROUT') continue;
+    for (j = 0; j < combatUnits.length; j++) {
+      o = combatUnits[j];
+      if (o === u || o.side !== u.side || o.state === 'DEAD' || o.morale === undefined) continue;
+      dx = o.x - u.x; dz = o.z - u.z; d2 = dx * dx + dz * dz;
+      if (d2 > 100) continue;
+      o.morale = _clampM(o.morale - 10 * step);
+      o.fear   = _clampM(o.fear + u.fear * 0.15 * step);
+    }
+  }
 }
 
 
@@ -2764,6 +2920,9 @@ function _aiCavalry(u, dt, now) {
     return;
   }
 
+  // 士气溃逃：骑兵同样会崩（纪律高，较少触发）
+  if (u.routing && typeof moraleFlee === 'function') { moraleFlee(u, dt); return; }
+
   // 待结算伤害（同步 MELEE 帧判定）
   if (u._pendHit && u.actT <= u._pendHitAt) {
     var tg = u._pendHit; u._pendHit = null;
@@ -2882,8 +3041,11 @@ function _aiCavalry(u, dt, now) {
       if (u.actT <= 0) playAnim(u, ANIM.run, 0.1);
       // 接触：冲锋伤害（速度越高伤害越大）
       if (d < t.range + 1.2) {
+        var _impact = (t.chargeDmg || t.dmg * 2) * (u.speed / t.spd);
         if (tgt.state !== 'DEAD') {
-          damageUnit(tgt, Math.round((t.chargeDmg || t.dmg * 2) * (u.speed / t.spd)), u);
+          damageUnit(tgt, Math.round(_impact), u);
+          // 冲锋心理冲击：直击恐惧 + 命中点一片震慑（士气层）
+          if (typeof onCavalryImpact === 'function') onCavalryImpact(tgt, _impact);
         }
         battleSfx('atk_clang');
         // 冲锋撞击火花
@@ -2995,6 +3157,9 @@ function _aiUnit(u, dt, now) {
     if (u.deadT > BTL.corpseT) _removeUnit(u);
     return;
   }
+
+  // 士气溃逃：morale<20 时 AI 只会逃跑、无视命令、不攻击（士气层写入 u.routing）
+  if (u.routing && typeof moraleFlee === 'function') { moraleFlee(u, dt); return; }
 
   // 攻击动作中：判定帧结算伤害（_pendHit 由 FIGHT 设置）
   if (u._pendHit && u.actT <= u._pendHitAt) {
@@ -3180,6 +3345,8 @@ function combatUpdate(dt, now) {
   }
   // 第二段：硬碰撞解算（单位↔单位、单位↔玩家，combat_steer.js）
   resolveUnitCollisions();
+  // 士气反馈：必须在物理/战斗之后（AI→Formation→Physics→Combat→Morale）
+  if (typeof updateMorale === 'function') updateMorale(dt);
   // 第三段：同步渲染（碰撞修正后的最终位置）
   for (i = 0; i < combatUnits.length; i++) {
     u = combatUnits[i];
