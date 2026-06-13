@@ -31,7 +31,7 @@ function loadFurnitureModels(onDone) {
   var done = 0, total = names.length;
   if (total === 0) { _furnitureLoaded = true; if (onDone) onDone(); return; }
   names.forEach(function (name) {
-    gltfLoader.load('assets/models/furniture/' + name + '.gltf', function (g) {
+    gltfLoader.load('assets/models/furniture/' + name + '.glb', function (g) {
       _furnitureGltf[name] = g;
       if (++done === total) { _furnitureLoaded = true; if (onDone) onDone(); }
     }, undefined, function () {
@@ -57,6 +57,10 @@ function placeFurniture(typeId, wx, wy, wz, yaw) {
   var group = new THREE.Group();
   var model = g.scene.clone(true);
   model.scale.setScalar(def.scale);
+  // 脚底对齐：量缩放后世界包围盒，把模型底面归零到 group 原点（防止悬空/陷地）
+  model.updateMatrixWorld(true);
+  var bbox = new THREE.Box3().setFromObject(model);
+  model.position.y = -bbox.min.y;
   group.add(model);
   group.position.set(wx + 0.5, wy, wz + 0.5);
   group.rotation.y = yaw;

@@ -529,10 +529,11 @@ function genTerrain(cx, cz) {
     }
   }
 
-  // 树木生成（橡树/白桦/云杉；WorldR>40，草地，~4% 概率）
-  var tx, tz, twx, twz, twR, th, surfY, treeKind, trunkId, leafId, trunkH, topY, ty, tx2, tz2, rr;
-  for (tx = 2; tx < CHUNK_W - 2; tx++) {
-    for (tz = 2; tz < CHUNK_D - 2; tz++) {
+  // 树木生成（橡树/白桦/云杉；WorldR>40，草地，~3% 概率）
+  // 内边距 3 确保半径 3 的树冠完全落在本区块内（不跨区块裁切）
+  var tx, tz, twx, twz, twR, th, surfY, treeKind, trunkId, leafId, trunkH, topY, ty, tx2, tz2, rr, dxl, dzl;
+  for (tx = 3; tx < CHUNK_W - 3; tx++) {
+    for (tz = 3; tz < CHUNK_D - 3; tz++) {
       twx = cx * CHUNK_W + tx;
       twz = cz * CHUNK_D + tz;
       twR = Math.max(Math.abs(twx), Math.abs(twz));
@@ -540,7 +541,7 @@ function genTerrain(cx, cz) {
       // 确定性伪随机（sin hash，每格唯一）
       th = Math.sin(twx * 127.1 + twz * 311.7) * 43758.5453;
       th = th - Math.floor(th);
-      if (th > 0.04) continue;
+      if (th > 0.03) continue;
       // 找草地表面
       surfY = -1;
       for (y = CHUNK_H - 1; y > SEA + 1; y--) {
@@ -549,21 +550,45 @@ function genTerrain(cx, cz) {
       if (surfY < 0) continue;
       // 树种：0=橡树 1=白桦 2=云杉
       treeKind = Math.floor(th * 300) % 3;
-      trunkId  = (treeKind === 0) ? WOOD        : (treeKind === 1) ? BIRCH_LOG   : SPRUCE_LOG;
-      leafId   = (treeKind === 0) ? LEAVES      : (treeKind === 1) ? BIRCH_LEAVES : SPRUCE_LEAVES;
-      trunkH   = (treeKind === 2) ? 6 : 4;
+      trunkId  = (treeKind === 0) ? WOOD         : (treeKind === 1) ? BIRCH_LOG    : SPRUCE_LOG;
+      leafId   = (treeKind === 0) ? LEAVES       : (treeKind === 1) ? BIRCH_LEAVES : SPRUCE_LEAVES;
+      trunkH   = (treeKind === 0) ? 5 : (treeKind === 1) ? 6 : 7;
+      // 树干
       for (ty = surfY + 1; ty <= surfY + trunkH && ty < CHUNK_H; ty++) {
         data[tx + ty * CHUNK_W + tz * CHUNK_W * CHUNK_H] = trunkId;
       }
       topY = surfY + trunkH;
-      for (ty = topY - 1; ty <= topY + 2 && ty < CHUNK_H; ty++) {
-        rr = (ty >= topY + 1) ? 1 : 2;
-        for (tx2 = tx - rr; tx2 <= tx + rr; tx2++) {
-          if (tx2 < 0 || tx2 >= CHUNK_W) continue;
-          for (tz2 = tz - rr; tz2 <= tz + rr; tz2++) {
-            if (tz2 < 0 || tz2 >= CHUNK_D) continue;
-            if (data[tx2 + ty * CHUNK_W + tz2 * CHUNK_W * CHUNK_H] === AIR)
-              data[tx2 + ty * CHUNK_W + tz2 * CHUNK_W * CHUNK_H] = leafId;
+
+      if (treeKind === 2) {
+        // ── 云杉：圆锥形树冠（底宽顶尖，含尖顶）──
+        var spruceLayers = [[topY - 3, 2], [topY - 2, 2], [topY - 1, 1], [topY, 1], [topY + 1, 0]];
+        for (var sl = 0; sl < spruceLayers.length; sl++) {
+          ty = spruceLayers[sl][0]; rr = spruceLayers[sl][1];
+          if (ty < 0 || ty >= CHUNK_H) continue;
+          for (tx2 = tx - rr; tx2 <= tx + rr; tx2++) {
+            for (tz2 = tz - rr; tz2 <= tz + rr; tz2++) {
+              dxl = Math.abs(tx2 - tx); dzl = Math.abs(tz2 - tz);
+              if (rr === 2 && dxl === 2 && dzl === 2) continue;  // 削去最外四角
+              if (data[tx2 + ty * CHUNK_W + tz2 * CHUNK_W * CHUNK_H] === AIR)
+                data[tx2 + ty * CHUNK_W + tz2 * CHUNK_W * CHUNK_H] = leafId;
+            }
+          }
+        }
+      } else {
+        // ── 橡树/白桦：圆球形树冠 ──
+        //   下两层 5×5（去四角）、第三层 3×3、顶层十字
+        for (ty = topY - 2; ty <= topY + 2 && ty < CHUNK_H; ty++) {
+          if (ty < 0) continue;
+          rr = (ty <= topY) ? 2 : (ty === topY + 1) ? 1 : 1;
+          for (tx2 = tx - rr; tx2 <= tx + rr; tx2++) {
+            for (tz2 = tz - rr; tz2 <= tz + rr; tz2++) {
+              dxl = Math.abs(tx2 - tx); dzl = Math.abs(tz2 - tz);
+              // 5×5 层削四角、顶层只留十字（防止方块感）
+              if (rr === 2 && dxl === 2 && dzl === 2) continue;
+              if (ty === topY + 2 && dxl + dzl > 1) continue;
+              if (data[tx2 + ty * CHUNK_W + tz2 * CHUNK_W * CHUNK_H] === AIR)
+                data[tx2 + ty * CHUNK_W + tz2 * CHUNK_W * CHUNK_H] = leafId;
+            }
           }
         }
       }
@@ -1078,8 +1103,17 @@ function loadTextures(onReady) {
 // 所有贴图在组装时已合成为完全不透明（见 textures.js），无需 alphaTest
 var _mat = new THREE.MeshBasicMaterial({
   vertexColors: true,
-  map: null
+  map: null,
+  alphaTest: 0.5,            // 镂空：花草贴图透明像素直接丢弃（实心块贴图全不透明，alpha=1 照常通过）
+  side: THREE.DoubleSide     // 十字花草两面可见
 });
+
+// 植物方块（十字贴图渲染、非实心、不遮挡邻面）。值在 constants.js 加载后已就绪。
+var _PLANT = {};
+_PLANT[DANDELION]   = 1;
+_PLANT[POPPY]       = 1;
+_PLANT[OAK_SAPLING] = 1;
+_PLANT[GRASS_PLANT] = 1;
 
 // UV 半像素内缩：避免在贴图集边缘采样到相邻格的颜色（atlas bleeding）
 var _UV_EPS_U = 0.5 / (ATLAS_COLS * TILE);  // 半像素（U 方向）
@@ -1098,10 +1132,35 @@ function buildMesh(cx, cz, data) {
         wx = cx * CHUNK_W + lx;
         wz = cz * CHUNK_D + lz;
 
+        // ── 植物：十字双面贴图（两个对角四边形），跳过常规六面立方体 ──
+        if (_PLANT[id]) {
+          ti = BTEX[id][1];
+          tc = ti % ATLAS_COLS;
+          tr = (ti / ATLAS_COLS) | 0;
+          u0 = tc / ATLAS_COLS + _UV_EPS_U;
+          u1 = (tc + 1) / ATLAS_COLS - _UV_EPS_U;
+          v1 = 1 - tr / ATLAS_ROWS - _UV_EPS_V;
+          v0 = 1 - (tr + 1) / ATLAS_ROWS + _UV_EPS_V;
+          // 对角面 A：(0,0)→(1,1)
+          pos.push(
+            wx,   y,   wz,    wx+1, y,   wz+1,  wx+1, y+1, wz+1,
+            wx,   y,   wz,    wx+1, y+1, wz+1,  wx,   y+1, wz
+          );
+          // 对角面 B：(1,0)→(0,1)
+          pos.push(
+            wx+1, y,   wz,    wx,   y,   wz+1,  wx,   y+1, wz+1,
+            wx+1, y,   wz,    wx,   y+1, wz+1,  wx+1, y+1, wz
+          );
+          for (var _pv = 0; _pv < 12; _pv++) col.push(1, 1, 1);  // 满亮（无方向明暗）
+          uv.push(u0,v0, u1,v0, u1,v1,  u0,v0, u1,v1, u0,v1);
+          uv.push(u0,v0, u1,v0, u1,v1,  u0,v0, u1,v1, u0,v1);
+          continue;
+        }
+
         for (f = 0; f < 6; f++) {
           fd = FACES[f];
           nb = getBlock(wx + fd[0], y + fd[1], wz + fd[2]);
-          if (nb !== AIR && nb !== WATER) continue;
+          if (nb !== AIR && nb !== WATER && !_PLANT[nb]) continue;
           if (id === WATER && f !== 2) continue;
 
           sh = FSHADE[f];  // 顶点灰度亮度
@@ -1199,7 +1258,7 @@ function resolveAABB() {
     for (by = Math.floor(y0); by <= Math.floor(y1); by++) {
       for (bz = Math.floor(z0); bz <= Math.floor(z1); bz++) {
         bid = getBlock(bx, by, bz);
-        if (bid === AIR || bid === WATER) continue;  // 非实心，跳过
+        if (bid === AIR || bid === WATER || _PLANT[bid]) continue;  // 非实心，跳过
 
         // 三轴穿透深度
         ox = Math.min(player.x + hw - bx,  bx + 1 - (player.x - hw));
@@ -4803,7 +4862,7 @@ function loadFurnitureModels(onDone) {
   var done = 0, total = names.length;
   if (total === 0) { _furnitureLoaded = true; if (onDone) onDone(); return; }
   names.forEach(function (name) {
-    gltfLoader.load('assets/models/furniture/' + name + '.gltf', function (g) {
+    gltfLoader.load('assets/models/furniture/' + name + '.glb', function (g) {
       _furnitureGltf[name] = g;
       if (++done === total) { _furnitureLoaded = true; if (onDone) onDone(); }
     }, undefined, function () {
@@ -4829,6 +4888,10 @@ function placeFurniture(typeId, wx, wy, wz, yaw) {
   var group = new THREE.Group();
   var model = g.scene.clone(true);
   model.scale.setScalar(def.scale);
+  // 脚底对齐：量缩放后世界包围盒，把模型底面归零到 group 原点（防止悬空/陷地）
+  model.updateMatrixWorld(true);
+  var bbox = new THREE.Box3().setFromObject(model);
+  model.position.y = -bbox.min.y;
   group.add(model);
   group.position.set(wx + 0.5, wy, wz + 0.5);
   group.rotation.y = yaw;
@@ -5060,7 +5123,7 @@ var ARM_BASE_RX = -0.25;
 var _swingT = 0, SWING_DUR = 0.28;
 
 // 手持物料（贴图就绪后填入 atlasTexture）
-var _handItemMat  = new THREE.MeshBasicMaterial({ map: null });
+var _handItemMat  = new THREE.MeshBasicMaterial({ map: null, alphaTest: 0.5 });
 var _handItemMesh = null;   // 当前手持方块网格
 var _handSlotLast = -1;
 
@@ -5610,7 +5673,7 @@ function tick(now) {
         Math.floor(shY - fwy * cd),
         Math.floor(shZ - fwz * cd)
       );
-      if (cid !== AIR && cid !== WATER) { hitD = Math.max(0.4, cd - 0.3); break; }
+      if (cid !== AIR && cid !== WATER && !_PLANT[cid]) { hitD = Math.max(0.4, cd - 0.3); break; }
     }
     // 瞬缩缓伸：撞墙立刻拉近，离开后以 4/s 缓慢恢复全长
     if (hitD < _camDcur) _camDcur = hitD;

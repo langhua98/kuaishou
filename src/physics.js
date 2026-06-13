@@ -20,7 +20,7 @@ function resolveAABB() {
     for (by = Math.floor(y0); by <= Math.floor(y1); by++) {
       for (bz = Math.floor(z0); bz <= Math.floor(z1); bz++) {
         bid = getBlock(bx, by, bz);
-        if (bid === AIR || bid === WATER) continue;  // 非实心，跳过
+        if (bid === AIR || bid === WATER || _PLANT[bid]) continue;  // 非实心，跳过
 
         // 三轴穿透深度
         ox = Math.min(player.x + hw - bx,  bx + 1 - (player.x - hw));

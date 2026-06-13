@@ -79,10 +79,11 @@ function genTerrain(cx, cz) {
     }
   }
 
-  // 树木生成（橡树/白桦/云杉；WorldR>40，草地，~4% 概率）
-  var tx, tz, twx, twz, twR, th, surfY, treeKind, trunkId, leafId, trunkH, topY, ty, tx2, tz2, rr;
-  for (tx = 2; tx < CHUNK_W - 2; tx++) {
-    for (tz = 2; tz < CHUNK_D - 2; tz++) {
+  // 树木生成（橡树/白桦/云杉；WorldR>40，草地，~3% 概率）
+  // 内边距 3 确保半径 3 的树冠完全落在本区块内（不跨区块裁切）
+  var tx, tz, twx, twz, twR, th, surfY, treeKind, trunkId, leafId, trunkH, topY, ty, tx2, tz2, rr, dxl, dzl;
+  for (tx = 3; tx < CHUNK_W - 3; tx++) {
+    for (tz = 3; tz < CHUNK_D - 3; tz++) {
       twx = cx * CHUNK_W + tx;
       twz = cz * CHUNK_D + tz;
       twR = Math.max(Math.abs(twx), Math.abs(twz));
@@ -90,7 +91,7 @@ function genTerrain(cx, cz) {
       // 确定性伪随机（sin hash，每格唯一）
       th = Math.sin(twx * 127.1 + twz * 311.7) * 43758.5453;
       th = th - Math.floor(th);
-      if (th > 0.04) continue;
+      if (th > 0.03) continue;
       // 找草地表面
       surfY = -1;
       for (y = CHUNK_H - 1; y > SEA + 1; y--) {
@@ -99,21 +100,45 @@ function genTerrain(cx, cz) {
       if (surfY < 0) continue;
       // 树种：0=橡树 1=白桦 2=云杉
       treeKind = Math.floor(th * 300) % 3;
-      trunkId  = (treeKind === 0) ? WOOD        : (treeKind === 1) ? BIRCH_LOG   : SPRUCE_LOG;
-      leafId   = (treeKind === 0) ? LEAVES      : (treeKind === 1) ? BIRCH_LEAVES : SPRUCE_LEAVES;
-      trunkH   = (treeKind === 2) ? 6 : 4;
+      trunkId  = (treeKind === 0) ? WOOD         : (treeKind === 1) ? BIRCH_LOG    : SPRUCE_LOG;
+      leafId   = (treeKind === 0) ? LEAVES       : (treeKind === 1) ? BIRCH_LEAVES : SPRUCE_LEAVES;
+      trunkH   = (treeKind === 0) ? 5 : (treeKind === 1) ? 6 : 7;
+      // 树干
       for (ty = surfY + 1; ty <= surfY + trunkH && ty < CHUNK_H; ty++) {
         data[tx + ty * CHUNK_W + tz * CHUNK_W * CHUNK_H] = trunkId;
       }
       topY = surfY + trunkH;
-      for (ty = topY - 1; ty <= topY + 2 && ty < CHUNK_H; ty++) {
-        rr = (ty >= topY + 1) ? 1 : 2;
-        for (tx2 = tx - rr; tx2 <= tx + rr; tx2++) {
-          if (tx2 < 0 || tx2 >= CHUNK_W) continue;
-          for (tz2 = tz - rr; tz2 <= tz + rr; tz2++) {
-            if (tz2 < 0 || tz2 >= CHUNK_D) continue;
-            if (data[tx2 + ty * CHUNK_W + tz2 * CHUNK_W * CHUNK_H] === AIR)
-              data[tx2 + ty * CHUNK_W + tz2 * CHUNK_W * CHUNK_H] = leafId;
+
+      if (treeKind === 2) {
+        // ── 云杉：圆锥形树冠（底宽顶尖，含尖顶）──
+        var spruceLayers = [[topY - 3, 2], [topY - 2, 2], [topY - 1, 1], [topY, 1], [topY + 1, 0]];
+        for (var sl = 0; sl < spruceLayers.length; sl++) {
+          ty = spruceLayers[sl][0]; rr = spruceLayers[sl][1];
+          if (ty < 0 || ty >= CHUNK_H) continue;
+          for (tx2 = tx - rr; tx2 <= tx + rr; tx2++) {
+            for (tz2 = tz - rr; tz2 <= tz + rr; tz2++) {
+              dxl = Math.abs(tx2 - tx); dzl = Math.abs(tz2 - tz);
+              if (rr === 2 && dxl === 2 && dzl === 2) continue;  // 削去最外四角
+              if (data[tx2 + ty * CHUNK_W + tz2 * CHUNK_W * CHUNK_H] === AIR)
+                data[tx2 + ty * CHUNK_W + tz2 * CHUNK_W * CHUNK_H] = leafId;
+            }
+          }
+        }
+      } else {
+        // ── 橡树/白桦：圆球形树冠 ──
+        //   下两层 5×5（去四角）、第三层 3×3、顶层十字
+        for (ty = topY - 2; ty <= topY + 2 && ty < CHUNK_H; ty++) {
+          if (ty < 0) continue;
+          rr = (ty <= topY) ? 2 : (ty === topY + 1) ? 1 : 1;
+          for (tx2 = tx - rr; tx2 <= tx + rr; tx2++) {
+            for (tz2 = tz - rr; tz2 <= tz + rr; tz2++) {
+              dxl = Math.abs(tx2 - tx); dzl = Math.abs(tz2 - tz);
+              // 5×5 层削四角、顶层只留十字（防止方块感）
+              if (rr === 2 && dxl === 2 && dzl === 2) continue;
+              if (ty === topY + 2 && dxl + dzl > 1) continue;
+              if (data[tx2 + ty * CHUNK_W + tz2 * CHUNK_W * CHUNK_H] === AIR)
+                data[tx2 + ty * CHUNK_W + tz2 * CHUNK_W * CHUNK_H] = leafId;
+            }
           }
         }
       }

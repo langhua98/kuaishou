@@ -53,7 +53,7 @@ var ARM_BASE_RX = -0.25;
 var _swingT = 0, SWING_DUR = 0.28;
 
 // 手持物料（贴图就绪后填入 atlasTexture）
-var _handItemMat  = new THREE.MeshBasicMaterial({ map: null });
+var _handItemMat  = new THREE.MeshBasicMaterial({ map: null, alphaTest: 0.5 });
 var _handItemMesh = null;   // 当前手持方块网格
 var _handSlotLast = -1;
 
@@ -603,7 +603,7 @@ function tick(now) {
         Math.floor(shY - fwy * cd),
         Math.floor(shZ - fwz * cd)
       );
-      if (cid !== AIR && cid !== WATER) { hitD = Math.max(0.4, cd - 0.3); break; }
+      if (cid !== AIR && cid !== WATER && !_PLANT[cid]) { hitD = Math.max(0.4, cd - 0.3); break; }
     }
     // 瞬缩缓伸：撞墙立刻拉近，离开后以 4/s 缓慢恢复全长
     if (hitD < _camDcur) _camDcur = hitD;

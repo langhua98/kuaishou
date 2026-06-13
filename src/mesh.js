@@ -13,8 +13,17 @@
 // 所有贴图在组装时已合成为完全不透明（见 textures.js），无需 alphaTest
 var _mat = new THREE.MeshBasicMaterial({
   vertexColors: true,
-  map: null
+  map: null,
+  alphaTest: 0.5,            // 镂空：花草贴图透明像素直接丢弃（实心块贴图全不透明，alpha=1 照常通过）
+  side: THREE.DoubleSide     // 十字花草两面可见
 });
+
+// 植物方块（十字贴图渲染、非实心、不遮挡邻面）。值在 constants.js 加载后已就绪。
+var _PLANT = {};
+_PLANT[DANDELION]   = 1;
+_PLANT[POPPY]       = 1;
+_PLANT[OAK_SAPLING] = 1;
+_PLANT[GRASS_PLANT] = 1;
 
 // UV 半像素内缩：避免在贴图集边缘采样到相邻格的颜色（atlas bleeding）
 var _UV_EPS_U = 0.5 / (ATLAS_COLS * TILE);  // 半像素（U 方向）
@@ -33,10 +42,35 @@ function buildMesh(cx, cz, data) {
         wx = cx * CHUNK_W + lx;
         wz = cz * CHUNK_D + lz;
 
+        // ── 植物：十字双面贴图（两个对角四边形），跳过常规六面立方体 ──
+        if (_PLANT[id]) {
+          ti = BTEX[id][1];
+          tc = ti % ATLAS_COLS;
+          tr = (ti / ATLAS_COLS) | 0;
+          u0 = tc / ATLAS_COLS + _UV_EPS_U;
+          u1 = (tc + 1) / ATLAS_COLS - _UV_EPS_U;
+          v1 = 1 - tr / ATLAS_ROWS - _UV_EPS_V;
+          v0 = 1 - (tr + 1) / ATLAS_ROWS + _UV_EPS_V;
+          // 对角面 A：(0,0)→(1,1)
+          pos.push(
+            wx,   y,   wz,    wx+1, y,   wz+1,  wx+1, y+1, wz+1,
+            wx,   y,   wz,    wx+1, y+1, wz+1,  wx,   y+1, wz
+          );
+          // 对角面 B：(1,0)→(0,1)
+          pos.push(
+            wx+1, y,   wz,    wx,   y,   wz+1,  wx,   y+1, wz+1,
+            wx+1, y,   wz,    wx,   y+1, wz+1,  wx+1, y+1, wz
+          );
+          for (var _pv = 0; _pv < 12; _pv++) col.push(1, 1, 1);  // 满亮（无方向明暗）
+          uv.push(u0,v0, u1,v0, u1,v1,  u0,v0, u1,v1, u0,v1);
+          uv.push(u0,v0, u1,v0, u1,v1,  u0,v0, u1,v1, u0,v1);
+          continue;
+        }
+
         for (f = 0; f < 6; f++) {
           fd = FACES[f];
           nb = getBlock(wx + fd[0], y + fd[1], wz + fd[2]);
-          if (nb !== AIR && nb !== WATER) continue;
+          if (nb !== AIR && nb !== WATER && !_PLANT[nb]) continue;
           if (id === WATER && f !== 2) continue;
 
           sh = FSHADE[f];  // 顶点灰度亮度
