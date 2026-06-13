@@ -41,6 +41,7 @@ const SRC_FILES = [
   'src/combat_tower.js',// ⑦ 塔防：魔法塔/魔法弹/敌方攻塔（需在 combat_cmd 之后：placeTower 被 cmd 调用）
   'src/combat_particles.js',// ⑧ 粒子特效：spawnBurst/updateParticles（被 tower/ai 调用）
   'src/structures.js',  // 开源中式建筑数据 + placeStructures()（需在 game.js 之前）
+  'src/furniture.js',  // 家具系统：KayKit GLTF 模型放置（需在 game.js 之前）
   'src/save.js',        // 本地存档：玩家改动/位置/塔（需在 game.js 之前：loadGame/recordEdit 被 game 调用）
   'src/game.js',
 ]

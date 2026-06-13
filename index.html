@@ -358,6 +358,34 @@ var TOWER_ITEM = 100;            // 🗼 魔法塔放置道具
 BCOL[TOWER_ITEM]  = [0.576,0.180,0.918, 0.576,0.180,0.918, 0.576,0.180,0.918];  // 紫
 BNAMES[TOWER_ITEM] = '🗼塔';
 
+// ── 家具道具 ID（101-110，放置时生成 GLTF 模型而非方块）────────────────────────
+var FURNITURE_CHAIR      = 101;
+var FURNITURE_TABLE      = 102;
+var FURNITURE_BED        = 103;
+var FURNITURE_COUCH      = 104;
+var FURNITURE_SHELF      = 105;
+var FURNITURE_CABINET    = 106;
+var FURNITURE_LAMP       = 107;
+var FURNITURE_RUG        = 108;
+var FURNITURE_ARMCHAIR   = 109;
+var FURNITURE_TABLE_LONG = 110;
+
+BCOL[101] = [0.55,0.38,0.22, 0.55,0.38,0.22, 0.55,0.38,0.22];  // 椅子   木棕
+BCOL[102] = [0.60,0.42,0.26, 0.60,0.42,0.26, 0.60,0.42,0.26];  // 桌子   木棕
+BCOL[103] = [0.70,0.55,0.75, 0.70,0.55,0.75, 0.55,0.38,0.22];  // 单人床 紫+木
+BCOL[104] = [0.45,0.30,0.20, 0.45,0.30,0.20, 0.45,0.30,0.20];  // 沙发   深棕
+BCOL[105] = [0.55,0.38,0.22, 0.55,0.38,0.22, 0.55,0.38,0.22];  // 书架   木棕
+BCOL[106] = [0.58,0.40,0.24, 0.58,0.40,0.24, 0.58,0.40,0.24];  // 柜子   木棕
+BCOL[107] = [0.80,0.75,0.40, 0.80,0.75,0.40, 0.80,0.75,0.40];  // 落地灯 黄
+BCOL[108] = [0.72,0.28,0.28, 0.72,0.28,0.28, 0.72,0.28,0.28];  // 地毯   红
+BCOL[109] = [0.60,0.40,0.25, 0.60,0.40,0.25, 0.60,0.40,0.25];  // 扶手椅 棕
+BCOL[110] = [0.62,0.44,0.27, 0.62,0.44,0.27, 0.62,0.44,0.27];  // 长桌   木棕
+
+BNAMES[101] = '🪑椅子';   BNAMES[102] = '🪵桌子';   BNAMES[103] = '🛏床';
+BNAMES[104] = '🛋沙发';   BNAMES[105] = '📚书架';   BNAMES[106] = '🗄柜子';
+BNAMES[107] = '💡落地灯'; BNAMES[108] = '🪭地毯';   BNAMES[109] = '🪑扶手椅';
+BNAMES[110] = '🪵长桌';
+
 // ── 面定义 ────────────────────────────────────────────────────────────────────
 // FACES[f] = [dx, dy, dz,  顶点偏移数组(4顶点×3坐标=12个数),  BCOL 颜色偏移]
 //   颜色偏移: 0=顶面, 3=底面, 6=侧面
@@ -4741,6 +4769,108 @@ function placeStructures() {
 }
 
 
+// ═══ src/furniture.js ═══
+// ─── furniture.js ─────────────────────────────────────────────────────────────
+// 家具系统：KayKit Furniture Bits（CC0）GLTF 模型放置/管理/存档。
+// 家具为 Three.js Group（非体素方块），放置在世界坐标，不占区块格。
+
+var FURNITURE_DEFS = [
+  { id: 101, name: '椅子',   file: 'chair_A',            scale: 1.0 },
+  { id: 102, name: '桌子',   file: 'table_medium',       scale: 1.0 },
+  { id: 103, name: '单人床', file: 'bed_single_A',       scale: 1.0 },
+  { id: 104, name: '沙发',   file: 'couch',              scale: 1.0 },
+  { id: 105, name: '书架',   file: 'shelf_A_big',        scale: 1.0 },
+  { id: 106, name: '柜子',   file: 'cabinet_medium',     scale: 1.0 },
+  { id: 107, name: '落地灯', file: 'lamp_standing',      scale: 1.0 },
+  { id: 108, name: '地毯',   file: 'rug_rectangle_A',    scale: 1.0 },
+  { id: 109, name: '扶手椅', file: 'armchair',           scale: 1.0 },
+  { id: 110, name: '长桌',   file: 'table_medium_long',  scale: 1.0 },
+];
+
+var _furnitureGltf = {};      // file → gltf
+var _furniturePlaced = [];    // 所有已放置家具记录
+var _furnitureSeq = 1;
+var _furnitureLoaded = false;
+
+// 加载所有家具 GLTF（首次放置或启动时调）
+function loadFurnitureModels(onDone) {
+  if (_furnitureLoaded) { if (onDone) onDone(); return; }
+  var names = [], seen = {}, i;
+  for (i = 0; i < FURNITURE_DEFS.length; i++) {
+    var fn = FURNITURE_DEFS[i].file;
+    if (!seen[fn]) { seen[fn] = 1; names.push(fn); }
+  }
+  var done = 0, total = names.length;
+  if (total === 0) { _furnitureLoaded = true; if (onDone) onDone(); return; }
+  names.forEach(function (name) {
+    gltfLoader.load('assets/models/furniture/' + name + '.gltf', function (g) {
+      _furnitureGltf[name] = g;
+      if (++done === total) { _furnitureLoaded = true; if (onDone) onDone(); }
+    }, undefined, function () {
+      if (++done === total) { _furnitureLoaded = true; if (onDone) onDone(); }
+    });
+  });
+}
+
+// 在世界坐标放置一件家具（wx/wy/wz = 方块坐标，yaw 可选）
+function placeFurniture(typeId, wx, wy, wz, yaw) {
+  var def = null, i;
+  for (i = 0; i < FURNITURE_DEFS.length; i++) {
+    if (FURNITURE_DEFS[i].id === typeId) { def = FURNITURE_DEFS[i]; break; }
+  }
+  if (!def) return null;
+  var g = _furnitureGltf[def.file];
+  if (!g) return null;
+
+  if (yaw === undefined) {
+    yaw = (typeof player !== 'undefined') ? player.yaw + Math.PI : 0;
+  }
+
+  var group = new THREE.Group();
+  var model = g.scene.clone(true);
+  model.scale.setScalar(def.scale);
+  group.add(model);
+  group.position.set(wx + 0.5, wy, wz + 0.5);
+  group.rotation.y = yaw;
+  scene.add(group);
+
+  var entry = {
+    id: _furnitureSeq++, typeId: typeId,
+    x: wx, y: wy, z: wz, yaw: yaw,
+    group: group
+  };
+  _furniturePlaced.push(entry);
+  return entry;
+}
+
+// 按记录 id 移除家具
+function removeFurnitureById(fid) {
+  for (var i = _furniturePlaced.length - 1; i >= 0; i--) {
+    if (_furniturePlaced[i].id === fid) {
+      scene.remove(_furniturePlaced[i].group);
+      _furniturePlaced.splice(i, 1);
+      return true;
+    }
+  }
+  return false;
+}
+
+// 序列化供 save.js 调用
+function serializeFurniture() {
+  return _furniturePlaced.map(function (f) {
+    return { typeId: f.typeId, x: f.x, y: f.y, z: f.z, yaw: f.yaw };
+  });
+}
+
+// 反序列化（读档时调用，需先 loadFurnitureModels）
+function deserializeFurniture(arr) {
+  if (!arr || !arr.length) return;
+  arr.forEach(function (f) {
+    placeFurniture(f.typeId, f.x, f.y, f.z, f.yaw);
+  });
+}
+
+
 // ═══ src/save.js ═══
 // ─── save.js ──────────────────────────────────────────────────────────────────
 // 本地存档：玩家方块改动 + 位置/朝向/物品栏 + 防御塔，存 localStorage。
@@ -4770,12 +4900,14 @@ function saveGame() {
         ]);
       }
     }
+    var furniture = (typeof serializeFurniture === 'function') ? serializeFurniture() : [];
     var data = {
-      v: 1,
+      v: 2,
       p: { x: player.x, y: player.y, z: player.z,
            yaw: player.yaw, pitch: player.pitch, slot: player.slot },
       e: _edits,
       t: towers,
+      f: furniture,
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(data));
     return true;
@@ -4805,7 +4937,7 @@ function loadGame() {
   if (!raw) return;
   var data;
   try { data = JSON.parse(raw); } catch (e) { return; }
-  if (!data || data.v !== 1) return;
+  if (!data || data.v < 1) return;
 
   // 1) 重放方块改动 → 直接写数据，最后统一重建受影响区块
   var dirty = {}, key, parts, wx, wy, wz, id, terr = [];
@@ -4851,6 +4983,12 @@ function loadGame() {
     for (ti = 0; ti < data.t.length; ti++) placeTower(data.t[ti][0], data.t[ti][1], true);
   }
 
+  // 5) 恢复家具（需先加载模型，异步回调内执行）
+  if (data.f && data.f.length && typeof loadFurnitureModels === 'function') {
+    var _savedFurniture = data.f;
+    loadFurnitureModels(function () { deserializeFurniture(_savedFurniture); });
+  }
+
   if (typeof battleToast === 'function') battleToast('💾 存档已读取');
 }
 
@@ -4893,7 +5031,8 @@ var player = {
   jumpQ: false, breakQ: false, placeQ: false,
   slot: 0,
   inv: [GRASS, DIRT, STONE, SAND, WOOD, LEAVES, RED_WALL, GOLD_ROOF, WHITE_STONE, GRAY_BRICK, GRAY_ROOF, RED_PILLAR, PLANKS, COBBLE, MUD_BRICK, TERRITORY_STONE, ICE, SNOW, IRON_ORE, GLASS, OBSIDIAN, GRAVEL, RED_SAND, TNT, PUMPKIN, COAL_ORE, TOWER_ITEM,
-        BIRCH_LOG, BIRCH_LEAVES, SPRUCE_LOG, SPRUCE_LEAVES, BEDROCK, BLUE_WOOL, GREEN_WOOL, RED_WOOL, WHITE_WOOL, YELLOW_WOOL, BOOKSHELF, CARVED_PUMPKIN, CRAFTING_TABLE, DIAMOND_ORE, EMERALD_ORE, GOLD_ORE, REDSTONE_ORE, FURNACE, LAVA, MELON, MOSSY_COBBLE, DANDELION, POPPY, OAK_SAPLING, GRASS_PLANT, PACKED_ICE, SANDSTONE]
+        BIRCH_LOG, BIRCH_LEAVES, SPRUCE_LOG, SPRUCE_LEAVES, BEDROCK, BLUE_WOOL, GREEN_WOOL, RED_WOOL, WHITE_WOOL, YELLOW_WOOL, BOOKSHELF, CARVED_PUMPKIN, CRAFTING_TABLE, DIAMOND_ORE, EMERALD_ORE, GOLD_ORE, REDSTONE_ORE, FURNACE, LAVA, MELON, MOSSY_COBBLE, DANDELION, POPPY, OAK_SAPLING, GRASS_PLANT, PACKED_ICE, SANDSTONE,
+        FURNITURE_CHAIR, FURNITURE_TABLE, FURNITURE_BED, FURNITURE_COUCH, FURNITURE_SHELF, FURNITURE_CABINET, FURNITURE_LAMP, FURNITURE_RUG, FURNITURE_ARMCHAIR, FURNITURE_TABLE_LONG]
 };
 
 window._step = 4;
@@ -5351,6 +5490,15 @@ function tick(now) {
         if (_placedId === TOWER_ITEM) {
           if (typeof placeTower === 'function') placeTower(pv.x + 0.5, pv.z + 0.5);
           _lastPlace = nowS;
+        } else if (_placedId >= 101 && _placedId <= 110) {
+          // 家具放置：按需加载 GLTF 后生成模型
+          if (typeof loadFurnitureModels === 'function') {
+            loadFurnitureModels(function () {
+              placeFurniture(_placedId, pv.x, pv.y, pv.z);
+              placeSound();
+            });
+          }
+          _lastPlace = nowS;
         } else {
           setBlock(pv.x, pv.y, pv.z, _placedId);
           placeSound();
@@ -5601,6 +5749,7 @@ function bootNext() {
       // 异步加载 GLTF 模型（不阻塞进入游戏；完成前玩家为盒子占位、无 NPC）
       loadPlayerModel();
       spawnNPCs();
+      if (typeof loadFurnitureModels === 'function') loadFurnitureModels(null);
       // 预加载兵种模型并按固定岗位生成守军
       loadArmyModels(function () {
         if (!_enemyStrongholdPos || !_enemyStrongholdPos.posts) return;

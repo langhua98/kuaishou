@@ -24,7 +24,8 @@ var player = {
   jumpQ: false, breakQ: false, placeQ: false,
   slot: 0,
   inv: [GRASS, DIRT, STONE, SAND, WOOD, LEAVES, RED_WALL, GOLD_ROOF, WHITE_STONE, GRAY_BRICK, GRAY_ROOF, RED_PILLAR, PLANKS, COBBLE, MUD_BRICK, TERRITORY_STONE, ICE, SNOW, IRON_ORE, GLASS, OBSIDIAN, GRAVEL, RED_SAND, TNT, PUMPKIN, COAL_ORE, TOWER_ITEM,
-        BIRCH_LOG, BIRCH_LEAVES, SPRUCE_LOG, SPRUCE_LEAVES, BEDROCK, BLUE_WOOL, GREEN_WOOL, RED_WOOL, WHITE_WOOL, YELLOW_WOOL, BOOKSHELF, CARVED_PUMPKIN, CRAFTING_TABLE, DIAMOND_ORE, EMERALD_ORE, GOLD_ORE, REDSTONE_ORE, FURNACE, LAVA, MELON, MOSSY_COBBLE, DANDELION, POPPY, OAK_SAPLING, GRASS_PLANT, PACKED_ICE, SANDSTONE]
+        BIRCH_LOG, BIRCH_LEAVES, SPRUCE_LOG, SPRUCE_LEAVES, BEDROCK, BLUE_WOOL, GREEN_WOOL, RED_WOOL, WHITE_WOOL, YELLOW_WOOL, BOOKSHELF, CARVED_PUMPKIN, CRAFTING_TABLE, DIAMOND_ORE, EMERALD_ORE, GOLD_ORE, REDSTONE_ORE, FURNACE, LAVA, MELON, MOSSY_COBBLE, DANDELION, POPPY, OAK_SAPLING, GRASS_PLANT, PACKED_ICE, SANDSTONE,
+        FURNITURE_CHAIR, FURNITURE_TABLE, FURNITURE_BED, FURNITURE_COUCH, FURNITURE_SHELF, FURNITURE_CABINET, FURNITURE_LAMP, FURNITURE_RUG, FURNITURE_ARMCHAIR, FURNITURE_TABLE_LONG]
 };
 
 window._step = 4;
@@ -482,6 +483,15 @@ function tick(now) {
         if (_placedId === TOWER_ITEM) {
           if (typeof placeTower === 'function') placeTower(pv.x + 0.5, pv.z + 0.5);
           _lastPlace = nowS;
+        } else if (_placedId >= 101 && _placedId <= 110) {
+          // 家具放置：按需加载 GLTF 后生成模型
+          if (typeof loadFurnitureModels === 'function') {
+            loadFurnitureModels(function () {
+              placeFurniture(_placedId, pv.x, pv.y, pv.z);
+              placeSound();
+            });
+          }
+          _lastPlace = nowS;
         } else {
           setBlock(pv.x, pv.y, pv.z, _placedId);
           placeSound();
@@ -732,6 +742,7 @@ function bootNext() {
       // 异步加载 GLTF 模型（不阻塞进入游戏；完成前玩家为盒子占位、无 NPC）
       loadPlayerModel();
       spawnNPCs();
+      if (typeof loadFurnitureModels === 'function') loadFurnitureModels(null);
       // 预加载兵种模型并按固定岗位生成守军
       loadArmyModels(function () {
         if (!_enemyStrongholdPos || !_enemyStrongholdPos.posts) return;

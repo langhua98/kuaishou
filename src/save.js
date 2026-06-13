@@ -26,12 +26,14 @@ function saveGame() {
         ]);
       }
     }
+    var furniture = (typeof serializeFurniture === 'function') ? serializeFurniture() : [];
     var data = {
-      v: 1,
+      v: 2,
       p: { x: player.x, y: player.y, z: player.z,
            yaw: player.yaw, pitch: player.pitch, slot: player.slot },
       e: _edits,
       t: towers,
+      f: furniture,
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(data));
     return true;
@@ -61,7 +63,7 @@ function loadGame() {
   if (!raw) return;
   var data;
   try { data = JSON.parse(raw); } catch (e) { return; }
-  if (!data || data.v !== 1) return;
+  if (!data || data.v < 1) return;
 
   // 1) 重放方块改动 → 直接写数据，最后统一重建受影响区块
   var dirty = {}, key, parts, wx, wy, wz, id, terr = [];
@@ -105,6 +107,12 @@ function loadGame() {
   // 4) 恢复防御塔
   if (data.t && typeof placeTower === 'function') {
     for (ti = 0; ti < data.t.length; ti++) placeTower(data.t[ti][0], data.t[ti][1], true);
+  }
+
+  // 5) 恢复家具（需先加载模型，异步回调内执行）
+  if (data.f && data.f.length && typeof loadFurnitureModels === 'function') {
+    var _savedFurniture = data.f;
+    loadFurnitureModels(function () { deserializeFurniture(_savedFurniture); });
   }
 
   if (typeof battleToast === 'function') battleToast('💾 存档已读取');
