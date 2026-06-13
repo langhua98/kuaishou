@@ -275,34 +275,37 @@ var _enemyStrongholdPos = null;
 function placeEnemyStronghold(ox, oz) {
   var BY = SEA + 2;
   var W = 16, H = 4;
-  var dirty = {}, x, z, y;
+  var x, z, y, ccx, ccz;
 
-  function raw(wx, wy, wz, id) {
-    setBlock(wx, wy, wz, id);
-    var ck = (wx >> 4) + ',' + (wz >> 4);
-    dirty[ck] = [wx >> 4, wz >> 4];
+  // 先确保该区域所有区块已生成（setBlock 在区块不存在时静默失败）
+  var cxMin = Math.floor(ox / CHUNK_W) - 1;
+  var cxMax = Math.floor((ox + W) / CHUNK_W) + 1;
+  var czMin = Math.floor(oz / CHUNK_D) - 1;
+  var czMax = Math.floor((oz + W) / CHUNK_D) + 1;
+  for (ccx = cxMin; ccx <= cxMax; ccx++) {
+    for (ccz = czMin; ccz <= czMax; ccz++) {
+      createChunk(ccx, ccz);
+    }
   }
 
   // 地面铺 GRAY_BRICK
   for (x = ox; x < ox + W; x++) {
     for (z = oz; z < oz + W; z++) {
-      raw(x, BY, z, GRAY_BRICK);
+      setBlock(x, BY, z, GRAY_BRICK);
     }
   }
 
   // 四面围墙（COBBLE，高 H 格），南面留 2 格入口
   for (x = ox; x < ox + W; x++) {
     for (y = 1; y <= H; y++) {
-      // 北墙
-      raw(x, BY + y, oz, COBBLE);
-      // 南墙（中间 2 格留门）
-      if (x < ox + 7 || x > ox + 8) raw(x, BY + y, oz + W - 1, COBBLE);
+      setBlock(x, BY + y, oz, COBBLE);                                // 北墙
+      if (x < ox + 7 || x > ox + 8) setBlock(x, BY + y, oz + W - 1, COBBLE); // 南墙留门
     }
   }
   for (z = oz; z < oz + W; z++) {
     for (y = 1; y <= H; y++) {
-      raw(ox,         BY + y, z, COBBLE);   // 西墙
-      raw(ox + W - 1, BY + y, z, COBBLE);   // 东墙
+      setBlock(ox,         BY + y, z, COBBLE);   // 西墙
+      setBlock(ox + W - 1, BY + y, z, COBBLE);   // 东墙
     }
   }
 
@@ -310,23 +313,30 @@ function placeEnemyStronghold(ox, oz) {
   var corners = [[ox,oz],[ox+W-2,oz],[ox,oz+W-2],[ox+W-2,oz+W-2]];
   corners.forEach(function(c) {
     for (y = 1; y <= H + 2; y++) {
-      raw(c[0],   BY + y, c[1],   STONE);
-      raw(c[0]+1, BY + y, c[1],   STONE);
-      raw(c[0],   BY + y, c[1]+1, STONE);
-      raw(c[0]+1, BY + y, c[1]+1, STONE);
+      setBlock(c[0],   BY + y, c[1],   STONE);
+      setBlock(c[0]+1, BY + y, c[1],   STONE);
+      setBlock(c[0],   BY + y, c[1]+1, STONE);
+      setBlock(c[0]+1, BY + y, c[1]+1, STONE);
     }
   });
 
   // 中心领主石（OBSIDIAN，高出地面 1 格，3×3 台座）
-  var cx = ox + 7, cz = oz + 7;
-  for (x = cx - 1; x <= cx + 1; x++) {
-    for (z = cz - 1; z <= cz + 1; z++) {
-      raw(x, BY + 1, z, STONE);
+  var lcx = ox + 7, lcz = oz + 7;
+  for (x = lcx - 1; x <= lcx + 1; x++) {
+    for (z = lcz - 1; z <= lcz + 1; z++) {
+      setBlock(x, BY + 1, z, STONE);
     }
   }
-  raw(cx, BY + 2, cz, OBSIDIAN);
+  setBlock(lcx, BY + 2, lcz, OBSIDIAN);
 
-  _enemyStrongholdPos = { x: cx, y: BY + 2, z: cz };
+  // 重建该区域区块网格
+  for (ccx = cxMin; ccx <= cxMax; ccx++) {
+    for (ccz = czMin; ccz <= czMax; ccz++) {
+      rebuildChunk(ccx, ccz);
+    }
+  }
+
+  _enemyStrongholdPos = { x: lcx, y: BY + 2, z: lcz };
 }
 
 // 启动时调用：围绕出生地布置中式建筑村落

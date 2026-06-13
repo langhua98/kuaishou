@@ -519,7 +519,19 @@ function _aiUnit(u, dt, now) {
       }
     } else {
       if (!u.target) {
-        if (!u.passive) u.target = _pickTarget(u);  // 被动单位不主动扫描
+        if (u.passive) {
+          // 守卫模式：玩家或友军进入领主石 20 格内，全体激活
+          if (typeof _enemyStrongholdPos !== 'undefined' && _enemyStrongholdPos) {
+            var _ldx = player.x - _enemyStrongholdPos.x;
+            var _ldz = player.z - _enemyStrongholdPos.z;
+            if (_ldx * _ldx + _ldz * _ldz < 400) {  // 20m 半径
+              u.passive = false;
+              u.target = _pickTarget(u);
+            }
+          }
+        } else {
+          u.target = _pickTarget(u);
+        }
       }
       u.state = u.target ? 'SEEK' : 'IDLE';
     }
