@@ -406,7 +406,7 @@ function tick(now) {
   // 超时清除方向记忆（连续 7 秒无有效预览）
   if (_idleInc) {
     _place.idleT += dt;
-    if (_place.idleT > 5) {
+    if (_place.idleT > 3.5) {
       _place.lastPos = null;
       _place.lastDir = null;
       _place.idleT   = 0;
