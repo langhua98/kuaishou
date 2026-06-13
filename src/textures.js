@@ -96,8 +96,8 @@ function _drawTile(ctx, img, spec, dx, dy) {
   }
 
   if (!spec.tint) {
-    // 直接绘制（取源图左上 TILE×TILE）
-    ctx.drawImage(img, 0, 0, TILE, TILE, dx, dy, TILE, TILE);
+    // 按图片真实尺寸裁切后缩放填满 TILE×TILE（兼容 16×16 和 128×128 贴图）
+    ctx.drawImage(img, 0, 0, img.width, img.height, dx, dy, TILE, TILE);
     return;
   }
 
@@ -105,7 +105,7 @@ function _drawTile(ctx, img, spec, dx, dy) {
   var oc = document.createElement('canvas');
   oc.width = oc.height = TILE;
   var octx = oc.getContext('2d');
-  octx.drawImage(img, 0, 0, TILE, TILE, 0, 0, TILE, TILE);
+  octx.drawImage(img, 0, 0, img.width, img.height, 0, 0, TILE, TILE);
   octx.globalCompositeOperation = 'multiply';
   octx.fillStyle = spec.tint;
   octx.fillRect(0, 0, TILE, TILE);

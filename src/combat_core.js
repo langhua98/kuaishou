@@ -79,12 +79,13 @@ function spawnUnit(kind, side, x, z) {
     // 骑兵：马在地面（2.2m 含头），骑手骑于马背（约 1.4m 处）
     _prepModel(model, 1.8);
     model.rotation.y = 0;   // KayKit 模型原生朝 +Z，_prepModel 的 π 翻转会倒着走——归零修正
-    model.position.y = 1.4;
+    model.position.y = 1.4; // 骑手固定高度，不用 bbox 补偿
     var hg = _armyGltf[t.mount];
     if (hg) {
       var horseModel = hg.scene.clone(true);
       _prepModel(horseModel, 2.2);
       horseModel.rotation.y = 0;
+      horseModel.position.y = 0; // KayKit origin 在脚底，bind-pose bbox 补偿无效
       group.add(horseModel);
       horseMixer = new THREE.AnimationMixer(horseModel);
       if (hg.animations.length > 0) {
@@ -95,7 +96,9 @@ function spawnUnit(kind, side, x, z) {
     }
   } else {
     _prepModel(model, t.h);
-    model.rotation.y = 0;   // 同上：_prepModel π 翻转会倒走，归零修正
+    model.rotation.y = 0;
+    // KayKit 模型 origin 在脚底，bind-pose 包围盒补偿会因 T-pose 骨骼偏移造成悬浮，强制归零
+    model.position.y = 0;
   }
 
   _attachWeapon(model, t.wpnR, 'handslot.r');
