@@ -2122,25 +2122,25 @@ function _addTerritory(bx, by, bz) {
   scene.add(meshWire);
 
   // 底部圆环地基（落地光圈）
-  var geoRing = new THREE.TorusGeometry(R, 0.18, 6, 72);
+  var geoRing = new THREE.TorusGeometry(R, 0.08, 6, 72);
   var matRing = new THREE.MeshBasicMaterial({ color: 0xc084fc, transparent: true, opacity: 0.6 });
   var meshRing = new THREE.Mesh(geoRing, matRing);
   meshRing.rotation.x = Math.PI * 0.5;
-  meshRing.position.set(cx, by + 0.15, cz);
+  meshRing.position.set(cx, by + 0.12, cz);
   scene.add(meshRing);
 
-  // 预分配脉冲扩散环（单个可复用 Mesh，每 3 秒重置动画；避免每次 new TorusGeometry）
-  var prGeo  = new THREE.TorusGeometry(R, 0.3, 6, 48);
+  // 预分配脉冲收缩环（从底圈全尺寸向上收缩至穹顶顶点；单一 Mesh 复用）
+  var prGeo  = new THREE.TorusGeometry(R, 0.18, 6, 48);
   var prMat  = new THREE.MeshBasicMaterial({ color: 0xc084fc, transparent: true, opacity: 0, depthWrite: false });
   var prMesh = new THREE.Mesh(prGeo, prMat);
   prMesh.rotation.x = Math.PI * 0.5;
-  prMesh.position.set(cx, by + 0.25, cz);
+  prMesh.position.set(cx, by + 0.3, cz);
   prMesh.visible = false;
   scene.add(prMesh);
 
-  _territoryList.push({ cx: cx, cz: cz, r: R,
+  _territoryList.push({ cx: cx, cz: cz, r: R, baseY: by,
     mesh: meshInner, meshOut: meshWire, ring: meshRing,
-    pulseRing: prMesh, pulseT: 3.0, pulseFrac: 1.0 });
+    pulseRing: prMesh, pulseT: 2.0, pulseFrac: 1.0 });
 }
 
 function _removeTerritory(bx, by, bz) {
@@ -2169,26 +2169,29 @@ function updateTerritoryFx(dt) {
     t.meshOut.material.opacity = 0.30 + 0.20 * pulse;
     if (t.ring) t.ring.material.opacity = 0.5 + 0.25 * Math.sin(_territoryTime * 3.0 + i);
 
-    // 每 3 秒触发一次脉冲扩散动画（复用预分配 Mesh，不分配新几何体）
+    // 每 2 秒触发一次：圆圈从底圈全尺寸向上收缩至穹顶顶点后消失（复用预分配 Mesh）
     t.pulseT -= dt;
     if (t.pulseT <= 0) {
-      t.pulseT = 3.0;
+      t.pulseT = 2.5;          // 2.5s 间隔（动画本身 2s，0.5s 空白）
       t.pulseFrac = 0.0;
       if (t.pulseRing) {
         t.pulseRing.visible = true;
-        t.pulseRing.scale.set(0.05, 1, 0.05);
+        t.pulseRing.scale.set(1.0, 1, 1.0);
+        t.pulseRing.position.y = t.baseY + 0.3;
         t.pulseRing.material.opacity = 0.7;
       }
     }
 
-    // 每帧推进脉冲动画
+    // 每帧推进：scale XZ 按半球余弦曲线收缩，Y 轴线性上升至顶点
     if (t.pulseRing && t.pulseRing.visible) {
-      t.pulseFrac += dt / 1.6;   // life = 1.6s
+      t.pulseFrac += dt / 2.0;        // 2s 动画时长
       if (t.pulseFrac >= 1.0) {
         t.pulseRing.visible = false;
       } else {
         frac = t.pulseFrac;
-        t.pulseRing.scale.set(frac < 0.05 ? 0.05 : frac, 1, frac < 0.05 ? 0.05 : frac);
+        var sc = Math.cos(frac * Math.PI * 0.5);   // 1→0 沿穹顶曲线
+        t.pulseRing.scale.set(sc, 1, sc);
+        t.pulseRing.position.y = t.baseY + 0.3 + frac * t.r;
         t.pulseRing.material.opacity = 0.7 * (1 - frac);
       }
     }
