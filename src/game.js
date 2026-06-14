@@ -31,7 +31,10 @@ var player = {
         FURNITURE_COUCH_P, FURNITURE_LAMP_TABLE, FURNITURE_RUG_OVAL, FURNITURE_RUG_B,
         FURNITURE_SHELF_SM, FURNITURE_SHELF_BL, FURNITURE_SHELF_BS, FURNITURE_TABLE_LOW, FURNITURE_TABLE_SM,
         FURNITURE_MELON, FURNITURE_PUMPKIN,
-        CROP_WHEAT, CROP_CARROT]
+        CROP_WHEAT, CROP_CARROT,
+        CROP_APPLE, CROP_BAMBOO, CROP_BEET, CROP_BUSHBERRIES, CROP_CACTUS,
+        CROP_CORN, CROP_FLOWER, CROP_LETTUCE, CROP_MUSHROOM, CROP_ORANGE,
+        CROP_PALMTREE, CROP_PUMPKIN_CROP, CROP_RICE, CROP_TOMATO, CROP_WATERMELON]
 };
 
 window._step = 4;
@@ -216,22 +219,22 @@ function toggleView() {
 var _nearCropKey = null, _lastCropPrompt = null;
 
 function _updateCropActPrompt() {
-  var changed = (_nearCropKey !== _lastCropPrompt);
-  if (!changed) return;
-  _lastCropPrompt = _nearCropKey;
   var btns = document.getElementById('btns');
   if (!btns) return;
   if (_nearCropKey) {
+    // 幂等操作：每帧都确保 canact 存在，防止 _updateInteractPrompt(null) 把它清掉
     btns.classList.add('canact');
+    _lastPromptId = -99;
     var act = document.getElementById('b-act');
     if (act) {
       var ic = act.querySelector('.ic'), lbl = act.querySelector('.actl');
-      if (ic) ic.textContent = '🌾'; if (lbl) lbl.textContent = '收获';
+      if (ic && ic.textContent !== '🌾') ic.textContent = '🌾';
+      if (lbl && lbl.textContent !== '收获') lbl.textContent = '收获';
     }
-    _lastPromptId = -99;
-  } else if (_lastPromptId === -99) {
-    btns.classList.remove('canact');
-    _lastPromptId = 0;
+    _lastCropPrompt = _nearCropKey;
+  } else if (_lastCropPrompt) {
+    _lastCropPrompt = null;
+    if (_lastPromptId === -99) { btns.classList.remove('canact'); _lastPromptId = 0; }
   }
 }
 
