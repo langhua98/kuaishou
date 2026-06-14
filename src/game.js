@@ -25,7 +25,11 @@ var player = {
   slot: 0,
   inv: [GRASS, DIRT, STONE, SAND, WOOD, LEAVES, RED_WALL, GOLD_ROOF, WHITE_STONE, GRAY_BRICK, GRAY_ROOF, RED_PILLAR, PLANKS, COBBLE, MUD_BRICK, TERRITORY_STONE, ICE, SNOW, IRON_ORE, GLASS, OBSIDIAN, GRAVEL, RED_SAND, TNT, PUMPKIN, COAL_ORE, TOWER_ITEM,
         BIRCH_LOG, BIRCH_LEAVES, SPRUCE_LOG, SPRUCE_LEAVES, BEDROCK, BLUE_WOOL, GREEN_WOOL, RED_WOOL, WHITE_WOOL, YELLOW_WOOL, BOOKSHELF, CARVED_PUMPKIN, CRAFTING_TABLE, DIAMOND_ORE, EMERALD_ORE, GOLD_ORE, REDSTONE_ORE, FURNACE, LAVA, MELON, MOSSY_COBBLE, DANDELION, POPPY, OAK_SAPLING, GRASS_PLANT, PACKED_ICE, SANDSTONE,
-        FURNITURE_CHAIR, FURNITURE_TABLE, FURNITURE_BED, FURNITURE_COUCH, FURNITURE_SHELF, FURNITURE_CABINET, FURNITURE_LAMP, FURNITURE_RUG, FURNITURE_ARMCHAIR, FURNITURE_TABLE_LONG]
+        FURNITURE_CHAIR, FURNITURE_TABLE, FURNITURE_BED, FURNITURE_COUCH, FURNITURE_SHELF, FURNITURE_CABINET, FURNITURE_LAMP, FURNITURE_RUG, FURNITURE_ARMCHAIR, FURNITURE_TABLE_LONG,
+        FURNITURE_ARMCHAIR_P, FURNITURE_BED_DOUBLE, FURNITURE_BED_B, FURNITURE_CAB_SMALL,
+        FURNITURE_CACTUS_M, FURNITURE_CACTUS_S, FURNITURE_CHAIR_B, FURNITURE_STOOL,
+        FURNITURE_COUCH_P, FURNITURE_LAMP_TABLE, FURNITURE_RUG_OVAL, FURNITURE_RUG_B,
+        FURNITURE_SHELF_SM, FURNITURE_SHELF_BL, FURNITURE_SHELF_BS, FURNITURE_TABLE_LOW, FURNITURE_TABLE_SM]
 };
 
 window._step = 4;
@@ -211,12 +215,12 @@ function toggleView() {
 function doInteract() {
   var e = _curInteract;
   if (!e) return;
-  if (e.typeId === FURNITURE_LAMP) {
+  if (isFurnitureLamp(e.typeId)) {
     toggleLamp(e);
-  } else if (e.typeId === FURNITURE_CHAIR || e.typeId === FURNITURE_COUCH || e.typeId === FURNITURE_ARMCHAIR) {
-    doSit(e);
-  } else if (e.typeId === FURNITURE_BED) {
+  } else if (isFurnitureBed(e.typeId)) {
     doRest(e);
+  } else {
+    doSit(e);
   }
   _lastPromptId = -1;   // 强制刷新提示文字（坐下↔起身）
 }
@@ -249,7 +253,7 @@ function _updateInteractPrompt(e) {
     return;
   }
   // 用 typeId*10 + (灯开关态/坐姿态) 作为去重键
-  var sub = (e.typeId === FURNITURE_LAMP) ? (e.on ? 1 : 2) : (_sitting === e ? 3 : 0);
+  var sub = isFurnitureLamp(e.typeId) ? (e.on ? 1 : 2) : (_sitting === e ? 3 : 0);
   var key = e.typeId * 10 + sub;
   if (key === _lastPromptId) return;
   _lastPromptId = key;
@@ -258,9 +262,9 @@ function _updateInteractPrompt(e) {
   if (!act) return;
   var ic = act.querySelector('.ic'), lbl = act.querySelector('.actl');
   var icon = '✋', text = '互动';
-  if (e.typeId === FURNITURE_LAMP)            { icon = '💡'; text = e.on ? '关灯' : '开灯'; }
-  else if (e.typeId === FURNITURE_BED)        { icon = '🛏'; text = '休息'; }
-  else                                        { icon = '🪑'; text = (_sitting === e) ? '起身' : '坐下'; }
+  if (isFurnitureLamp(e.typeId))     { icon = '💡'; text = e.on ? '关灯' : '开灯'; }
+  else if (isFurnitureBed(e.typeId)) { icon = '🛏'; text = '休息'; }
+  else                               { icon = '🪑'; text = (_sitting === e) ? '起身' : '坐下'; }
   if (ic)  ic.textContent  = icon;
   if (lbl) lbl.textContent = text;
 }

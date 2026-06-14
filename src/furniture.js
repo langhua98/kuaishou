@@ -3,16 +3,33 @@
 // 家具为 Three.js Group（非体素方块），放置在世界坐标，不占区块格。
 
 var FURNITURE_DEFS = [
-  { id: 101, name: '椅子',   file: 'chair_A',            scale: 1.0 },
-  { id: 102, name: '桌子',   file: 'table_medium',       scale: 1.0 },
-  { id: 103, name: '单人床', file: 'bed_single_A',       scale: 1.0 },
-  { id: 104, name: '沙发',   file: 'couch',              scale: 1.0 },
-  { id: 105, name: '书架',   file: 'shelf_A_big',        scale: 1.0 },
-  { id: 106, name: '柜子',   file: 'cabinet_medium',     scale: 1.0 },
-  { id: 107, name: '落地灯', file: 'lamp_standing',      scale: 1.0 },
-  { id: 108, name: '地毯',   file: 'rug_rectangle_A',    scale: 1.0 },
-  { id: 109, name: '扶手椅', file: 'armchair',           scale: 1.0 },
-  { id: 110, name: '长桌',   file: 'table_medium_long',  scale: 1.0 },
+  { id: 101, name: '椅子',     file: 'chair_A',               scale: 1.0 },
+  { id: 102, name: '桌子',     file: 'table_medium',          scale: 1.0 },
+  { id: 103, name: '单人床',   file: 'bed_single_A',          scale: 1.0 },
+  { id: 104, name: '沙发',     file: 'couch',                 scale: 1.0 },
+  { id: 105, name: '书架',     file: 'shelf_A_big',           scale: 1.0 },
+  { id: 106, name: '柜子',     file: 'cabinet_medium',        scale: 1.0 },
+  { id: 107, name: '落地灯',   file: 'lamp_standing',         scale: 1.0 },
+  { id: 108, name: '地毯',     file: 'rug_rectangle_A',       scale: 1.0 },
+  { id: 109, name: '扶手椅',   file: 'armchair',              scale: 1.0 },
+  { id: 110, name: '长桌',     file: 'table_medium_long',     scale: 1.0 },
+  { id: 111, name: '抱枕椅',   file: 'armchair_pillows',      scale: 1.0 },
+  { id: 112, name: '双人床',   file: 'bed_double_A',          scale: 1.0 },
+  { id: 113, name: '单人床B',  file: 'bed_single_B',          scale: 1.0 },
+  { id: 114, name: '小柜子',   file: 'cabinet_small',         scale: 1.0 },
+  { id: 115, name: '仙人掌',   file: 'cactus_medium_A',       scale: 1.0 },
+  { id: 116, name: '小仙人掌', file: 'cactus_small_A',        scale: 1.0 },
+  { id: 117, name: '椅子B',    file: 'chair_B',               scale: 1.0 },
+  { id: 118, name: '凳子',     file: 'chair_stool',           scale: 1.0 },
+  { id: 119, name: '抱枕沙发', file: 'couch_pillows',         scale: 1.0 },
+  { id: 120, name: '台灯',     file: 'lamp_table',            scale: 1.0 },
+  { id: 121, name: '椭圆毯',   file: 'rug_oval_A',            scale: 1.0 },
+  { id: 122, name: '矩形毯B',  file: 'rug_rectangle_B',       scale: 1.0 },
+  { id: 123, name: '小书架',   file: 'shelf_A_small',         scale: 1.0 },
+  { id: 124, name: '展示架',   file: 'shelf_B_large',         scale: 1.0 },
+  { id: 125, name: '小展示架', file: 'shelf_B_small',         scale: 1.0 },
+  { id: 126, name: '茶几',     file: 'table_low',             scale: 1.0 },
+  { id: 127, name: '小方桌',   file: 'table_small',           scale: 1.0 },
 ];
 
 var _furnitureGltf = {};      // file → gltf
@@ -40,9 +57,16 @@ function _markFurnitureSolid(entry, on) {
   }
 }
 
-// 工具：是否家具道具 / 是否可互动家具
-function isFurnitureId(id) { return id >= 101 && id <= 110; }
-function isInteractive(id) { return id === 101 || id === 103 || id === 104 || id === 107 || id === 109; }
+// 工具：是否家具道具 / 是否可互动家具 / 是否灯具
+function isFurnitureId(id) { return id >= 101 && id <= 127; }
+function isInteractive(id) {
+  // 椅/凳/扶手椅/沙发类 → 坐；床类 → 休息；灯类 → 开关
+  return id === 101 || id === 103 || id === 104 || id === 107 || id === 109 ||
+         id === 111 || id === 112 || id === 113 || id === 117 || id === 118 ||
+         id === 119 || id === 120;
+}
+function isFurnitureLamp(id) { return id === FURNITURE_LAMP || id === FURNITURE_LAMP_TABLE; }
+function isFurnitureBed(id)  { return id === FURNITURE_BED  || id === FURNITURE_BED_DOUBLE || id === FURNITURE_BED_B; }
 
 function _furnitureDefById(typeId) {
   for (var i = 0; i < FURNITURE_DEFS.length; i++) {
@@ -59,18 +83,16 @@ function _cloneFurnitureModel(def) {
   model.scale.setScalar(def.scale);
   model.updateMatrixWorld(true);
   var bbox = new THREE.Box3().setFromObject(model);
-  // 检测躺平模型（Y 高度远小于水平尺寸），自动旋转立起（地毯除外，本身就该平铺）
-  if (def.id !== FURNITURE_RUG) {
-    var bh = bbox.max.y - bbox.min.y;
-    var bw = bbox.max.x - bbox.min.x;
-    var bd = bbox.max.z - bbox.min.z;
-    if (bh < 0.25 * Math.max(bw, bd)) {
-      // X 方向最长 → 绕 Z+90° 将 X 立为高度；Z 方向最长 → 绕 X-90°
-      if (bw >= bd) { model.rotation.z =  Math.PI / 2; }
-      else          { model.rotation.x = -Math.PI / 2; }
-      model.updateMatrixWorld(true);
-      bbox.setFromObject(model);
-    }
+  // 检测躺平模型并自动旋转立起：
+  //   bh < 0.12 → 地毯/极扁，不处理；bh 0.12-0.45 且小于最长水平轴 → 书架等躺平
+  var bh = bbox.max.y - bbox.min.y;
+  var bw = bbox.max.x - bbox.min.x;
+  var bd = bbox.max.z - bbox.min.z;
+  if (bh >= 0.12 && bh < 0.45 && bh < Math.max(bw, bd)) {
+    if (bw >= bd) { model.rotation.z =  Math.PI / 2; }
+    else          { model.rotation.x = -Math.PI / 2; }
+    model.updateMatrixWorld(true);
+    bbox.setFromObject(model);
   }
   model.position.y = -bbox.min.y;
   return model;
@@ -113,9 +135,9 @@ function placeFurniture(typeId, wx, wy, wz, yaw) {
   group.rotation.y = yaw;
   scene.add(group);
 
-  // 落地灯：伪造暖光（发光灯泡 + 地面暖光圈 + 点光源），独立子组便于开关显隐
+  // 落地灯 / 台灯：伪造暖光（发光灯泡 + 地面暖光圈 + 点光源）
   var glow = null;
-  if (typeId === FURNITURE_LAMP) {
+  if (isFurnitureLamp(typeId)) {
     glow = new THREE.Group();
     // 发光灯泡（BasicMaterial 不受昼夜亮度影响，夜里自然醒目）
     var bulb = new THREE.Mesh(
@@ -144,7 +166,8 @@ function placeFurniture(typeId, wx, wy, wz, yaw) {
   var wbox = new THREE.Box3().setFromObject(group);
   var cells = [];
   var _hgt = wbox.max.y - wbox.min.y;
-  if (typeId !== FURNITURE_RUG && _hgt >= 0.4) {
+  var _isRug = (typeId === FURNITURE_RUG || typeId === FURNITURE_RUG_OVAL || typeId === FURNITURE_RUG_B);
+  if (!_isRug && _hgt >= 0.4) {
     for (var _cx = Math.floor(wbox.min.x); _cx <= Math.floor(wbox.max.x - 0.001); _cx++)
       for (var _cz = Math.floor(wbox.min.z); _cz <= Math.floor(wbox.max.z - 0.001); _cz++)
         for (var _cy = Math.floor(wbox.min.y); _cy <= Math.floor(wbox.max.y - 0.001); _cy++)
