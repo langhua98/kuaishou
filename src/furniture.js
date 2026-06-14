@@ -7,7 +7,7 @@ var FURNITURE_DEFS = [
   { id: 102, name: '桌子',     file: 'table_medium',          scale: 1.0 },
   { id: 103, name: '单人床',   file: 'bed_single_A',          scale: 1.0 },
   { id: 104, name: '沙发',     file: 'couch',                 scale: 1.0 },
-  { id: 105, name: '书架',     file: 'shelf_A_big',           scale: 1.0 },
+  { id: 105, name: '书架',     file: 'shelf_A_big',           scale: 1.0, flip: true },
   { id: 106, name: '柜子',     file: 'cabinet_medium',        scale: 1.0 },
   { id: 107, name: '落地灯',   file: 'lamp_standing',         scale: 1.0 },
   { id: 108, name: '地毯',     file: 'rug_rectangle_A',       scale: 1.0 },
@@ -25,11 +25,13 @@ var FURNITURE_DEFS = [
   { id: 120, name: '台灯',     file: 'lamp_table',            scale: 1.0 },
   { id: 121, name: '椭圆毯',   file: 'rug_oval_A',            scale: 1.0 },
   { id: 122, name: '矩形毯B',  file: 'rug_rectangle_B',       scale: 1.0 },
-  { id: 123, name: '小书架',   file: 'shelf_A_small',         scale: 1.0 },
-  { id: 124, name: '展示架',   file: 'shelf_B_large',         scale: 1.0 },
-  { id: 125, name: '小展示架', file: 'shelf_B_small',         scale: 1.0 },
+  { id: 123, name: '小书架',   file: 'shelf_A_small',         scale: 1.0, flip: true },
+  { id: 124, name: '展示架',   file: 'shelf_B_large',         scale: 1.0, flip: true },
+  { id: 125, name: '小展示架', file: 'shelf_B_small',         scale: 1.0, flip: true },
   { id: 126, name: '茶几',     file: 'table_low',             scale: 1.0 },
   { id: 127, name: '小方桌',   file: 'table_small',           scale: 1.0 },
+  { id: 128, name: '西瓜',     procedural: true },
+  { id: 129, name: '南瓜',     procedural: true },
 ];
 
 var _furnitureGltf = {};      // file → gltf
@@ -58,7 +60,7 @@ function _markFurnitureSolid(entry, on) {
 }
 
 // 工具：是否家具道具 / 是否可互动家具 / 是否灯具
-function isFurnitureId(id) { return id >= 101 && id <= 127; }
+function isFurnitureId(id) { return id >= 101 && id <= 129; }
 function isInteractive(id) {
   // 椅/凳/扶手椅/沙发类 → 坐；床类 → 休息；灯类 → 开关
   return id === 101 || id === 103 || id === 104 || id === 107 || id === 109 ||
@@ -75,12 +77,59 @@ function _furnitureDefById(typeId) {
   return null;
 }
 
+// 程序化模型（西瓜/南瓜等，无 GLB 文件，用 Three.js 几何体拼合）
+function _makeProceduralModel(typeId) {
+  var grp = new THREE.Group();
+  if (typeId === FURNITURE_MELON) {
+    // 西瓜：扁绿球 + 褐色瓜蒂
+    var body = new THREE.Mesh(
+      new THREE.SphereGeometry(0.44, 12, 8),
+      new THREE.MeshLambertMaterial({ color: 0x3a8c14 })
+    );
+    body.scale.set(1, 0.72, 1);
+    grp.add(body);
+    var stem = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.028, 0.04, 0.13, 5),
+      new THREE.MeshLambertMaterial({ color: 0x6b3d10 })
+    );
+    stem.position.y = 0.44 * 0.72 + 0.065;
+    grp.add(stem);
+  } else if (typeId === FURNITURE_PUMPKIN) {
+    // 南瓜：6 瓣橙球 + 绿色瓜蒂
+    var pmat = new THREE.MeshLambertMaterial({ color: 0xe07010 });
+    for (var li = 0; li < 6; li++) {
+      var la = (li / 6) * Math.PI * 2;
+      var lobe = new THREE.Mesh(new THREE.SphereGeometry(0.28, 8, 6), pmat);
+      lobe.position.set(Math.cos(la) * 0.14, 0, Math.sin(la) * 0.14);
+      lobe.scale.set(0.95, 0.80, 0.95);
+      grp.add(lobe);
+    }
+    var pstem = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.035, 0.055, 0.18, 6),
+      new THREE.MeshLambertMaterial({ color: 0x4a7a30 })
+    );
+    pstem.position.y = 0.28 * 0.80 + 0.08;
+    grp.add(pstem);
+  }
+  // 脚底对齐（bbox.min.y → 0）
+  grp.updateMatrixWorld(true);
+  var bb = new THREE.Box3().setFromObject(grp);
+  var dy = -bb.min.y;
+  for (var ci = 0; ci < grp.children.length; ci++) {
+    grp.children[ci].position.y += dy;
+  }
+  grp.userData.fHeight = bb.max.y - bb.min.y;
+  return grp;
+}
+
 // 克隆并脚底对齐模型（placeFurniture 与幽灵共用）
 function _cloneFurnitureModel(def) {
+  if (def.procedural) return _makeProceduralModel(def.id);
   var g = _furnitureGltf[def.file];
   if (!g) return null;
   var model = g.scene.clone(true);
   model.scale.setScalar(def.scale);
+  if (def.flip) model.rotation.x = Math.PI;  // 架子 GLB 桌面朝下，翻转修正
   model.updateMatrixWorld(true);
   var bbox = new THREE.Box3().setFromObject(model);
   model.position.y = -bbox.min.y;
@@ -94,6 +143,7 @@ function loadFurnitureModels(onDone) {
   var names = [], seen = {}, i;
   for (i = 0; i < FURNITURE_DEFS.length; i++) {
     var fn = FURNITURE_DEFS[i].file;
+    if (!fn || FURNITURE_DEFS[i].procedural) continue;  // 程序化模型无需加载 GLB
     if (!seen[fn]) { seen[fn] = 1; names.push(fn); }
   }
   var done = 0, total = names.length;
@@ -211,7 +261,8 @@ function updateFurnitureGhost(typeId, wx, wy, wz, yaw, visible) {
     return;
   }
   var def = _furnitureDefById(typeId);
-  if (!def || !_furnitureGltf[def.file]) {
+  var _modelReady = def && (def.procedural || !!_furnitureGltf[def.file]);
+  if (!_modelReady) {
     // 模型未就绪 → 隐藏，待 GLB 加载完下帧自然出现
     if (_furnitureGhost) _furnitureGhost.visible = false;
     return;
