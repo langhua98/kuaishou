@@ -1305,7 +1305,9 @@ function resolveAABB() {
     for (by = Math.floor(y0); by <= Math.floor(y1); by++) {
       for (bz = Math.floor(z0); bz <= Math.floor(z1); bz++) {
         bid = getBlock(bx, by, bz);
-        if (bid === AIR || bid === WATER || _PLANT[bid]) continue;  // 非实心，跳过
+        var _solid = !(bid === AIR || bid === WATER || _PLANT[bid]);
+        if (!_solid && _furnitureSolid[bx + ',' + by + ',' + bz]) _solid = true;
+        if (!_solid) continue;
 
         // 三轴穿透深度
         ox = Math.min(player.x + hw - bx,  bx + 1 - (player.x - hw));
@@ -4823,48 +4825,57 @@ var _enemyStrongholdPos = null;
 function placeEnemyStronghold(ox, oz) {
   var flatY = SEA + 2;  // 目标地表高度 = 14
   var W = 16, H = 4;
-  var x, z, y, ccx, ccz;
+  var x, z, y;
+  var dirty = {};
 
-  // 先确保区块已生成（含 2 格边距）
-  var cxMin = Math.floor((ox - 2) / CHUNK_W) - 1;
-  var cxMax = Math.floor((ox + W + 2) / CHUNK_W) + 1;
-  var czMin = Math.floor((oz - 2) / CHUNK_D) - 1;
-  var czMax = Math.floor((oz + W + 2) / CHUNK_D) + 1;
-  for (ccx = cxMin; ccx <= cxMax; ccx++) {
-    for (ccz = czMin; ccz <= czMax; ccz++) {
-      createChunk(ccx, ccz);
-    }
+  function ec(cx, cz) {
+    var k = ckey(cx, cz);
+    if (!chunks[k]) chunks[k] = { data: genTerrain(cx, cz), mesh: null };
+  }
+  function raw(wx, wy, wz, id) {
+    if (wy < 0 || wy >= CHUNK_H) return;
+    var cx = Math.floor(wx / CHUNK_W), cz = Math.floor(wz / CHUNK_D);
+    ec(cx, cz);
+    var ch = chunks[ckey(cx, cz)];
+    var lx = ((wx % CHUNK_W) + CHUNK_W) % CHUNK_W;
+    var lz = ((wz % CHUNK_D) + CHUNK_D) % CHUNK_D;
+    ch.data[lx + wy * CHUNK_W + lz * CHUNK_W * CHUNK_H] = id;
+    dirty[ckey(cx, cz)] = [cx, cz];
+    if (lx === 0)         { ec(cx-1,cz); dirty[ckey(cx-1,cz)] = [cx-1,cz]; }
+    if (lx === CHUNK_W-1) { ec(cx+1,cz); dirty[ckey(cx+1,cz)] = [cx+1,cz]; }
+    if (lz === 0)         { ec(cx,cz-1); dirty[ckey(cx,cz-1)] = [cx,cz-1]; }
+    if (lz === CHUNK_D-1) { ec(cx,cz+1); dirty[ckey(cx,cz+1)] = [cx,cz+1]; }
   }
 
   // 平整地形（含 2 格边距）
   for (x = ox - 2; x < ox + W + 2; x++) {
     for (z = oz - 2; z < oz + W + 2; z++) {
-      for (y = flatY + 1; y < flatY + 24; y++) setBlock(x, y, z, AIR); // 削山
-      for (y = flatY - 6; y < flatY; y++) {                              // 填谷
-        if (getBlock(x, y, z) === AIR) setBlock(x, y, z, DIRT);
+      for (y = flatY + 1; y < flatY + 24; y++) raw(x, y, z, AIR); // 削山
+      for (y = flatY - 6; y < flatY; y++) {                         // 填谷
+        if (getBlock(x, y, z) === AIR) raw(x, y, z, DIRT);
       }
-      setBlock(x, flatY, z, GRASS);  // 统一地表
+      raw(x, flatY, z, GRASS);  // 统一地表
     }
   }
 
   // 地面铺 GRAY_BRICK
   for (x = ox; x < ox + W; x++) {
     for (z = oz; z < oz + W; z++) {
-      setBlock(x, flatY, z, GRAY_BRICK);
+      raw(x, flatY, z, GRAY_BRICK);
     }
   }
 
   // 四面围墙（COBBLE，高 H 格），南面留 2 格入口
   for (x = ox; x < ox + W; x++) {
     for (y = 1; y <= H; y++) {
-      setBlock(x, flatY + y, oz, COBBLE);
-      if (x < ox + 7 || x > ox + 8) setBlock(x, flatY + y, oz + W - 1, COBBLE);
+      raw(x, flatY + y, oz, COBBLE);
+      if (x < ox + 7 || x > ox + 8) raw(x, flatY + y, oz + W - 1, COBBLE);
     }
   }
   for (z = oz; z < oz + W; z++) {
     for (y = 1; y <= H; y++) {
-      setBlock(ox,         flatY + y, z, COBBLE);
-      setBlock(ox + W - 1, flatY + y, z, COBBLE);
+      raw(ox,         flatY + y, z, COBBLE);
+      raw(ox + W - 1, flatY + y, z, COBBLE);
     }
   }
 
@@ -4872,10 +4883,10 @@ function placeEnemyStronghold(ox, oz) {
   var corners = [[ox,oz],[ox+W-2,oz],[ox,oz+W-2],[ox+W-2,oz+W-2]];
   corners.forEach(function(c) {
     for (y = 1; y <= H + 2; y++) {
-      setBlock(c[0],   flatY + y, c[1],   STONE);
-      setBlock(c[0]+1, flatY + y, c[1],   STONE);
-      setBlock(c[0],   flatY + y, c[1]+1, STONE);
-      setBlock(c[0]+1, flatY + y, c[1]+1, STONE);
+      raw(c[0],   flatY + y, c[1],   STONE);
+      raw(c[0]+1, flatY + y, c[1],   STONE);
+      raw(c[0],   flatY + y, c[1]+1, STONE);
+      raw(c[0]+1, flatY + y, c[1]+1, STONE);
     }
   });
 
@@ -4883,10 +4894,10 @@ function placeEnemyStronghold(ox, oz) {
   var lcx = ox + 7, lcz = oz + 7;
   for (x = lcx - 1; x <= lcx + 1; x++) {
     for (z = lcz - 1; z <= lcz + 1; z++) {
-      setBlock(x, flatY + 1, z, STONE);
+      raw(x, flatY + 1, z, STONE);
     }
   }
-  setBlock(lcx, flatY + 2, lcz, OBSIDIAN);
+  raw(lcx, flatY + 2, lcz, OBSIDIAN);
 
   // 守卫岗位（约 55 个固定站位）
   var posts = [], ri, rj;
@@ -4902,12 +4913,8 @@ function placeEnemyStronghold(ox, oz) {
   }
   // 总计 55 岗位
 
-  // 重建区块网格
-  for (ccx = cxMin; ccx <= cxMax; ccx++) {
-    for (ccz = czMin; ccz <= czMax; ccz++) {
-      rebuildChunk(ccx, ccz);
-    }
-  }
+  // 重建区块网格（批量，每块只重建一次）
+  var k, cd; for (k in dirty) { cd = dirty[k]; rebuildChunk(cd[0], cd[1]); }
 
   _enemyStrongholdPos = { x: lcx, y: flatY + 2, z: lcz, ox: ox, oz: oz, posts: posts };
 }
@@ -4949,11 +4956,26 @@ var _furnitureGltf = {};      // file → gltf
 var _furniturePlaced = [];    // 所有已放置家具记录
 var _furnitureSeq = 1;
 var _furnitureLoaded = false;
+var _furnitureSolid = {};     // "x,y,z" → 引用计数（>0 则该格视为实心碰撞）
 
 // 摆放幽灵预览状态
 var _furnitureGhost = null;   // 当前半透明幽灵 Group（或 null）
 var _ghostTypeId    = 0;      // 幽灵对应的 typeId（变化才重建克隆）
 var _ghostYaw       = 0;      // 用户控制的朝向，由旋转按钮改
+
+// 更新家具占据格实心集合（引用计数，支持多件家具共格）
+function _markFurnitureSolid(entry, on) {
+  if (!entry || !entry.cells) return;
+  for (var i = 0; i < entry.cells.length; i++) {
+    var k = entry.cells[i];
+    if (on) {
+      _furnitureSolid[k] = (_furnitureSolid[k] || 0) + 1;
+    } else {
+      _furnitureSolid[k] = (_furnitureSolid[k] || 0) - 1;
+      if (_furnitureSolid[k] <= 0) delete _furnitureSolid[k];
+    }
+  }
+}
 
 // 工具：是否家具道具 / 是否可互动家具
 function isFurnitureId(id) { return id >= 101 && id <= 110; }
@@ -5041,12 +5063,25 @@ function placeFurniture(typeId, wx, wy, wz, yaw) {
     group.add(glow);
   }
 
+  // 计算旋转后世界 AABB 占据格（地毯/极扁家具不阻挡）
+  group.updateMatrixWorld(true);
+  var wbox = new THREE.Box3().setFromObject(group);
+  var cells = [];
+  var _hgt = wbox.max.y - wbox.min.y;
+  if (typeId !== FURNITURE_RUG && _hgt >= 0.4) {
+    for (var _cx = Math.floor(wbox.min.x); _cx <= Math.floor(wbox.max.x - 0.001); _cx++)
+      for (var _cz = Math.floor(wbox.min.z); _cz <= Math.floor(wbox.max.z - 0.001); _cz++)
+        for (var _cy = Math.floor(wbox.min.y); _cy <= Math.floor(wbox.max.y - 0.001); _cy++)
+          cells.push(_cx + ',' + _cy + ',' + _cz);
+  }
+
   var entry = {
     id: _furnitureSeq++, typeId: typeId,
     x: wx, y: wy, z: wz, yaw: yaw,
-    group: group, glow: glow, on: true
+    group: group, glow: glow, on: true, cells: cells
   };
   _furniturePlaced.push(entry);
+  _markFurnitureSolid(entry, true);
   return entry;
 }
 
@@ -5117,6 +5152,7 @@ function updateFurnitureGhost(typeId, wx, wy, wz, yaw, visible) {
 function removeFurnitureById(fid) {
   for (var i = _furniturePlaced.length - 1; i >= 0; i--) {
     if (_furniturePlaced[i].id === fid) {
+      _markFurnitureSolid(_furniturePlaced[i], false);
       scene.remove(_furniturePlaced[i].group);
       _furniturePlaced.splice(i, 1);
       return true;
@@ -5456,7 +5492,8 @@ var _place = {
   idleT:   0,      // 自上次有效预览起累计的无准星时间（秒）
   pos:     null    // 当前帧预览坐标
 };
-var _lastPlaceSlot = -1;
+var _lastPlaceSlot  = -1;
+var _lastHeldFurni  = 0;    // 上一帧持有的家具 id（0=非家具），用于逐帧检测换物
 
 // ── 家具互动状态 ───────────────────────────────────────────────────────────────
 var _curInteract  = null;   // 本帧最近的可互动家具（或 null）
@@ -5499,10 +5536,15 @@ function doInteract() {
 }
 
 function doSit(e) {
-  if (_sitting) { _sitting = null; return; }   // 再按一次起身
+  if (_sitting) {
+    if (typeof _markFurnitureSolid === 'function') _markFurnitureSolid(_sitting, true);
+    _sitting = null;
+    return;
+  }
   player.x = e.x + 0.5; player.z = e.z + 0.5;
   player.yaw = e.yaw;
   player.vx = 0; player.vz = 0;
+  if (typeof _markFurnitureSolid === 'function') _markFurnitureSolid(e, false);
   _sitting = e;
 }
 
@@ -5595,7 +5637,10 @@ function tick(now) {
 
   // ── 移动 ───────────────────────────────────────────────────────────────────
   // 坐下时动摇杆即起身（防止卡在家具上）
-  if (_sitting && (joy.dx || joy.dy)) _sitting = null;
+  if (_sitting && (joy.dx || joy.dy)) {
+    if (typeof _markFurnitureSolid === 'function') _markFurnitureSolid(_sitting, true);
+    _sitting = null;
+  }
   var sy  = Math.sin(player.yaw), cy2 = Math.cos(player.yaw);
   var jx  = joy.dx / JOY_R, jy = joy.dy / JOY_R;
   // 斜向限速：摇杆向量长度截断到 1（否则对角线快 41%）
@@ -5697,17 +5742,6 @@ function tick(now) {
     _place.lastDir = null;
     _place.idleT   = 0;
     slotChangeSound();
-    // 家具：触发懒加载、重置幽灵朝向、显示🔄旋转按钮；非家具则清除幽灵
-    var _heldId = player.inv[player.slot];
-    var _btns = document.getElementById('btns');
-    if (isFurnitureId(_heldId)) {
-      _ghostYaw = player.yaw + Math.PI;
-      if (!_furnitureLoaded) loadFurnitureModels(function () {});
-      if (_btns) _btns.classList.add('furni');
-    } else {
-      disposeFurnitureGhost();
-      if (_btns) _btns.classList.remove('furni');
-    }
   }
 
   // ── 放置预览坐标计算 ──────────────────────────────────────────────────────
@@ -5818,14 +5852,27 @@ function tick(now) {
     invalidBox.visible = false;
   }
 
-  // ── 家具幽灵预览：跟随放置坐标，用半透明模型替代绿框 ──────────────────────
+  // ── 家具幽灵预览：每帧按持有物判断（不依赖槽位下标变化，兼容仓库换物）──
   var _heldNow = player.inv[player.slot];
-  if (isFurnitureId(_heldNow) && _place.pos) {
-    updateFurnitureGhost(_heldNow, _place.pos.x, _place.pos.y, _place.pos.z, _ghostYaw, true);
-    placeBox.visible = false;   // 幽灵代替绿框（invalidBox 仍保留作阻挡提示）
+  var _btnsEl  = document.getElementById('btns');
+  if (isFurnitureId(_heldNow)) {
+    if (_lastHeldFurni !== _heldNow) {        // 新拿起 / 换了一种家具
+      _ghostYaw = player.yaw + Math.PI;
+      if (!_furnitureLoaded) loadFurnitureModels(function () {});
+    }
+    if (_btnsEl) _btnsEl.classList.add('furni');
+    if (_place.pos) {
+      updateFurnitureGhost(_heldNow, _place.pos.x, _place.pos.y, _place.pos.z, _ghostYaw, true);
+      placeBox.visible = false;
+    } else {
+      updateFurnitureGhost(0, 0, 0, 0, 0, false);
+    }
   } else {
+    if (_lastHeldFurni) disposeFurnitureGhost();
+    if (_btnsEl) _btnsEl.classList.remove('furni');
     updateFurnitureGhost(0, 0, 0, 0, 0, false);
   }
+  _lastHeldFurni = isFurnitureId(_heldNow) ? _heldNow : 0;
 
   // ── 放置（单次 + 长按节流）─────────────────────────────────────────────────
   if (player.placeQ || (placeHeld && nowS - _lastPlace > PLACE_CD)) {

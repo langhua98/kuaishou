@@ -19,11 +19,26 @@ var _furnitureGltf = {};      // file → gltf
 var _furniturePlaced = [];    // 所有已放置家具记录
 var _furnitureSeq = 1;
 var _furnitureLoaded = false;
+var _furnitureSolid = {};     // "x,y,z" → 引用计数（>0 则该格视为实心碰撞）
 
 // 摆放幽灵预览状态
 var _furnitureGhost = null;   // 当前半透明幽灵 Group（或 null）
 var _ghostTypeId    = 0;      // 幽灵对应的 typeId（变化才重建克隆）
 var _ghostYaw       = 0;      // 用户控制的朝向，由旋转按钮改
+
+// 更新家具占据格实心集合（引用计数，支持多件家具共格）
+function _markFurnitureSolid(entry, on) {
+  if (!entry || !entry.cells) return;
+  for (var i = 0; i < entry.cells.length; i++) {
+    var k = entry.cells[i];
+    if (on) {
+      _furnitureSolid[k] = (_furnitureSolid[k] || 0) + 1;
+    } else {
+      _furnitureSolid[k] = (_furnitureSolid[k] || 0) - 1;
+      if (_furnitureSolid[k] <= 0) delete _furnitureSolid[k];
+    }
+  }
+}
 
 // 工具：是否家具道具 / 是否可互动家具
 function isFurnitureId(id) { return id >= 101 && id <= 110; }
@@ -111,12 +126,25 @@ function placeFurniture(typeId, wx, wy, wz, yaw) {
     group.add(glow);
   }
 
+  // 计算旋转后世界 AABB 占据格（地毯/极扁家具不阻挡）
+  group.updateMatrixWorld(true);
+  var wbox = new THREE.Box3().setFromObject(group);
+  var cells = [];
+  var _hgt = wbox.max.y - wbox.min.y;
+  if (typeId !== FURNITURE_RUG && _hgt >= 0.4) {
+    for (var _cx = Math.floor(wbox.min.x); _cx <= Math.floor(wbox.max.x - 0.001); _cx++)
+      for (var _cz = Math.floor(wbox.min.z); _cz <= Math.floor(wbox.max.z - 0.001); _cz++)
+        for (var _cy = Math.floor(wbox.min.y); _cy <= Math.floor(wbox.max.y - 0.001); _cy++)
+          cells.push(_cx + ',' + _cy + ',' + _cz);
+  }
+
   var entry = {
     id: _furnitureSeq++, typeId: typeId,
     x: wx, y: wy, z: wz, yaw: yaw,
-    group: group, glow: glow, on: true
+    group: group, glow: glow, on: true, cells: cells
   };
   _furniturePlaced.push(entry);
+  _markFurnitureSolid(entry, true);
   return entry;
 }
 
@@ -187,6 +215,7 @@ function updateFurnitureGhost(typeId, wx, wy, wz, yaw, visible) {
 function removeFurnitureById(fid) {
   for (var i = _furniturePlaced.length - 1; i >= 0; i--) {
     if (_furniturePlaced[i].id === fid) {
+      _markFurnitureSolid(_furniturePlaced[i], false);
       scene.remove(_furniturePlaced[i].group);
       _furniturePlaced.splice(i, 1);
       return true;

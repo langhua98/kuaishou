@@ -275,48 +275,57 @@ var _enemyStrongholdPos = null;
 function placeEnemyStronghold(ox, oz) {
   var flatY = SEA + 2;  // 目标地表高度 = 14
   var W = 16, H = 4;
-  var x, z, y, ccx, ccz;
+  var x, z, y;
+  var dirty = {};
 
-  // 先确保区块已生成（含 2 格边距）
-  var cxMin = Math.floor((ox - 2) / CHUNK_W) - 1;
-  var cxMax = Math.floor((ox + W + 2) / CHUNK_W) + 1;
-  var czMin = Math.floor((oz - 2) / CHUNK_D) - 1;
-  var czMax = Math.floor((oz + W + 2) / CHUNK_D) + 1;
-  for (ccx = cxMin; ccx <= cxMax; ccx++) {
-    for (ccz = czMin; ccz <= czMax; ccz++) {
-      createChunk(ccx, ccz);
-    }
+  function ec(cx, cz) {
+    var k = ckey(cx, cz);
+    if (!chunks[k]) chunks[k] = { data: genTerrain(cx, cz), mesh: null };
+  }
+  function raw(wx, wy, wz, id) {
+    if (wy < 0 || wy >= CHUNK_H) return;
+    var cx = Math.floor(wx / CHUNK_W), cz = Math.floor(wz / CHUNK_D);
+    ec(cx, cz);
+    var ch = chunks[ckey(cx, cz)];
+    var lx = ((wx % CHUNK_W) + CHUNK_W) % CHUNK_W;
+    var lz = ((wz % CHUNK_D) + CHUNK_D) % CHUNK_D;
+    ch.data[lx + wy * CHUNK_W + lz * CHUNK_W * CHUNK_H] = id;
+    dirty[ckey(cx, cz)] = [cx, cz];
+    if (lx === 0)         { ec(cx-1,cz); dirty[ckey(cx-1,cz)] = [cx-1,cz]; }
+    if (lx === CHUNK_W-1) { ec(cx+1,cz); dirty[ckey(cx+1,cz)] = [cx+1,cz]; }
+    if (lz === 0)         { ec(cx,cz-1); dirty[ckey(cx,cz-1)] = [cx,cz-1]; }
+    if (lz === CHUNK_D-1) { ec(cx,cz+1); dirty[ckey(cx,cz+1)] = [cx,cz+1]; }
   }
 
   // 平整地形（含 2 格边距）
   for (x = ox - 2; x < ox + W + 2; x++) {
     for (z = oz - 2; z < oz + W + 2; z++) {
-      for (y = flatY + 1; y < flatY + 24; y++) setBlock(x, y, z, AIR); // 削山
-      for (y = flatY - 6; y < flatY; y++) {                              // 填谷
-        if (getBlock(x, y, z) === AIR) setBlock(x, y, z, DIRT);
+      for (y = flatY + 1; y < flatY + 24; y++) raw(x, y, z, AIR); // 削山
+      for (y = flatY - 6; y < flatY; y++) {                         // 填谷
+        if (getBlock(x, y, z) === AIR) raw(x, y, z, DIRT);
       }
-      setBlock(x, flatY, z, GRASS);  // 统一地表
+      raw(x, flatY, z, GRASS);  // 统一地表
     }
   }
 
   // 地面铺 GRAY_BRICK
   for (x = ox; x < ox + W; x++) {
     for (z = oz; z < oz + W; z++) {
-      setBlock(x, flatY, z, GRAY_BRICK);
+      raw(x, flatY, z, GRAY_BRICK);
     }
   }
 
   // 四面围墙（COBBLE，高 H 格），南面留 2 格入口
   for (x = ox; x < ox + W; x++) {
     for (y = 1; y <= H; y++) {
-      setBlock(x, flatY + y, oz, COBBLE);
-      if (x < ox + 7 || x > ox + 8) setBlock(x, flatY + y, oz + W - 1, COBBLE);
+      raw(x, flatY + y, oz, COBBLE);
+      if (x < ox + 7 || x > ox + 8) raw(x, flatY + y, oz + W - 1, COBBLE);
     }
   }
   for (z = oz; z < oz + W; z++) {
     for (y = 1; y <= H; y++) {
-      setBlock(ox,         flatY + y, z, COBBLE);
-      setBlock(ox + W - 1, flatY + y, z, COBBLE);
+      raw(ox,         flatY + y, z, COBBLE);
+      raw(ox + W - 1, flatY + y, z, COBBLE);
     }
   }
 
@@ -324,10 +333,10 @@ function placeEnemyStronghold(ox, oz) {
   var corners = [[ox,oz],[ox+W-2,oz],[ox,oz+W-2],[ox+W-2,oz+W-2]];
   corners.forEach(function(c) {
     for (y = 1; y <= H + 2; y++) {
-      setBlock(c[0],   flatY + y, c[1],   STONE);
-      setBlock(c[0]+1, flatY + y, c[1],   STONE);
-      setBlock(c[0],   flatY + y, c[1]+1, STONE);
-      setBlock(c[0]+1, flatY + y, c[1]+1, STONE);
+      raw(c[0],   flatY + y, c[1],   STONE);
+      raw(c[0]+1, flatY + y, c[1],   STONE);
+      raw(c[0],   flatY + y, c[1]+1, STONE);
+      raw(c[0]+1, flatY + y, c[1]+1, STONE);
     }
   });
 
@@ -335,10 +344,10 @@ function placeEnemyStronghold(ox, oz) {
   var lcx = ox + 7, lcz = oz + 7;
   for (x = lcx - 1; x <= lcx + 1; x++) {
     for (z = lcz - 1; z <= lcz + 1; z++) {
-      setBlock(x, flatY + 1, z, STONE);
+      raw(x, flatY + 1, z, STONE);
     }
   }
-  setBlock(lcx, flatY + 2, lcz, OBSIDIAN);
+  raw(lcx, flatY + 2, lcz, OBSIDIAN);
 
   // 守卫岗位（约 55 个固定站位）
   var posts = [], ri, rj;
@@ -354,12 +363,8 @@ function placeEnemyStronghold(ox, oz) {
   }
   // 总计 55 岗位
 
-  // 重建区块网格
-  for (ccx = cxMin; ccx <= cxMax; ccx++) {
-    for (ccz = czMin; ccz <= czMax; ccz++) {
-      rebuildChunk(ccx, ccz);
-    }
-  }
+  // 重建区块网格（批量，每块只重建一次）
+  var k, cd; for (k in dirty) { cd = dirty[k]; rebuildChunk(cd[0], cd[1]); }
 
   _enemyStrongholdPos = { x: lcx, y: flatY + 2, z: lcz, ox: ox, oz: oz, posts: posts };
 }

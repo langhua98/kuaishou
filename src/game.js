@@ -178,7 +178,8 @@ var _place = {
   idleT:   0,      // 自上次有效预览起累计的无准星时间（秒）
   pos:     null    // 当前帧预览坐标
 };
-var _lastPlaceSlot = -1;
+var _lastPlaceSlot  = -1;
+var _lastHeldFurni  = 0;    // 上一帧持有的家具 id（0=非家具），用于逐帧检测换物
 
 // ── 家具互动状态 ───────────────────────────────────────────────────────────────
 var _curInteract  = null;   // 本帧最近的可互动家具（或 null）
@@ -221,10 +222,15 @@ function doInteract() {
 }
 
 function doSit(e) {
-  if (_sitting) { _sitting = null; return; }   // 再按一次起身
+  if (_sitting) {
+    if (typeof _markFurnitureSolid === 'function') _markFurnitureSolid(_sitting, true);
+    _sitting = null;
+    return;
+  }
   player.x = e.x + 0.5; player.z = e.z + 0.5;
   player.yaw = e.yaw;
   player.vx = 0; player.vz = 0;
+  if (typeof _markFurnitureSolid === 'function') _markFurnitureSolid(e, false);
   _sitting = e;
 }
 
@@ -317,7 +323,10 @@ function tick(now) {
 
   // ── 移动 ───────────────────────────────────────────────────────────────────
   // 坐下时动摇杆即起身（防止卡在家具上）
-  if (_sitting && (joy.dx || joy.dy)) _sitting = null;
+  if (_sitting && (joy.dx || joy.dy)) {
+    if (typeof _markFurnitureSolid === 'function') _markFurnitureSolid(_sitting, true);
+    _sitting = null;
+  }
   var sy  = Math.sin(player.yaw), cy2 = Math.cos(player.yaw);
   var jx  = joy.dx / JOY_R, jy = joy.dy / JOY_R;
   // 斜向限速：摇杆向量长度截断到 1（否则对角线快 41%）
@@ -419,17 +428,6 @@ function tick(now) {
     _place.lastDir = null;
     _place.idleT   = 0;
     slotChangeSound();
-    // 家具：触发懒加载、重置幽灵朝向、显示🔄旋转按钮；非家具则清除幽灵
-    var _heldId = player.inv[player.slot];
-    var _btns = document.getElementById('btns');
-    if (isFurnitureId(_heldId)) {
-      _ghostYaw = player.yaw + Math.PI;
-      if (!_furnitureLoaded) loadFurnitureModels(function () {});
-      if (_btns) _btns.classList.add('furni');
-    } else {
-      disposeFurnitureGhost();
-      if (_btns) _btns.classList.remove('furni');
-    }
   }
 
   // ── 放置预览坐标计算 ──────────────────────────────────────────────────────
@@ -540,14 +538,27 @@ function tick(now) {
     invalidBox.visible = false;
   }
 
-  // ── 家具幽灵预览：跟随放置坐标，用半透明模型替代绿框 ──────────────────────
+  // ── 家具幽灵预览：每帧按持有物判断（不依赖槽位下标变化，兼容仓库换物）──
   var _heldNow = player.inv[player.slot];
-  if (isFurnitureId(_heldNow) && _place.pos) {
-    updateFurnitureGhost(_heldNow, _place.pos.x, _place.pos.y, _place.pos.z, _ghostYaw, true);
-    placeBox.visible = false;   // 幽灵代替绿框（invalidBox 仍保留作阻挡提示）
+  var _btnsEl  = document.getElementById('btns');
+  if (isFurnitureId(_heldNow)) {
+    if (_lastHeldFurni !== _heldNow) {        // 新拿起 / 换了一种家具
+      _ghostYaw = player.yaw + Math.PI;
+      if (!_furnitureLoaded) loadFurnitureModels(function () {});
+    }
+    if (_btnsEl) _btnsEl.classList.add('furni');
+    if (_place.pos) {
+      updateFurnitureGhost(_heldNow, _place.pos.x, _place.pos.y, _place.pos.z, _ghostYaw, true);
+      placeBox.visible = false;
+    } else {
+      updateFurnitureGhost(0, 0, 0, 0, 0, false);
+    }
   } else {
+    if (_lastHeldFurni) disposeFurnitureGhost();
+    if (_btnsEl) _btnsEl.classList.remove('furni');
     updateFurnitureGhost(0, 0, 0, 0, 0, false);
   }
+  _lastHeldFurni = isFurnitureId(_heldNow) ? _heldNow : 0;
 
   // ── 放置（单次 + 长按节流）─────────────────────────────────────────────────
   if (player.placeQ || (placeHeld && nowS - _lastPlace > PLACE_CD)) {
