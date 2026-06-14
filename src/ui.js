@@ -224,7 +224,7 @@ function _renderBag() {
       var id = player.inv[idx];
       // 按分类过滤
       var isFurni = isFurnitureId(id);
-      var isPlant = !!_PLANT[id];
+      var isPlant = !!_PLANT[id] || (typeof isCropSeed === 'function' && isCropSeed(id));
       if (_bagCategory === '家具' && !isFurni) return;
       if (_bagCategory === '植物' && !isPlant) return;
       if (_bagCategory === '方块' && (isFurni || isPlant)) return;

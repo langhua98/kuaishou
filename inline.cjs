@@ -42,6 +42,7 @@ const SRC_FILES = [
   'src/combat_particles.js',// ⑧ 粒子特效：spawnBurst/updateParticles（被 tower/ai 调用）
   'src/structures.js',  // 开源中式建筑数据 + placeStructures()（需在 game.js 之前）
   'src/furniture.js',  // 家具系统：KayKit GLTF 模型放置（需在 game.js 之前）
+  'src/crops.js',      // 农场种植系统：种子/生长/收获（需在 game.js 之前）
   'src/save.js',        // 本地存档：玩家改动/位置/塔（需在 game.js 之前：loadGame/recordEdit 被 game 调用）
   'src/game.js',
 ]

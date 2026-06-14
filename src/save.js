@@ -27,6 +27,7 @@ function saveGame() {
       }
     }
     var furniture = (typeof serializeFurniture === 'function') ? serializeFurniture() : [];
+    var crops = (typeof serializeCrops === 'function') ? serializeCrops() : [];
     var data = {
       v: 2,
       p: { x: player.x, y: player.y, z: player.z,
@@ -34,6 +35,7 @@ function saveGame() {
       e: _edits,
       t: towers,
       f: furniture,
+      c: crops,
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(data));
     return true;
@@ -113,6 +115,11 @@ function loadGame() {
   if (data.f && data.f.length && typeof loadFurnitureModels === 'function') {
     var _savedFurniture = data.f;
     loadFurnitureModels(function () { deserializeFurniture(_savedFurniture); });
+  }
+
+  // 6) 恢复农作物（GLB 按需加载，deserializeCrops 内部异步）
+  if (data.c && data.c.length && typeof deserializeCrops === 'function') {
+    deserializeCrops(data.c);
   }
 
   if (typeof battleToast === 'function') battleToast('💾 存档已读取');
