@@ -34,7 +34,8 @@ var player = {
         CROP_WHEAT, CROP_CARROT,
         CROP_APPLE, CROP_BAMBOO, CROP_BEET, CROP_BUSHBERRIES, CROP_CACTUS,
         CROP_CORN, CROP_FLOWER, CROP_LETTUCE, CROP_MUSHROOM, CROP_ORANGE,
-        CROP_PALMTREE, CROP_PUMPKIN_CROP, CROP_RICE, CROP_TOMATO, CROP_WATERMELON]
+        CROP_PALMTREE, CROP_PUMPKIN_CROP, CROP_RICE, CROP_TOMATO, CROP_WATERMELON,
+        VEH_CAR, VEH_SUV, VEH_PICKUP]
 };
 
 window._step = 4;
@@ -217,6 +218,7 @@ function toggleView() {
 
 // ── 农作物互动 ─────────────────────────────────────────────────────────────────
 var _nearCropKey = null, _lastCropPrompt = null;
+var _nearVehicleKey = null;
 
 function _updateCropActPrompt() {
   var btns = document.getElementById('btns');
@@ -238,9 +240,38 @@ function _updateCropActPrompt() {
   }
 }
 
+function _updateVehicleActPrompt() {
+  var btns = document.getElementById('btns');
+  if (!btns) return;
+  if (_nearVehicleKey || (typeof _mountedVehicle !== 'undefined' && _mountedVehicle)) {
+    btns.classList.add('canact');
+    _lastPromptId = -98;
+    var act = document.getElementById('b-act');
+    if (act) {
+      var ic = act.querySelector('.ic'), lbl = act.querySelector('.actl');
+      var mounted = typeof _mountedVehicle !== 'undefined' && _mountedVehicle;
+      if (ic)  ic.textContent  = '🚗';
+      if (lbl) lbl.textContent = mounted ? '下车' : '上车';
+    }
+  } else if (_lastPromptId === -98) {
+    btns.classList.remove('canact');
+    _lastPromptId = 0;
+  }
+}
+
 // ── 家具互动 ───────────────────────────────────────────────────────────────────
 // 互动按钮（✋ b-act）调用：按家具类型分发开关灯/坐下/休息
 function doInteract() {
+  // 载具上/下车优先
+  if (typeof _mountedVehicle !== 'undefined' && _mountedVehicle) {
+    if (typeof dismountVehicle === 'function') dismountVehicle();
+    _nearVehicleKey = null;
+    return;
+  }
+  if (_nearVehicleKey && typeof mountVehicle === 'function') {
+    mountVehicle(_nearVehicleKey);
+    return;
+  }
   // 农作物收获优先
   if (_nearCropKey && typeof harvestCrop === 'function') {
     var _cparts = _nearCropKey.split(',');
@@ -371,27 +402,34 @@ function tick(now) {
     if (typeof _markFurnitureSolid === 'function') _markFurnitureSolid(_sitting, true);
     _sitting = null;
   }
-  var sy  = Math.sin(player.yaw), cy2 = Math.cos(player.yaw);
-  var jx  = joy.dx / JOY_R, jy = joy.dy / JOY_R;
-  // 斜向限速：摇杆向量长度截断到 1（否则对角线快 41%）
-  var jLen = Math.sqrt(jx * jx + jy * jy);
-  if (jLen > 1) { jx /= jLen; jy /= jLen; }
-  var spd = player.flying ? FLY_SPD : MOVE_SPD;
-  // 摇杆上（jy<0）→ 沿视线水平方向前进，右（jx>0）→ 向右侧移
-  player.vx = (jy * sy  + jx *  cy2) * spd;
-  player.vz = (jy * cy2 + jx * (-sy)) * spd;
-
-  if (player.flying) {
-    // 飞行升降：按住跳跃=升，按住下降键=降，松开悬停
-    if      (jumpHeld) player.vy = FLY_SPD * 0.75;
-    else if (downHeld) player.vy = -FLY_SPD * 0.75;
-    else               player.vy *= 0.8;
-  } else {
+  if (typeof _mountedVehicle !== 'undefined' && _mountedVehicle) {
+    if (typeof updateVehicles === 'function') updateVehicles(dt);
     player.vy -= GRAVITY * dt;
-    if (player.jumpQ && player.onGround) { player.vy = JUMP_V; jumpSound(); }
+    player.jumpQ = false;
+    player.onGround = false;
+  } else {
+    var sy  = Math.sin(player.yaw), cy2 = Math.cos(player.yaw);
+    var jx  = joy.dx / JOY_R, jy = joy.dy / JOY_R;
+    // 斜向限速：摇杆向量长度截断到 1（否则对角线快 41%）
+    var jLen = Math.sqrt(jx * jx + jy * jy);
+    if (jLen > 1) { jx /= jLen; jy /= jLen; }
+    var spd = player.flying ? FLY_SPD : MOVE_SPD;
+    // 摇杆上（jy<0）→ 沿视线水平方向前进，右（jx>0）→ 向右侧移
+    player.vx = (jy * sy  + jx *  cy2) * spd;
+    player.vz = (jy * cy2 + jx * (-sy)) * spd;
+
+    if (player.flying) {
+      // 飞行升降：按住跳跃=升，按住下降键=降，松开悬停
+      if      (jumpHeld) player.vy = FLY_SPD * 0.75;
+      else if (downHeld) player.vy = -FLY_SPD * 0.75;
+      else               player.vy *= 0.8;
+    } else {
+      player.vy -= GRAVITY * dt;
+      if (player.jumpQ && player.onGround) { player.vy = JUMP_V; jumpSound(); }
+    }
+    player.jumpQ    = false;
+    player.onGround = false;
   }
-  player.jumpQ    = false;
-  player.onGround = false;
 
   var preVy = player.vy;   // 碰撞前的垂直速度（落地冲击检测用）
   player.x += player.vx * dt;
@@ -629,6 +667,10 @@ function tick(now) {
             placeSound();
           }
           _lastPlace = nowS;
+        } else if (typeof isVehicleId === 'function' && isVehicleId(_placedId)) {
+          if (typeof placeVehicle === 'function') placeVehicle(_placedId, pv.x, pv.y, pv.z, player.yaw);
+          placeSound();
+          _lastPlace = nowS;
         } else if (isFurnitureId(_placedId)) {
           // 家具放置：按需加载 GLTF 后生成模型，方位继承幽灵预览的 _ghostYaw
           if (typeof loadFurnitureModels === 'function') {
@@ -698,6 +740,10 @@ function tick(now) {
   _nearCropKey = (typeof nearestMatureCrop === 'function')
     ? nearestMatureCrop(player.x, player.y, player.z, 2.5) : null;
   if (!_curInteract) _updateCropActPrompt();
+  // 载具邻近扫描（骑乘中始终显示下车按钮）
+  _nearVehicleKey = (typeof nearestVehicle === 'function')
+    ? nearestVehicle(player.x, player.y, player.z, 3.0) : null;
+  if (!_curInteract && !_nearCropKey) _updateVehicleActPrompt();
 
   // ── 区块流 ─────────────────────────────────────────────────────────────────
   updateChunks();

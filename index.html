@@ -5417,6 +5417,27 @@ CROP_DEFS[CROP_WATERMELON]  ={stages:['Watermelon_1','Watermelon_2','Watermelon_
 var _cropGltf   = {};  // filename → THREE.Group (raw scene, 用于 clone)
 var _cropPlaced = {};  // "wx,wy,wz" → { typeId, stage, elapsed, group, sprite }
 
+// 每种作物的双色调：[顶部/主色(hex), 底部/茎色(hex)]
+// 按 mesh 中心 Y 在整体包围盒中的位置决定用哪种颜色（低于30%用底色）
+var _CROP_2COL = {};
+_CROP_2COL[CROP_WHEAT]        = [0xd4c222, 0x6aaa30];  // 金黄穗 + 综mao
+_CROP_2COL[CROP_CARROT]       = [0x3a9030, 0xe87820];  // 绿叶(上) + 橙根(下)
+_CROP_2COL[CROP_APPLE]        = [0x4a9822, 0x6b4226];  // 绿冠 + 棕干
+_CROP_2COL[CROP_BAMBOO]       = [0x5ab030, 0x3a8020];  // 亮绿节 + 深绿基
+_CROP_2COL[CROP_BEET]         = [0xb02258, 0x3a8030];  // 紫红根 + 绿叶
+_CROP_2COL[CROP_BUSHBERRIES]  = [0x7850d0, 0x3a7028];  // 紫浆果 + 绿灌木
+_CROP_2COL[CROP_CACTUS]       = [0x48a840, 0x38903a];  // 亮绿 + 深绿基
+_CROP_2COL[CROP_CORN]         = [0xf0d020, 0x4a9030];  // 黄穗 + 综mao
+_CROP_2COL[CROP_FLOWER]       = [0xf060a0, 0x3a9030];  // 粉花 + 综mao
+_CROP_2COL[CROP_LETTUCE]      = [0x58c040, 0x40901a];  // 亮绿叶 + 深绿基
+_CROP_2COL[CROP_MUSHROOM]     = [0xc87820, 0xd0b880];  // 橙棕菌盖 + 米白菌柄
+_CROP_2COL[CROP_ORANGE]       = [0x4a9020, 0x6b4226];  // 绿冠(橙果混) + 棕干
+_CROP_2COL[CROP_PALMTREE]     = [0x42a828, 0x7a5c28];  // 绿棕叶 + 沙棕干
+_CROP_2COL[CROP_PUMPKIN_CROP] = [0xe08020, 0x4a9030];  // 橙南瓜 + 绿藤
+_CROP_2COL[CROP_RICE]         = [0xc8cc3a, 0x6aaa30];  // 黄穗 + 综mao
+_CROP_2COL[CROP_TOMATO]       = [0xe03020, 0x3a9030];  // 红番茄 + 绿株
+_CROP_2COL[CROP_WATERMELON]   = [0x38b838, 0x2a9028];  // 绿皮 + 深绿基
+
 // ── 3D Billboard 倒计时标签 ───────────────────────────────────────────────────
 function _makeTimerSprite(text, isMature) {
   var c = document.createElement('canvas');
@@ -5522,7 +5543,8 @@ function _loadCropModel(filename, cb) {
   });
 }
 
-// 保留原始GLTF每mesh颜色，只换材质类型为Lambert（避免PBR sRGB暗色问题）
+// 双色调材质：按 mesh 中心 Y 占模型总高的比例决定用顶色还是底色。
+// GLTF 原始颜色不可用（obj2gltf 颜色空间问题导致全黑），改用 _CROP_2COL 表。
 function _makeCropModel(typeId, filename) {
   var src = _cropGltf[filename];
   if (!src) return null;
@@ -5532,12 +5554,22 @@ function _makeCropModel(typeId, filename) {
   var sc = def.scale || (def.targetH > 1.5 ? 0.50 : 0.85);
   model.scale.setScalar(sc);
 
+  var pal = _CROP_2COL[typeId];
+  var topColor = pal ? new THREE.Color(pal[0]) : new THREE.Color(BCOL[typeId][0], BCOL[typeId][1], BCOL[typeId][2]);
+  var botColor = pal ? new THREE.Color(pal[1]) : topColor;
+
+  // 先算整体包围盒（已缩放后）
+  var bb = new THREE.Box3().setFromObject(model);
+  var totalH = bb.max.y - bb.min.y;
+  var minY   = bb.min.y;
+
   model.traverse(function (child) {
     if (!child.isMesh) return;
-    var origColor = (child.material && child.material.color)
-      ? child.material.color.clone()
-      : new THREE.Color(1, 1, 1);
-    child.material = new THREE.MeshLambertMaterial({ color: origColor });
+    var meshBB = new THREE.Box3().setFromObject(child);
+    var centerY = (meshBB.min.y + meshBB.max.y) * 0.5;
+    var relY = totalH > 0.01 ? (centerY - minY) / totalH : 0.5;
+    var col = (relY < 0.30) ? botColor.clone() : topColor.clone();
+    child.material = new THREE.MeshLambertMaterial({ color: col });
   });
   return model;
 }
@@ -5647,6 +5679,128 @@ function deserializeCrops(arr) {
     _setCropStageModel(key, entry);
     _updateEntrySprite(key, entry);
   }
+}
+
+
+// ═══ src/vehicles.js ═══
+// ─── vehicles.js ──────────────────────────────────────────────────────────────
+// 载具系统：放置/驾驶汽车（轿车/越野车/皮卡）
+// GLB 文件放在 assets/models/vehicles/（可选，无文件时退化为彩色方块）
+
+var VEH_CAR    = 301;
+var VEH_SUV    = 302;
+var VEH_PICKUP = 303;
+
+BNAMES[VEH_CAR]    = '🚗轿车';
+BNAMES[VEH_SUV]    = '🚙越野车';
+BNAMES[VEH_PICKUP] = '🛻皮卡';
+BCOL[VEH_CAR]    = [0.20,0.40,0.90, 0.20,0.40,0.90, 0.20,0.40,0.90];
+BCOL[VEH_SUV]    = [0.20,0.70,0.30, 0.20,0.70,0.30, 0.20,0.70,0.30];
+BCOL[VEH_PICKUP] = [0.80,0.50,0.10, 0.80,0.50,0.10, 0.80,0.50,0.10];
+
+var _VEHICLE_DEFS = {};
+_VEHICLE_DEFS[VEH_CAR]    = { name:'🚗轿车',   glb:'car_sedan.glb',  speed:16, turnSpd:2.0, color:0x3366cc, w:1.0, h:0.70, d:2.0 };
+_VEHICLE_DEFS[VEH_SUV]    = { name:'🚙越野车', glb:'car_suv.glb',   speed:14, turnSpd:1.8, color:0x336633, w:1.1, h:0.90, d:2.2 };
+_VEHICLE_DEFS[VEH_PICKUP] = { name:'🛻皮卡',   glb:'car_pickup.glb', speed:13, turnSpd:1.6, color:0xcc6600, w:1.1, h:0.90, d:2.4 };
+
+// placed vehicles: key → { typeId, key, cx, cy, cz, yaw, group }
+// cx/cy/cz = world-space center (float), updated every frame while mounted
+var _vehiclePlaced = {};
+var _mountedVehicle = null;  // entry object from _vehiclePlaced, or null
+
+function isVehicleId(id) { return id >= 301 && id <= 303; }
+
+function nearestVehicle(px, py, pz, radius) {
+  var best = null, bestD2 = radius * radius;
+  for (var k in _vehiclePlaced) {
+    var e = _vehiclePlaced[k];
+    var dx = e.cx - px, dz = e.cz - pz;
+    var d2 = dx * dx + dz * dz;
+    if (d2 < bestD2) { bestD2 = d2; best = k; }
+  }
+  return best;
+}
+
+function placeVehicle(typeId, wx, wy, wz, yaw) {
+  var def = _VEHICLE_DEFS[typeId];
+  if (!def) return null;
+  var key = wx + ',' + wy + ',' + wz;
+  var grp = new THREE.Group();
+
+  // Placeholder colored box shown until / if GLB loads
+  var mat = new THREE.MeshLambertMaterial({ color: def.color });
+  var body = new THREE.Mesh(new THREE.BoxGeometry(def.w * 2, def.h * 2, def.d * 2), mat);
+  body.position.y = def.h;
+  grp.add(body);
+
+  grp.position.set(wx + 0.5, wy, wz + 0.5);
+  grp.rotation.y = yaw || 0;
+  scene.add(grp);
+
+  var entry = { typeId: typeId, key: key, cx: wx + 0.5, cy: wy, cz: wz + 0.5,
+                yaw: yaw || 0, group: grp };
+  _vehiclePlaced[key] = entry;
+
+  // Attempt async GLB load (silently fails if asset not present)
+  if (typeof gltfLoader !== 'undefined') {
+    gltfLoader.load('assets/models/vehicles/' + def.glb, function(gltf) {
+      grp.remove(body);
+      var model = gltf.scene;
+      var bb = new THREE.Box3().setFromObject(model);
+      var modelW = bb.max.x - bb.min.x;
+      var s = (def.w * 2) / (modelW > 0.01 ? modelW : 1);
+      model.scale.setScalar(s);
+      bb.setFromObject(model);
+      model.position.y = -bb.min.y;
+      model.traverse(function(child) {
+        if (child.isMesh) child.material = new THREE.MeshLambertMaterial({ color: def.color });
+      });
+      grp.add(model);
+    }, undefined, function() { /* asset not found – keep placeholder box */ });
+  }
+  return entry;
+}
+
+function mountVehicle(key) {
+  var entry = _vehiclePlaced[key];
+  if (!entry) return;
+  _mountedVehicle = entry;
+  // Switch to third-person view when mounting
+  if (typeof viewFP !== 'undefined' && viewFP && typeof toggleView === 'function') toggleView();
+}
+
+function dismountVehicle() {
+  _mountedVehicle = null;
+}
+
+function updateVehicles(dt) {
+  if (!_mountedVehicle) return;
+  var def = _VEHICLE_DEFS[_mountedVehicle.typeId];
+  if (!def) return;
+
+  // Joystick input (same normalisation as game.js movement)
+  var jx = joy.dx / JOY_R, jy = joy.dy / JOY_R;
+  var jLen = Math.sqrt(jx * jx + jy * jy);
+  if (jLen > 1) { jx /= jLen; jy /= jLen; }
+
+  // Steering: joystick X rotates vehicle yaw
+  _mountedVehicle.yaw -= jx * def.turnSpd * dt;
+  player.yaw = _mountedVehicle.yaw;
+
+  // Drive: joystick Y < 0 = forward (push up)
+  var fwd = -jy;
+  player.vx = -Math.sin(_mountedVehicle.yaw) * fwd * def.speed;
+  player.vz = -Math.cos(_mountedVehicle.yaw) * fwd * def.speed;
+
+  // Sync 3-D model to player position (resolveAABB has run; player.x/y/z is authoritative)
+  var grp = _mountedVehicle.group;
+  if (grp) {
+    grp.position.set(player.x, player.y, player.z);
+    grp.rotation.y = _mountedVehicle.yaw;
+  }
+  _mountedVehicle.cx = player.x;
+  _mountedVehicle.cy = player.y;
+  _mountedVehicle.cz = player.z;
 }
 
 
@@ -5827,7 +5981,8 @@ var player = {
         CROP_WHEAT, CROP_CARROT,
         CROP_APPLE, CROP_BAMBOO, CROP_BEET, CROP_BUSHBERRIES, CROP_CACTUS,
         CROP_CORN, CROP_FLOWER, CROP_LETTUCE, CROP_MUSHROOM, CROP_ORANGE,
-        CROP_PALMTREE, CROP_PUMPKIN_CROP, CROP_RICE, CROP_TOMATO, CROP_WATERMELON]
+        CROP_PALMTREE, CROP_PUMPKIN_CROP, CROP_RICE, CROP_TOMATO, CROP_WATERMELON,
+        VEH_CAR, VEH_SUV, VEH_PICKUP]
 };
 
 window._step = 4;
@@ -6010,6 +6165,7 @@ function toggleView() {
 
 // ── 农作物互动 ─────────────────────────────────────────────────────────────────
 var _nearCropKey = null, _lastCropPrompt = null;
+var _nearVehicleKey = null;
 
 function _updateCropActPrompt() {
   var btns = document.getElementById('btns');
@@ -6031,9 +6187,38 @@ function _updateCropActPrompt() {
   }
 }
 
+function _updateVehicleActPrompt() {
+  var btns = document.getElementById('btns');
+  if (!btns) return;
+  if (_nearVehicleKey || (typeof _mountedVehicle !== 'undefined' && _mountedVehicle)) {
+    btns.classList.add('canact');
+    _lastPromptId = -98;
+    var act = document.getElementById('b-act');
+    if (act) {
+      var ic = act.querySelector('.ic'), lbl = act.querySelector('.actl');
+      var mounted = typeof _mountedVehicle !== 'undefined' && _mountedVehicle;
+      if (ic)  ic.textContent  = '🚗';
+      if (lbl) lbl.textContent = mounted ? '下车' : '上车';
+    }
+  } else if (_lastPromptId === -98) {
+    btns.classList.remove('canact');
+    _lastPromptId = 0;
+  }
+}
+
 // ── 家具互动 ───────────────────────────────────────────────────────────────────
 // 互动按钮（✋ b-act）调用：按家具类型分发开关灯/坐下/休息
 function doInteract() {
+  // 载具上/下车优先
+  if (typeof _mountedVehicle !== 'undefined' && _mountedVehicle) {
+    if (typeof dismountVehicle === 'function') dismountVehicle();
+    _nearVehicleKey = null;
+    return;
+  }
+  if (_nearVehicleKey && typeof mountVehicle === 'function') {
+    mountVehicle(_nearVehicleKey);
+    return;
+  }
   // 农作物收获优先
   if (_nearCropKey && typeof harvestCrop === 'function') {
     var _cparts = _nearCropKey.split(',');
@@ -6164,27 +6349,34 @@ function tick(now) {
     if (typeof _markFurnitureSolid === 'function') _markFurnitureSolid(_sitting, true);
     _sitting = null;
   }
-  var sy  = Math.sin(player.yaw), cy2 = Math.cos(player.yaw);
-  var jx  = joy.dx / JOY_R, jy = joy.dy / JOY_R;
-  // 斜向限速：摇杆向量长度截断到 1（否则对角线快 41%）
-  var jLen = Math.sqrt(jx * jx + jy * jy);
-  if (jLen > 1) { jx /= jLen; jy /= jLen; }
-  var spd = player.flying ? FLY_SPD : MOVE_SPD;
-  // 摇杆上（jy<0）→ 沿视线水平方向前进，右（jx>0）→ 向右侧移
-  player.vx = (jy * sy  + jx *  cy2) * spd;
-  player.vz = (jy * cy2 + jx * (-sy)) * spd;
-
-  if (player.flying) {
-    // 飞行升降：按住跳跃=升，按住下降键=降，松开悬停
-    if      (jumpHeld) player.vy = FLY_SPD * 0.75;
-    else if (downHeld) player.vy = -FLY_SPD * 0.75;
-    else               player.vy *= 0.8;
-  } else {
+  if (typeof _mountedVehicle !== 'undefined' && _mountedVehicle) {
+    if (typeof updateVehicles === 'function') updateVehicles(dt);
     player.vy -= GRAVITY * dt;
-    if (player.jumpQ && player.onGround) { player.vy = JUMP_V; jumpSound(); }
+    player.jumpQ = false;
+    player.onGround = false;
+  } else {
+    var sy  = Math.sin(player.yaw), cy2 = Math.cos(player.yaw);
+    var jx  = joy.dx / JOY_R, jy = joy.dy / JOY_R;
+    // 斜向限速：摇杆向量长度截断到 1（否则对角线快 41%）
+    var jLen = Math.sqrt(jx * jx + jy * jy);
+    if (jLen > 1) { jx /= jLen; jy /= jLen; }
+    var spd = player.flying ? FLY_SPD : MOVE_SPD;
+    // 摇杆上（jy<0）→ 沿视线水平方向前进，右（jx>0）→ 向右侧移
+    player.vx = (jy * sy  + jx *  cy2) * spd;
+    player.vz = (jy * cy2 + jx * (-sy)) * spd;
+
+    if (player.flying) {
+      // 飞行升降：按住跳跃=升，按住下降键=降，松开悬停
+      if      (jumpHeld) player.vy = FLY_SPD * 0.75;
+      else if (downHeld) player.vy = -FLY_SPD * 0.75;
+      else               player.vy *= 0.8;
+    } else {
+      player.vy -= GRAVITY * dt;
+      if (player.jumpQ && player.onGround) { player.vy = JUMP_V; jumpSound(); }
+    }
+    player.jumpQ    = false;
+    player.onGround = false;
   }
-  player.jumpQ    = false;
-  player.onGround = false;
 
   var preVy = player.vy;   // 碰撞前的垂直速度（落地冲击检测用）
   player.x += player.vx * dt;
@@ -6422,6 +6614,10 @@ function tick(now) {
             placeSound();
           }
           _lastPlace = nowS;
+        } else if (typeof isVehicleId === 'function' && isVehicleId(_placedId)) {
+          if (typeof placeVehicle === 'function') placeVehicle(_placedId, pv.x, pv.y, pv.z, player.yaw);
+          placeSound();
+          _lastPlace = nowS;
         } else if (isFurnitureId(_placedId)) {
           // 家具放置：按需加载 GLTF 后生成模型，方位继承幽灵预览的 _ghostYaw
           if (typeof loadFurnitureModels === 'function') {
@@ -6491,6 +6687,10 @@ function tick(now) {
   _nearCropKey = (typeof nearestMatureCrop === 'function')
     ? nearestMatureCrop(player.x, player.y, player.z, 2.5) : null;
   if (!_curInteract) _updateCropActPrompt();
+  // 载具邻近扫描（骑乘中始终显示下车按钮）
+  _nearVehicleKey = (typeof nearestVehicle === 'function')
+    ? nearestVehicle(player.x, player.y, player.z, 3.0) : null;
+  if (!_curInteract && !_nearCropKey) _updateVehicleActPrompt();
 
   // ── 区块流 ─────────────────────────────────────────────────────────────────
   updateChunks();
