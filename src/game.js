@@ -543,7 +543,8 @@ function tick(now) {
   var _btnsEl  = document.getElementById('btns');
   if (isFurnitureId(_heldNow)) {
     if (_lastHeldFurni !== _heldNow) {        // 新拿起 / 换了一种家具
-      _ghostYaw = player.yaw + Math.PI;
+      // 对齐最近的 90°，避免斜放（玩家朝向可能是任意角度）
+      _ghostYaw = Math.round((player.yaw + Math.PI) / (Math.PI / 2)) * (Math.PI / 2);
       if (!_furnitureLoaded) loadFurnitureModels(function () {});
     }
     if (_btnsEl) _btnsEl.classList.add('furni');

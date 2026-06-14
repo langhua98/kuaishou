@@ -59,6 +59,19 @@ function _cloneFurnitureModel(def) {
   model.scale.setScalar(def.scale);
   model.updateMatrixWorld(true);
   var bbox = new THREE.Box3().setFromObject(model);
+  // 检测躺平模型（Y 高度远小于水平尺寸），自动旋转立起（地毯除外，本身就该平铺）
+  if (def.id !== FURNITURE_RUG) {
+    var bh = bbox.max.y - bbox.min.y;
+    var bw = bbox.max.x - bbox.min.x;
+    var bd = bbox.max.z - bbox.min.z;
+    if (bh < 0.25 * Math.max(bw, bd)) {
+      // X 方向最长 → 绕 Z+90° 将 X 立为高度；Z 方向最长 → 绕 X-90°
+      if (bw >= bd) { model.rotation.z =  Math.PI / 2; }
+      else          { model.rotation.x = -Math.PI / 2; }
+      model.updateMatrixWorld(true);
+      bbox.setFromObject(model);
+    }
+  }
   model.position.y = -bbox.min.y;
   return model;
 }
