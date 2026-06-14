@@ -169,7 +169,9 @@ function _loadCropModel(filename, cb) {
   });
 }
 
-// 保留原始GLTF每mesh颜色，只换材质类型为Lambert（避免PBR sRGB暗色问题）
+// GLB模型颜色修复：obj2gltf双重gamma导致material.color极暗（近黑）。
+// 策略：读取原始色値，若极暗则按比例放大至可见亮度；若真黑则回退到BCOL。
+// 这样在颜色有差异的模型上能保留色相多样性，否则至少是正确的BCOL颜色。
 function _makeCropModel(typeId, filename) {
   var src = _cropGltf[filename];
   if (!src) return null;
@@ -179,12 +181,27 @@ function _makeCropModel(typeId, filename) {
   var sc = def.scale || (def.targetH > 1.5 ? 0.50 : 0.85);
   model.scale.setScalar(sc);
 
+  var bc = BCOL[typeId];
+  var bcolColor = new THREE.Color(bc[0], bc[1], bc[2]);
+
   model.traverse(function (child) {
     if (!child.isMesh) return;
-    var origColor = (child.material && child.material.color)
-      ? child.material.color.clone()
-      : new THREE.Color(1, 1, 1);
-    child.material = new THREE.MeshLambertMaterial({ color: origColor });
+    var col;
+    if (child.material && child.material.color) {
+      col = child.material.color.clone();
+      var maxC = Math.max(col.r, col.g, col.b);
+      if (maxC < 0.001) {
+        col.copy(bcolColor);            // 真黑 → 回退到BCOL
+      } else if (maxC < 0.15) {
+        var f = 0.55 / maxC;            // 放大使最亮通道≈0.55，保留色比
+        col.r = Math.min(1, col.r * f);
+        col.g = Math.min(1, col.g * f);
+        col.b = Math.min(1, col.b * f);
+      }
+    } else {
+      col = bcolColor.clone();
+    }
+    child.material = new THREE.MeshLambertMaterial({ color: col });
   });
   return model;
 }
