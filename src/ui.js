@@ -124,9 +124,10 @@ function buildHotbar() {
 }
 
 // ── 仓库面板 ──────────────────────────────────────────────────────────────────
-// 全屏半透明遮罩 + 居中滚动网格，触摸事件完全归属遮罩，不渗入游戏视角区域
+// 全屏半透明遮罩 + 分类标签 + 居中滚动网格
 var _bagOverlay = null;   // 遮罩层（拦截所有触摸）
 var _bagScroll  = null;   // 可滚动内容区
+var _bagCategory = '方块'; // 当前显示分类
 
 function _ensureBag() {
   if (_bagEl) return;
@@ -137,7 +138,6 @@ function _ensureBag() {
   _bagOverlay.style.cssText =
     'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;display:none;' +
     'flex-direction:column;align-items:center;justify-content:center;touch-action:none';
-  // 仅阻止遮罩本身的 touchmove（不阻止来自 _bagScroll 内部的事件，保留滚动）
   _bagOverlay.addEventListener('touchmove', function (e) {
     if (_bagScroll && _bagScroll.contains(e.target)) return;
     e.preventDefault();
@@ -157,10 +157,36 @@ function _ensureBag() {
   title.appendChild(closeBtn);
   _bagOverlay.appendChild(title);
 
-  // 滚动容器：touch-action:pan-y 让浏览器原生处理纵向滑动
+  // 分类标签行（方块 / 植物 / 家具）
+  var tabsEl = document.createElement('div');
+  tabsEl.id = 'bag-tabs';
+  tabsEl.style.cssText =
+    'display:flex;gap:6px;margin-bottom:8px;width:100%;max-width:340px';
+  var _tabLabels = [['方块','🧱'],['植物','🌿'],['家具','🪑']];
+  _tabLabels.forEach(function(pair) {
+    var cat = pair[0], icon = pair[1];
+    var btn = document.createElement('button');
+    btn.textContent = icon + ' ' + cat;
+    btn.dataset.cat = cat;
+    btn.style.cssText =
+      'flex:1;padding:8px 0;border-radius:8px;border:1px solid rgba(255,255,255,.25);' +
+      'color:#fff;font-size:13px;font-family:monospace;cursor:pointer;' +
+      'background:' + (cat === _bagCategory ? 'rgba(255,200,80,.38)' : 'rgba(255,255,255,.10)');
+    (function (c, b) {
+      b.addEventListener('touchstart', function (e) {
+        e.preventDefault();
+        _setBagCategory(c);
+      }, { passive: false });
+      b.addEventListener('click', function () { _setBagCategory(c); });
+    }(cat, btn));
+    tabsEl.appendChild(btn);
+  });
+  _bagOverlay.appendChild(tabsEl);
+
+  // 滚动容器
   _bagScroll = document.createElement('div');
   _bagScroll.style.cssText =
-    'width:100%;max-width:340px;max-height:62vh;overflow-y:auto;' +
+    'width:100%;max-width:340px;max-height:58vh;overflow-y:auto;' +
     'overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y;';
 
   // 网格
@@ -175,6 +201,20 @@ function _ensureBag() {
   ui.appendChild(_bagOverlay);
 }
 
+// 切换分类并刷新网格
+function _setBagCategory(cat) {
+  _bagCategory = cat;
+  var tabsEl = document.getElementById('bag-tabs');
+  if (tabsEl) {
+    var btns = tabsEl.querySelectorAll('button');
+    for (var bi = 0; bi < btns.length; bi++) {
+      btns[bi].style.background = (btns[bi].dataset.cat === cat)
+        ? 'rgba(255,200,80,.38)' : 'rgba(255,255,255,.10)';
+    }
+  }
+  _renderBag();
+}
+
 function _renderBag() {
   if (!_bagEl) return;
   _bagEl.innerHTML = '';
@@ -182,6 +222,13 @@ function _renderBag() {
   for (i = 7; i < player.inv.length; i++) {
     (function (idx) {
       var id = player.inv[idx];
+      // 按分类过滤
+      var isFurni = isFurnitureId(id);
+      var isPlant = !!_PLANT[id] || (typeof isCropSeed === 'function' && isCropSeed(id));
+      if (_bagCategory === '家具' && !isFurni) return;
+      if (_bagCategory === '植物' && !isPlant) return;
+      if (_bagCategory === '方块' && (isFurni || isPlant)) return;
+
       var el = document.createElement('div');
       el.className = 'slot';
       el.appendChild(_makeSlotIcon(id));

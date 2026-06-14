@@ -30,7 +30,8 @@ var player = {
         FURNITURE_CACTUS_M, FURNITURE_CACTUS_S, FURNITURE_CHAIR_B, FURNITURE_STOOL,
         FURNITURE_COUCH_P, FURNITURE_LAMP_TABLE, FURNITURE_RUG_OVAL, FURNITURE_RUG_B,
         FURNITURE_SHELF_SM, FURNITURE_SHELF_BL, FURNITURE_SHELF_BS, FURNITURE_TABLE_LOW, FURNITURE_TABLE_SM,
-        FURNITURE_MELON, FURNITURE_PUMPKIN]
+        FURNITURE_MELON, FURNITURE_PUMPKIN,
+        CROP_WHEAT, CROP_CARROT]
 };
 
 window._step = 4;
@@ -211,9 +212,40 @@ function toggleView() {
   if (b) b.classList.toggle('on', viewFP);
 }
 
+// ── 农作物互动 ─────────────────────────────────────────────────────────────────
+var _nearCropKey = null, _lastCropPrompt = null;
+
+function _updateCropActPrompt() {
+  var changed = (_nearCropKey !== _lastCropPrompt);
+  if (!changed) return;
+  _lastCropPrompt = _nearCropKey;
+  var btns = document.getElementById('btns');
+  if (!btns) return;
+  if (_nearCropKey) {
+    btns.classList.add('canact');
+    var act = document.getElementById('b-act');
+    if (act) {
+      var ic = act.querySelector('.ic'), lbl = act.querySelector('.actl');
+      if (ic) ic.textContent = '🌾'; if (lbl) lbl.textContent = '收获';
+    }
+    _lastPromptId = -99;
+  } else if (_lastPromptId === -99) {
+    btns.classList.remove('canact');
+    _lastPromptId = 0;
+  }
+}
+
 // ── 家具互动 ───────────────────────────────────────────────────────────────────
 // 互动按钮（✋ b-act）调用：按家具类型分发开关灯/坐下/休息
 function doInteract() {
+  // 农作物收获优先
+  if (_nearCropKey && typeof harvestCrop === 'function') {
+    var _cparts = _nearCropKey.split(',');
+    var _got = harvestCrop(+_cparts[0], +_cparts[1], +_cparts[2]);
+    if (_got && typeof battleToast === 'function') battleToast('🌾 收获成功！');
+    _nearCropKey = null; _lastCropPrompt = null; _lastPromptId = -1;
+    return;
+  }
   var e = _curInteract;
   if (!e) return;
   if (isFurnitureLamp(e.typeId)) {
@@ -582,6 +614,14 @@ function tick(now) {
         if (_placedId === TOWER_ITEM) {
           if (typeof placeTower === 'function') placeTower(pv.x + 0.5, pv.z + 0.5);
           _lastPlace = nowS;
+        } else if (typeof isCropSeed === 'function' && isCropSeed(_placedId)) {
+          // 种子放置：只能种在草地或泥土上方的空气格
+          var _below = getBlock(pv.x, pv.y - 1, pv.z);
+          if (_below === GRASS || _below === DIRT) {
+            if (typeof plantCrop === 'function') plantCrop(_placedId, pv.x, pv.y, pv.z);
+            placeSound();
+          }
+          _lastPlace = nowS;
         } else if (isFurnitureId(_placedId)) {
           // 家具放置：按需加载 GLTF 后生成模型，方位继承幽灵预览的 _ghostYaw
           if (typeof loadFurnitureModels === 'function') {
@@ -647,6 +687,10 @@ function tick(now) {
     _restT -= dt;
     if (_restT <= 0) { _restT = 0; _updateInteractPrompt(_curInteract); }
   }
+  // 农作物成熟扫描（家具提示优先）
+  _nearCropKey = (typeof nearestMatureCrop === 'function')
+    ? nearestMatureCrop(player.x, player.y, player.z, 2.5) : null;
+  if (!_curInteract) _updateCropActPrompt();
 
   // ── 区块流 ─────────────────────────────────────────────────────────────────
   updateChunks();
@@ -767,6 +811,7 @@ function tick(now) {
   }
 
   updateSky(dt);             // 昼夜循环 + 天气（太阳/云/雨/光照/雾）
+  if (typeof updateCrops === 'function') updateCrops(dt);  // 农作物生长
   combatUpdate(dt, nowS);    // 军队战斗（单位 AI/箭矢/胜负）
 
   renderer.render(scene, camera);
