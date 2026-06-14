@@ -5060,18 +5060,8 @@ function _cloneFurnitureModel(def) {
   model.scale.setScalar(def.scale);
   model.updateMatrixWorld(true);
   var bbox = new THREE.Box3().setFromObject(model);
-  // 检测躺平模型并自动旋转立起：
-  //   bh < 0.12 → 地毯/极扁，不处理；bh 0.12-0.45 且小于最长水平轴 → 书架等躺平
-  var bh = bbox.max.y - bbox.min.y;
-  var bw = bbox.max.x - bbox.min.x;
-  var bd = bbox.max.z - bbox.min.z;
-  if (bh >= 0.12 && bh < 0.45 && bh < Math.max(bw, bd)) {
-    if (bw >= bd) { model.rotation.z =  Math.PI / 2; }
-    else          { model.rotation.x = -Math.PI / 2; }
-    model.updateMatrixWorld(true);
-    bbox.setFromObject(model);
-  }
   model.position.y = -bbox.min.y;
+  model.userData.fHeight = bbox.max.y - bbox.min.y;  // 模型高度（灯泡/光源定位用）
   return model;
 }
 
@@ -5115,13 +5105,16 @@ function placeFurniture(typeId, wx, wy, wz, yaw) {
   // 落地灯 / 台灯：伪造暖光（发光灯泡 + 地面暖光圈 + 点光源）
   var glow = null;
   if (isFurnitureLamp(typeId)) {
+    // 灯泡/光源高度跟随模型实际高度的 85%（落地灯高、台灯矮，灯泡都落在灯罩处）
+    var lampH = model.userData.fHeight || 2.0;
+    var bulbY = lampH * 0.85;
     glow = new THREE.Group();
     // 发光灯泡（BasicMaterial 不受昼夜亮度影响，夜里自然醒目）
     var bulb = new THREE.Mesh(
       new THREE.SphereGeometry(0.12, 8, 8),
       new THREE.MeshBasicMaterial({ color: 0xfff0c0 })
     );
-    bulb.position.set(0, 1.6, 0);
+    bulb.position.set(0, bulbY, 0);
     glow.add(bulb);
     // 地面暖光圈（半透明叠加，像一圈光池）
     var pool = new THREE.Mesh(
@@ -5133,7 +5126,7 @@ function placeFurniture(typeId, wx, wy, wz, yaw) {
     glow.add(pool);
     // 点光源（作用于受光的家具/角色模型）
     var ptLight = new THREE.PointLight(0xfff0c0, 1.8, 8);
-    ptLight.position.set(0, 1.6, 0);
+    ptLight.position.set(0, bulbY, 0);
     glow.add(ptLight);
     group.add(glow);
   }
