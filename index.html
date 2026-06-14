@@ -1694,7 +1694,11 @@ function _ensureBag() {
   _bagOverlay.style.cssText =
     'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;display:none;' +
     'flex-direction:column;align-items:center;justify-content:center;touch-action:none';
-  _bagOverlay.addEventListener('touchmove', function (e) { e.preventDefault(); }, { passive: false });
+  // 仅阻止遮罩本身的 touchmove（不阻止来自 _bagScroll 内部的事件，保留滚动）
+  _bagOverlay.addEventListener('touchmove', function (e) {
+    if (_bagScroll && _bagScroll.contains(e.target)) return;
+    e.preventDefault();
+  }, { passive: false });
 
   // 标题栏
   var title = document.createElement('div');
@@ -1710,11 +1714,11 @@ function _ensureBag() {
   title.appendChild(closeBtn);
   _bagOverlay.appendChild(title);
 
-  // 滚动容器
+  // 滚动容器：touch-action:pan-y 让浏览器原生处理纵向滑动
   _bagScroll = document.createElement('div');
   _bagScroll.style.cssText =
-    'width:100%;max-width:340px;max-height:60vh;overflow-y:scroll;' +
-    '-webkit-overflow-scrolling:touch;touch-action:pan-y;';
+    'width:100%;max-width:340px;max-height:62vh;overflow-y:auto;' +
+    'overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y;';
 
   // 网格
   _bagEl = document.createElement('div');
@@ -1742,8 +1746,7 @@ function _renderBag() {
       lbl.className = 'slot-lbl';
       lbl.textContent = BNAMES[id];
       el.appendChild(lbl);
-      function pick(e) {
-        if (e && e.preventDefault) e.preventDefault();
+      function pick() {
         var tmp = player.inv[player.slot];
         player.inv[player.slot] = player.inv[idx];
         player.inv[idx] = tmp;
@@ -1751,8 +1754,13 @@ function _renderBag() {
         toggleBag();   // 选完自动关闭
         if (typeof _updateHeldItem === 'function') _updateHeldItem(player.slot);
       }
-      el.addEventListener('touchstart', pick, { passive: false });
-      el.addEventListener('click', function () { pick(); });
+      // 用 touchstart/touchend 判断"点"而非"滑"，不阻止事件以保留滚动
+      var _ty = 0;
+      el.addEventListener('touchstart', function (e) { _ty = e.touches[0].clientY; }, { passive: true });
+      el.addEventListener('touchend', function (e) {
+        if (Math.abs(e.changedTouches[0].clientY - _ty) < 12) pick();
+      }, { passive: true });
+      el.addEventListener('click', pick);
       _bagEl.appendChild(el);
     }(i));
   }
