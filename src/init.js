@@ -9,6 +9,8 @@ window._step = 1;
 var loadEl   = document.getElementById('loading');
 var loadFill = document.getElementById('loading-fill');
 var loadText = document.getElementById('loading-text');
+var loadSub  = document.getElementById('loading-sub');
+var loadLog  = document.getElementById('loading-log');
 var menuEl   = document.getElementById('menu');
 var uiEl     = document.getElementById('ui');
 var coordEl  = document.getElementById('coords');
@@ -17,6 +19,21 @@ var coordEl  = document.getElementById('coords');
 function setProgress(pct, msg) {
   if (loadFill) loadFill.style.width = pct + '%';
   if (loadText) loadText.textContent = msg;
+}
+
+// 当前文件提示（小字）
+function setProgressSub(msg) {
+  if (loadSub) loadSub.textContent = msg;
+}
+
+// 追加到滚动日志（最多显示 5 行）
+var _logLines = [];
+function addProgressLog(msg) {
+  _logLines.push(msg);
+  if (_logLines.length > 5) _logLines.shift();
+  if (loadLog) loadLog.innerHTML = _logLines.map(function(l) {
+    return '<span style="color:#22c55e">✓</span> ' + l;
+  }).join('<br>');
 }
 
 setProgress(5, 'Three.js 初始化...');

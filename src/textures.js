@@ -172,7 +172,7 @@ function _drawTile(ctx, img, spec, dx, dy) {
   ctx.drawImage(oc, dx, dy);
 }
 
-function loadTextures(onReady) {
+function loadTextures(onReady, onProgress) {
   var W = ATLAS_COLS * TILE, H = ATLAS_ROWS * TILE;
   var cv = document.createElement('canvas');
   cv.width = W; cv.height = H;
@@ -204,8 +204,19 @@ function loadTextures(onReady) {
 
   _TILES.forEach(function (spec, i) {
     var img = new Image();
-    img.onload  = function () { imgs[i] = img;  if (++done === total) allLoaded(); };
-    img.onerror = function () { imgs[i] = null; if (++done === total) allLoaded(); };
+    img.onload  = function () {
+      imgs[i] = img;
+      done++;
+      if (onProgress) onProgress(done, total, spec.file);
+      if (done === total) allLoaded();
+    };
+    img.onerror = function () {
+      imgs[i] = null;
+      done++;
+      if (onProgress) onProgress(done, total, spec.file + '(!)');
+      if (done === total) allLoaded();
+    };
     img.src = 'assets/textures/block/' + spec.file + '.png';
   });
 }
+

@@ -681,8 +681,10 @@ function bootNext() {
   try {
     if (bootStep === 0) {
       // 步骤 0：异步加载贴图集，完成后进入步骤 1
-      setProgress(8, '加载贴图...');
+      setProgress(8, '加载贴图 (0/' + _TILES.length + ')...');
       loadTextures(function () {
+        setProgressSub('');
+        addProgressLog('贴图集合并完成');
         _mat.map = atlasTexture;
         _mat.needsUpdate = true;
         // 贴图就绪后更新手持物材质并初始化手持方块
@@ -692,33 +694,44 @@ function bootNext() {
         _lastPlaceSlot = player.slot;
         bootStep = 1;
         requestAnimationFrame(bootNext);
+      }, function (done, total, name) {
+        // 每张贴图加载完：进度条 8→68%，子标题显示文件名，日志追加
+        var pct = 8 + Math.round(done / total * 60);
+        setProgress(pct, '加载贴图 (' + done + '/' + total + ')...');
+        setProgressSub(name + '.png');
+        addProgressLog(name + '.png');
       });
       return;  // 等待回调，不推进 rAF
 
     } else if (bootStep === 1) {
-      setProgress(15, '测试渲染器...');
+      setProgress(70, '测试渲染器...');
+      setProgressSub('');
       renderer.render(scene, camera);
       bootSX = Math.floor(player.x / CHUNK_W);
       bootSZ = Math.floor(player.z / CHUNK_D);
       bootStep = 2; requestAnimationFrame(bootNext);
 
     } else if (bootStep === 2) {
-      setProgress(30, '生成地形...');
+      setProgress(74, '生成地形...');
+      addProgressLog('生成地形噪声...');
       var dx1, dz1;
       for (dx1 = -2; dx1 <= 2; dx1++) {
         for (dz1 = -2; dz1 <= 2; dz1++) { createChunk(bootSX + dx1, bootSZ + dz1); }
       }
+      addProgressLog('区块数据生成完成');
       bootStep = 3; requestAnimationFrame(bootNext);
 
     } else if (bootStep >= 3 && bootStep <= 7) {
       // 每帧构建一列（5 个）区块的网格，共 5 帧
       var col = bootStep - 5, dz2;
       for (dz2 = -2; dz2 <= 2; dz2++) { rebuildChunk(bootSX + col, bootSZ + dz2); }
-      setProgress(42 + (bootStep - 3) * 12, '构建地形 ' + (bootStep - 2) + '/5...');
+      setProgress(78 + (bootStep - 3) * 4, '构建地形网格 ' + (bootStep - 2) + '/5...');
+      addProgressLog('构建区块列 ' + (bootStep - 2) + '/5');
       bootStep++; requestAnimationFrame(bootNext);
 
     } else if (bootStep === 8) {
-      setProgress(90, '定位出生点...');
+      setProgress(94, '定位出生点...');
+      addProgressLog('定位出生点...');
       var y;
       for (y = CHUNK_H - 1; y >= 0; y--) {
         if (getBlock(Math.floor(player.x), y, Math.floor(player.z)) !== AIR) {
@@ -729,7 +742,8 @@ function bootNext() {
       bootStep = 9; requestAnimationFrame(bootNext);
 
     } else if (bootStep === 9) {
-      setProgress(94, '放置建筑...');
+      setProgress(97, '放置建筑...');
+      addProgressLog('生成城堡与建筑...');
       placeStructures();
       placeSimpleCastle(-8, -8);   // 城堡置于出生平地中央（原点附近），玩家出生点(8,8)落在城堡庭院内
       if (typeof loadGame === 'function') loadGame();   // 读取本地存档（玩家改动/位置/塔）
@@ -737,12 +751,13 @@ function bootNext() {
 
     } else {
       setProgress(100, '完成!');
+      addProgressLog('世界已就绪 — 开始游戏');
       if (loadEl) loadEl.style.display = 'none';
       if (menuEl) menuEl.style.display = 'flex';
       // 异步加载 GLTF 模型（不阻塞进入游戏；完成前玩家为盒子占位、无 NPC）
       loadPlayerModel();
       spawnNPCs();
-      if (typeof loadFurnitureModels === 'function') loadFurnitureModels(null);
+      // 家具模型按需加载（首次放置时），不在启动时预加载
       // 预加载兵种模型并按固定岗位生成守军
       loadArmyModels(function () {
         if (!_enemyStrongholdPos || !_enemyStrongholdPos.posts) return;
