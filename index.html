@@ -5393,33 +5393,33 @@ BCOL[216]=[0.90,0.22,0.18,0.90,0.22,0.18,0.90,0.22,0.18]; BNAMES[216]='🍅番�
 BCOL[217]=[0.22,0.68,0.22,0.22,0.68,0.22,0.22,0.68,0.22]; BNAMES[217]='🍉西瓜';
 
 // ── 作物定义 ──────────────────────────────────────────────────────────────────
-// scale: 统一缩放（使最大阶段约 0.85 块高），不设则自动按阶段高度缩放
-// growTime: 从种下到成熟总秒数（均分 stages.length-1 个阶段）
+// targetH: 成熟模型目标高度（格），加载 _4 时自动计算 scale = targetH / bbox.height
+// scale: 运行时自动填入（初始 null → 首次加载 _4 后写入）
 var CROP_DEFS = {};
-CROP_DEFS[CROP_WHEAT]       ={stages:['Wheat_1','Wheat_2','Wheat_3','Wheat_4'],        growTime:60,  scale:0.95};
-CROP_DEFS[CROP_CARROT]      ={stages:['Carrot_1','Carrot_2','Carrot_3','Carrot_4'],    growTime:90,  scale:0.70};
-CROP_DEFS[CROP_APPLE]       ={stages:['Apple_1','Apple_2','Apple_3','Apple_4'],        growTime:120, scale:0.50};
-CROP_DEFS[CROP_BAMBOO]      ={stages:['Bamboo_1','Bamboo_2','Bamboo_3','Bamboo_4'],    growTime:90,  scale:0.60};
-CROP_DEFS[CROP_BEET]        ={stages:['Beet_1','Beet_2','Beet_3','Beet_4'],            growTime:60,  scale:0.90};
-CROP_DEFS[CROP_BUSHBERRIES] ={stages:['BushBerries_1','BushBerries_2','BushBerries_3','BushBerries_4'], growTime:75, scale:0.70};
-CROP_DEFS[CROP_CACTUS]      ={stages:['Cactus_1','Cactus_2','Cactus_3','Cactus_4'],   growTime:90,  scale:0.65};
-CROP_DEFS[CROP_CORN]        ={stages:['Corn_1','Corn_2','Corn_3','Corn_4'],            growTime:80,  scale:0.70};
-CROP_DEFS[CROP_FLOWER]      ={stages:['Flower_1','Flower_2','Flower_3','Flower_4'],   growTime:45,  scale:1.00};
-CROP_DEFS[CROP_LETTUCE]     ={stages:['Lettuce_1','Lettuce_2','Lettuce_3','Lettuce_4'],growTime:60, scale:1.00};
-CROP_DEFS[CROP_MUSHROOM]    ={stages:['Mushroom_1','Mushroom_2','Mushroom_3','Mushroom_4'],growTime:60,scale:0.90};
-CROP_DEFS[CROP_ORANGE]      ={stages:['Orange_1','Orange_2','Orange_3','Orange_4'],    growTime:120, scale:0.50};
-CROP_DEFS[CROP_PALMTREE]    ={stages:['PalmTree_1','PalmTree_2','PalmTree_3','PalmTree_4'],growTime:150,scale:0.40};
-CROP_DEFS[CROP_PUMPKIN_CROP]={stages:['Pumpkin_1','Pumpkin_2','Pumpkin_3','Pumpkin_4'],growTime:90, scale:0.75};
-CROP_DEFS[CROP_RICE]        ={stages:['Rice_1','Rice_2','Rice_3','Rice_4'],            growTime:70,  scale:0.80};
-CROP_DEFS[CROP_TOMATO]      ={stages:['Tomato_1','Tomato_2','Tomato_3','Tomato_4'],   growTime:80,  scale:0.80};
-CROP_DEFS[CROP_WATERMELON]  ={stages:['Watermelon_1','Watermelon_2','Watermelon_3','Watermelon_4'],growTime:90,scale:0.70};
+CROP_DEFS[CROP_WHEAT]       ={stages:['Wheat_1','Wheat_2','Wheat_3','Wheat_4'],        growTime:60,  targetH:0.90, scale:null};
+CROP_DEFS[CROP_CARROT]      ={stages:['Carrot_1','Carrot_2','Carrot_3','Carrot_4'],    growTime:90,  targetH:0.80, scale:null};
+CROP_DEFS[CROP_APPLE]       ={stages:['Apple_1','Apple_2','Apple_3','Apple_4'],        growTime:120, targetH:3.50, scale:null};
+CROP_DEFS[CROP_BAMBOO]      ={stages:['Bamboo_1','Bamboo_2','Bamboo_3','Bamboo_4'],    growTime:90,  targetH:3.20, scale:null};
+CROP_DEFS[CROP_BEET]        ={stages:['Beet_1','Beet_2','Beet_3','Beet_4'],            growTime:60,  targetH:0.85, scale:null};
+CROP_DEFS[CROP_BUSHBERRIES] ={stages:['BushBerries_1','BushBerries_2','BushBerries_3','BushBerries_4'], growTime:75, targetH:1.20, scale:null};
+CROP_DEFS[CROP_CACTUS]      ={stages:['Cactus_1','Cactus_2','Cactus_3','Cactus_4'],   growTime:90,  targetH:1.30, scale:null};
+CROP_DEFS[CROP_CORN]        ={stages:['Corn_1','Corn_2','Corn_3','Corn_4'],            growTime:80,  targetH:1.40, scale:null};
+CROP_DEFS[CROP_FLOWER]      ={stages:['Flower_1','Flower_2','Flower_3','Flower_4'],   growTime:45,  targetH:0.75, scale:null};
+CROP_DEFS[CROP_LETTUCE]     ={stages:['Lettuce_1','Lettuce_2','Lettuce_3','Lettuce_4'],growTime:60, targetH:0.80, scale:null};
+CROP_DEFS[CROP_MUSHROOM]    ={stages:['Mushroom_1','Mushroom_2','Mushroom_3','Mushroom_4'],growTime:60,targetH:0.85,scale:null};
+CROP_DEFS[CROP_ORANGE]      ={stages:['Orange_1','Orange_2','Orange_3','Orange_4'],    growTime:120, targetH:3.20, scale:null};
+CROP_DEFS[CROP_PALMTREE]    ={stages:['PalmTree_1','PalmTree_2','PalmTree_3','PalmTree_4'],growTime:150,targetH:3.80,scale:null};
+CROP_DEFS[CROP_PUMPKIN_CROP]={stages:['Pumpkin_1','Pumpkin_2','Pumpkin_3','Pumpkin_4'],growTime:90, targetH:1.10, scale:null};
+CROP_DEFS[CROP_RICE]        ={stages:['Rice_1','Rice_2','Rice_3','Rice_4'],            growTime:70,  targetH:0.95, scale:null};
+CROP_DEFS[CROP_TOMATO]      ={stages:['Tomato_1','Tomato_2','Tomato_3','Tomato_4'],   growTime:80,  targetH:1.10, scale:null};
+CROP_DEFS[CROP_WATERMELON]  ={stages:['Watermelon_1','Watermelon_2','Watermelon_3','Watermelon_4'],growTime:90,targetH:1.00,scale:null};
 
 var _cropGltf   = {};  // filename → THREE.Group (raw scene, 用于 clone)
 var _cropPlaced = {};  // "wx,wy,wz" → { typeId, stage, elapsed, group }
 
 // ── 浮动倒计时标签 ────────────────────────────────────────────────────────────
 var _timerEl = null;
-var _timerT  = 0;   // 刷新节流计时器
+var _timerT  = 0;
 
 function _ensureTimerEl() {
   if (_timerEl) return;
@@ -5434,17 +5434,28 @@ function _updateCropTimers() {
   _timerEl.innerHTML = '';
   var W = window.innerWidth, H = window.innerHeight;
   var v = new THREE.Vector3();
+
+  // 1. 收集所有可见作物（背面剔除 + 屏幕外剔除）
+  var candidates = [];
   for (var key in _cropPlaced) {
     if (!_cropPlaced.hasOwnProperty(key)) continue;
     var entry = _cropPlaced[key];
     var def = CROP_DEFS[entry.typeId];
     var parts = key.split(',');
-    v.set(+parts[0] + 0.5, +parts[1] + 1.4, +parts[2] + 0.5);
+    var wx = +parts[0], wy = +parts[1], wz = +parts[2];
+
+    // 用玩家坐标计算距离（player 是全局变量）
+    var dx = wx + 0.5 - (player ? player.x : 0);
+    var dy = wy     - (player ? player.y : 0);
+    var dz = wz + 0.5 - (player ? player.z : 0);
+    var dist2 = dx*dx + dy*dy*0.25 + dz*dz;
+
+    v.set(wx + 0.5, wy + 1.8, wz + 0.5);
     v.project(camera);
-    if (v.z > 1 || v.z < -1) continue;  // behind camera
+    if (v.z > 1 || v.z < -1) continue;
     var sx = (v.x * 0.5 + 0.5) * W;
     var sy = (-v.y * 0.5 + 0.5) * H;
-    if (sx < -60 || sx > W + 60 || sy < -20 || sy > H + 20) continue;  // off screen
+    if (sx < -90 || sx > W + 90 || sy < -24 || sy > H + 24) continue;
 
     var maxStage = def.stages.length - 1;
     var text, bg;
@@ -5454,15 +5465,34 @@ function _updateCropTimers() {
     } else {
       var stageDur = def.growTime / maxStage;
       var rem = Math.ceil(stageDur - entry.elapsed);
-      text = '阶段 ' + (entry.stage + 1) + '/' + maxStage + ' · ' + rem + 's';
-      bg = 'rgba(0,0,0,.55)';
+      var stageName = entry.stage === 0 ? '🌱幼苗' : '🌿生长';
+      text = stageName + ' · ' + rem + 's';
+      bg = 'rgba(0,0,0,.62)';
     }
+    candidates.push({ sx: sx, sy: sy, text: text, bg: bg, dist2: dist2 });
+  }
 
+  // 2. 距离排序（近优先）
+  candidates.sort(function (a, b) { return a.dist2 - b.dist2; });
+
+  // 3. 去重叠：逐个检查，与已接受标签距离太近则跳过
+  var accepted = [];
+  for (var i = 0; i < candidates.length; i++) {
+    var c = candidates[i];
+    var overlap = false;
+    for (var j = 0; j < accepted.length; j++) {
+      var a = accepted[j];
+      if (Math.abs(c.sx - a.sx) < 88 && Math.abs(c.sy - a.sy) < 24) {
+        overlap = true; break;
+      }
+    }
+    if (overlap) continue;
+    accepted.push(c);
     var lbl = document.createElement('div');
-    lbl.textContent = text;
+    lbl.textContent = c.text;
     lbl.style.cssText =
-      'position:absolute;left:' + Math.round(sx) + 'px;top:' + Math.round(sy) + 'px;' +
-      'background:' + bg + ';color:#fff;font-size:11px;font-family:monospace;' +
+      'position:absolute;left:' + Math.round(c.sx) + 'px;top:' + Math.round(c.sy) + 'px;' +
+      'background:' + c.bg + ';color:#fff;font-size:11px;font-family:monospace;' +
       'padding:2px 6px;border-radius:10px;white-space:nowrap;' +
       'transform:translateX(-50%);user-select:none';
     _timerEl.appendChild(lbl);
@@ -5473,28 +5503,47 @@ function _updateCropTimers() {
 function _loadCropModel(filename, cb) {
   if (_cropGltf[filename]) { cb(); return; }
   gltfLoader.load('assets/models/crops/' + filename + '.glb', function (g) {
-    // obj2gltf 生成 MeshStandardMaterial（需 envMap），换成 Lambert 响应场景灯光
-    g.scene.traverse(function (child) {
-      if (!child.isMesh) return;
-      var mats = Array.isArray(child.material) ? child.material : [child.material];
-      var newMats = mats.map(function (m) {
-        return new THREE.MeshLambertMaterial({ color: m.color });
-      });
-      child.material = newMats.length === 1 ? newMats[0] : newMats;
-    });
     _cropGltf[filename] = g.scene;
+
+    // 成熟阶段（_4）加载时根据 BBox 计算 def.scale = targetH / 模型高度
+    if (filename.slice(-2) === '_4') {
+      var bb = new THREE.Box3().setFromObject(g.scene);
+      var h = bb.max.y - bb.min.y;
+      if (h > 0.01) {
+        for (var tid in CROP_DEFS) {
+          if (!CROP_DEFS.hasOwnProperty(tid)) continue;
+          var d = CROP_DEFS[tid];
+          if (d.stages && d.stages[d.stages.length - 1] === filename) {
+            d.scale = d.targetH / h;
+            break;
+          }
+        }
+      }
+    }
     cb();
   });
 }
 
+// 所有阶段统一使用 BCOL[typeId] 颜色的 Lambert 材质，解决 obj2gltf 颜色空间问题
 function _makeCropModel(typeId, filename) {
   var src = _cropGltf[filename];
   if (!src) return null;
   var def = CROP_DEFS[typeId];
   var model = src.clone(true);
-  model.scale.setScalar(def.scale || 0.8);
-  // 不做 Y 底部对齐——Quaternius 模型 Y=0 本身就是地面，
-  // 根部负 Y 自然插入土里，叶子正 Y 伸出地面（如胡萝卜）
+
+  // 动态 scale：_4 加载后才有值；早期阶段用 targetH 推算一个近似值
+  var sc = def.scale || (def.targetH > 1.5 ? 0.50 : 0.85);
+  model.scale.setScalar(sc);
+
+  // 用 BCOL 颜色替换所有材质（绕过 obj2gltf 颜色空间问题）
+  var bc = BCOL[typeId];
+  if (bc) {
+    var col = new THREE.Color(bc[0], bc[1], bc[2]);
+    model.traverse(function (child) {
+      if (!child.isMesh) return;
+      child.material = new THREE.MeshLambertMaterial({ color: col });
+    });
+  }
   return model;
 }
 
@@ -5506,7 +5555,7 @@ function _setCropStageModel(key, entry) {
   var wx = +parts[0], wy = +parts[1], wz = +parts[2];
 
   _loadCropModel(filename, function () {
-    if (!_cropPlaced[key]) return;  // 加载期间已被移除
+    if (!_cropPlaced[key]) return;
     var model = _makeCropModel(entry.typeId, filename);
     if (!model) return;
     model.position.set(wx + 0.5, wy, wz + 0.5);
@@ -5549,7 +5598,6 @@ function updateCrops(dt) {
   if (doTimer) _updateCropTimers();
 }
 
-// 返回 radius 范围内最近的成熟作物 key，否则返回 null
 function nearestMatureCrop(px, py, pz, radius) {
   var best = null, bestD = radius * radius;
   for (var key in _cropPlaced) {
@@ -5564,7 +5612,6 @@ function nearestMatureCrop(px, py, pz, radius) {
   return best;
 }
 
-// 移除并返回 typeId（成熟时）或 0（未成熟时）
 function harvestCrop(wx, wy, wz) {
   var key = wx + ',' + wy + ',' + wz;
   var entry = _cropPlaced[key];
@@ -5990,7 +6037,11 @@ function doInteract() {
   if (_nearCropKey && typeof harvestCrop === 'function') {
     var _cparts = _nearCropKey.split(',');
     var _got = harvestCrop(+_cparts[0], +_cparts[1], +_cparts[2]);
-    if (_got && typeof battleToast === 'function') battleToast('🌾 收获成功！');
+    if (_got) {
+      player.inv.push(_got);
+      buildHotbar();
+      if (typeof battleToast === 'function') battleToast('+1 ' + (BNAMES[_got] || '🌾'));
+    }
     _nearCropKey = null; _lastCropPrompt = null; _lastPromptId = -1;
     return;
   }

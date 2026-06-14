@@ -245,7 +245,11 @@ function doInteract() {
   if (_nearCropKey && typeof harvestCrop === 'function') {
     var _cparts = _nearCropKey.split(',');
     var _got = harvestCrop(+_cparts[0], +_cparts[1], +_cparts[2]);
-    if (_got && typeof battleToast === 'function') battleToast('🌾 收获成功！');
+    if (_got) {
+      player.inv.push(_got);
+      buildHotbar();
+      if (typeof battleToast === 'function') battleToast('+1 ' + (BNAMES[_got] || '🌾'));
+    }
     _nearCropKey = null; _lastCropPrompt = null; _lastPromptId = -1;
     return;
   }
