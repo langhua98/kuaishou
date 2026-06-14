@@ -172,6 +172,12 @@ function tapBtn(id, fn) {
 // 视角切换：第一/第三人称（toggleView 定义在 game.js）
 tapBtn('b-view', function () { toggleView(); });
 
+// 旋转家具幽灵预览（rotateFurnitureGhost 定义在 furniture.js）
+tapBtn('b-rot', function () { if (typeof rotateFurnitureGhost === 'function') rotateFurnitureGhost(); });
+
+// 家具互动：开关灯/坐下/休息（doInteract 定义在 game.js）
+tapBtn('b-act', function () { if (typeof doInteract === 'function') doInteract(); });
+
 tapBtn('b-fly', function () {
   player.flying = !player.flying;
   player.vy = 0;

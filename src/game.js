@@ -180,6 +180,12 @@ var _place = {
 };
 var _lastPlaceSlot = -1;
 
+// ── 家具互动状态 ───────────────────────────────────────────────────────────────
+var _curInteract  = null;   // 本帧最近的可互动家具（或 null）
+var _sitting      = null;   // 当前坐着的家具（或 null）
+var _lastPromptId = -1;     // 互动提示去重（typeId+开关态变化才改 DOM）
+var _restT        = 0;      // 休息提示剩余秒数
+
 // ── 音频 ──────────────────────────────────────────────────────────────────────
 initAudio();              // 预载音效（异步，不阻塞）；解锁在 startGame（用户手势）
 var _stepPh  = 0;         // 脚步相位（_bobT 每半周期触发一步）
@@ -197,6 +203,60 @@ function toggleView() {
   if (xh) xh.classList.toggle('fp', viewFP);
   var b = document.getElementById('b-view');
   if (b) b.classList.toggle('on', viewFP);
+}
+
+// ── 家具互动 ───────────────────────────────────────────────────────────────────
+// 互动按钮（✋ b-act）调用：按家具类型分发开关灯/坐下/休息
+function doInteract() {
+  var e = _curInteract;
+  if (!e) return;
+  if (e.typeId === FURNITURE_LAMP) {
+    toggleLamp(e);
+  } else if (e.typeId === FURNITURE_CHAIR || e.typeId === FURNITURE_COUCH || e.typeId === FURNITURE_ARMCHAIR) {
+    doSit(e);
+  } else if (e.typeId === FURNITURE_BED) {
+    doRest(e);
+  }
+  _lastPromptId = -1;   // 强制刷新提示文字（坐下↔起身）
+}
+
+function doSit(e) {
+  if (_sitting) { _sitting = null; return; }   // 再按一次起身
+  player.x = e.x + 0.5; player.z = e.z + 0.5;
+  player.yaw = e.yaw;
+  player.vx = 0; player.vz = 0;
+  _sitting = e;
+}
+
+function doRest(e) {
+  player.x = e.x + 0.5; player.z = e.z + 0.5;
+  player.vx = 0; player.vz = 0;
+  _restT = 1.5;   // 休息提示持续 1.5s（无昼夜系统，纯视觉反馈）
+}
+
+// 更新互动按钮的显隐与图标/文字（仅在目标变化时改 DOM）
+function _updateInteractPrompt(e) {
+  var btns = document.getElementById('btns');
+  if (!btns) return;
+  if (!e) {
+    if (_lastPromptId !== 0) { btns.classList.remove('canact'); _lastPromptId = 0; }
+    return;
+  }
+  // 用 typeId*10 + (灯开关态/坐姿态) 作为去重键
+  var sub = (e.typeId === FURNITURE_LAMP) ? (e.on ? 1 : 2) : (_sitting === e ? 3 : 0);
+  var key = e.typeId * 10 + sub;
+  if (key === _lastPromptId) return;
+  _lastPromptId = key;
+  btns.classList.add('canact');
+  var act = document.getElementById('b-act');
+  if (!act) return;
+  var ic = act.querySelector('.ic'), lbl = act.querySelector('.actl');
+  var icon = '✋', text = '互动';
+  if (e.typeId === FURNITURE_LAMP)            { icon = '💡'; text = e.on ? '关灯' : '开灯'; }
+  else if (e.typeId === FURNITURE_BED)        { icon = '🛏'; text = '休息'; }
+  else                                        { icon = '🪑'; text = (_sitting === e) ? '起身' : '坐下'; }
+  if (ic)  ic.textContent  = icon;
+  if (lbl) lbl.textContent = text;
 }
 
 // ── 第三人称摄像机（吃鸡架构）──────────────────────────────────────────────────
@@ -256,6 +316,8 @@ function tick(now) {
   lastT = now;
 
   // ── 移动 ───────────────────────────────────────────────────────────────────
+  // 坐下时动摇杆即起身（防止卡在家具上）
+  if (_sitting && (joy.dx || joy.dy)) _sitting = null;
   var sy  = Math.sin(player.yaw), cy2 = Math.cos(player.yaw);
   var jx  = joy.dx / JOY_R, jy = joy.dy / JOY_R;
   // 斜向限速：摇杆向量长度截断到 1（否则对角线快 41%）
@@ -357,6 +419,17 @@ function tick(now) {
     _place.lastDir = null;
     _place.idleT   = 0;
     slotChangeSound();
+    // 家具：触发懒加载、重置幽灵朝向、显示🔄旋转按钮；非家具则清除幽灵
+    var _heldId = player.inv[player.slot];
+    var _btns = document.getElementById('btns');
+    if (isFurnitureId(_heldId)) {
+      _ghostYaw = player.yaw + Math.PI;
+      if (!_furnitureLoaded) loadFurnitureModels(function () {});
+      if (_btns) _btns.classList.add('furni');
+    } else {
+      disposeFurnitureGhost();
+      if (_btns) _btns.classList.remove('furni');
+    }
   }
 
   // ── 放置预览坐标计算 ──────────────────────────────────────────────────────
@@ -467,6 +540,15 @@ function tick(now) {
     invalidBox.visible = false;
   }
 
+  // ── 家具幽灵预览：跟随放置坐标，用半透明模型替代绿框 ──────────────────────
+  var _heldNow = player.inv[player.slot];
+  if (isFurnitureId(_heldNow) && _place.pos) {
+    updateFurnitureGhost(_heldNow, _place.pos.x, _place.pos.y, _place.pos.z, _ghostYaw, true);
+    placeBox.visible = false;   // 幽灵代替绿框（invalidBox 仍保留作阻挡提示）
+  } else {
+    updateFurnitureGhost(0, 0, 0, 0, 0, false);
+  }
+
   // ── 放置（单次 + 长按节流）─────────────────────────────────────────────────
   if (player.placeQ || (placeHeld && nowS - _lastPlace > PLACE_CD)) {
     player.placeQ = false;
@@ -483,11 +565,11 @@ function tick(now) {
         if (_placedId === TOWER_ITEM) {
           if (typeof placeTower === 'function') placeTower(pv.x + 0.5, pv.z + 0.5);
           _lastPlace = nowS;
-        } else if (_placedId >= 101 && _placedId <= 110) {
-          // 家具放置：按需加载 GLTF 后生成模型
+        } else if (isFurnitureId(_placedId)) {
+          // 家具放置：按需加载 GLTF 后生成模型，方位继承幽灵预览的 _ghostYaw
           if (typeof loadFurnitureModels === 'function') {
             loadFurnitureModels(function () {
-              placeFurniture(_placedId, pv.x, pv.y, pv.z);
+              placeFurniture(_placedId, pv.x, pv.y, pv.z, _ghostYaw);
               placeSound();
             });
           }
@@ -526,6 +608,27 @@ function tick(now) {
   if (coordEl) {
     coordEl.textContent =
       'X:' + Math.floor(player.x) + ' Y:' + Math.floor(player.y) + ' Z:' + Math.floor(player.z);
+  }
+
+  // ── 家具邻近互动扫描（2m 内最近的可互动家具）────────────────────────────────
+  if (typeof _furniturePlaced !== 'undefined') {
+    var _nearF = null, _nearD2 = 2.0 * 2.0;
+    for (var _fi = 0; _fi < _furniturePlaced.length; _fi++) {
+      var _fe = _furniturePlaced[_fi];
+      if (!isInteractive(_fe.typeId)) continue;
+      var _ddx = (_fe.x + 0.5) - player.x;
+      var _ddz = (_fe.z + 0.5) - player.z;
+      var _ddy = _fe.y - player.y;
+      var _fd2 = _ddx * _ddx + _ddz * _ddz + _ddy * _ddy * 0.25;   // 竖向软化
+      if (_fd2 < _nearD2) { _nearD2 = _fd2; _nearF = _fe; }
+    }
+    _curInteract = _nearF;
+    _updateInteractPrompt(_nearF);
+  }
+  // 休息提示计时
+  if (_restT > 0) {
+    _restT -= dt;
+    if (_restT <= 0) { _restT = 0; _updateInteractPrompt(_curInteract); }
   }
 
   // ── 区块流 ─────────────────────────────────────────────────────────────────
@@ -584,17 +687,19 @@ function tick(now) {
   var bobY = Math.sin(_bobT * Math.PI * 2) * 0.016 * bobOn;
   var bobL = Math.sin(_bobT * Math.PI)     * 0.012 * bobOn;
 
+  // 坐下时视角下沉（盒子模型无坐姿动画，用降低眼高模拟）
+  var _sitDip = _sitting ? 0.45 : 0;
   if (viewFP) {
     // ── 第一人称：相机即眼睛，Bob 减半（贴脸晃动更敏感）─────────────────────
     camera.position.set(
       player.x + rwx * bobL * 0.5,
-      player.y + PH * 0.85 + bobY * 0.6 + _dipY,
+      player.y + PH * 0.85 - _sitDip + bobY * 0.6 + _dipY,
       player.z + rwz * bobL * 0.5
     );
   } else {
     // ── 第三人称：支臂碰撞，从「肩偏后的枢轴」沿 -forward 步进找无遮挡长度 ──
     var shX = _pivX + rwx * CAM_SHOULDER;
-    var shY = _pivY;
+    var shY = _pivY - _sitDip;
     var shZ = _pivZ + rwz * CAM_SHOULDER;
     var hitD = CAM_DIST, cd, cid;
     for (cd = 0.2; cd <= CAM_DIST; cd += 0.1) {
@@ -663,7 +768,7 @@ window.startGame = function () {
   // 脚本初始化时可能用了错误的高度导致画面压瘪；在这里强制刷新一次。
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(window.innerWidth, window.innerHeight, false);
 
   if (menuEl) menuEl.style.display = 'none';
   if (uiEl)   uiEl.style.display   = 'block';

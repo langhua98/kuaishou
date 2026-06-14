@@ -65,6 +65,10 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
 #b-plc{background:rgba(60,220,100,.38);border-color:rgba(80,255,130,.5)}
 #b-view{background:rgba(60,200,220,.35);border-color:rgba(110,230,250,.5)}
 #b-view.on{background:rgba(60,200,220,.7);border-color:#5ee0f5;box-shadow:0 0 16px rgba(60,200,220,.5)}
+#b-rot{display:none;background:rgba(180,120,255,.4);border-color:rgba(200,160,255,.5)}
+#btns.furni #b-rot{display:flex}
+#b-act{display:none;background:rgba(255,200,80,.4);border-color:rgba(255,220,120,.5)}
+#btns.canact #b-act{display:flex}
 
 /* 热键栏 — 全量横向滚动 */
 #hotbar{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);display:flex;gap:5px;max-width:95vw;overflow-x:auto;-webkit-overflow-scrolling:touch;scroll-snap-type:x mandatory;padding-bottom:3px;flex-wrap:nowrap}
@@ -109,6 +113,8 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
   <div id="look-zone"></div>
   <div id="btns">
     <div class="row">
+      <button class="btn" id="b-act"><span class="ic">✋</span><span class="actl">互动</span></button>
+      <button class="btn" id="b-rot"><span class="ic">🔄</span><span>旋转</span></button>
       <button class="btn" id="b-view"><span class="ic">👁</span><span>视角</span></button>
       <button class="btn" id="b-brk"><span class="ic">🔨</span><span>破坏</span></button>
       <button class="btn" id="b-plc"><span class="ic">📦</span><span>放置</span></button>
@@ -627,7 +633,9 @@ function genTerrain(cx, cz) {
 
 var renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-renderer.setSize(window.innerWidth, window.innerHeight);
+// 第三参 updateStyle=false：不让 Three 把像素宽高写进 canvas 内联样式，
+// 保留 cssText 的 width/height:100% 始终铺满视口（修复竖屏定尺后转横屏露黑边）
+renderer.setSize(window.innerWidth, window.innerHeight, false);
 renderer.domElement.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;z-index:1;touch-action:none';
 document.body.appendChild(renderer.domElement);
 
@@ -644,13 +652,18 @@ camera.rotation.order = 'YXZ';
 function _onResize() {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(window.innerWidth, window.innerHeight, false);
 }
 window.addEventListener('resize', _onResize);
 // iOS Safari：地址栏动态显隐只触发 visualViewport resize，不触发 window resize
 if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', _onResize);
 }
+// 旋转屏幕时 innerWidth 可能短暂滞后，延迟两次兜底重定尺
+window.addEventListener('orientationchange', function () {
+  setTimeout(_onResize, 250);
+  setTimeout(_onResize, 600);
+});
 
 
 // ═══ src/sky.js ═══
@@ -1542,6 +1555,12 @@ function tapBtn(id, fn) {
 
 // 视角切换：第一/第三人称（toggleView 定义在 game.js）
 tapBtn('b-view', function () { toggleView(); });
+
+// 旋转家具幽灵预览（rotateFurnitureGhost 定义在 furniture.js）
+tapBtn('b-rot', function () { if (typeof rotateFurnitureGhost === 'function') rotateFurnitureGhost(); });
+
+// 家具互动：开关灯/坐下/休息（doInteract 定义在 game.js）
+tapBtn('b-act', function () { if (typeof doInteract === 'function') doInteract(); });
 
 tapBtn('b-fly', function () {
   player.flying = !player.flying;
@@ -4931,6 +4950,34 @@ var _furniturePlaced = [];    // 所有已放置家具记录
 var _furnitureSeq = 1;
 var _furnitureLoaded = false;
 
+// 摆放幽灵预览状态
+var _furnitureGhost = null;   // 当前半透明幽灵 Group（或 null）
+var _ghostTypeId    = 0;      // 幽灵对应的 typeId（变化才重建克隆）
+var _ghostYaw       = 0;      // 用户控制的朝向，由旋转按钮改
+
+// 工具：是否家具道具 / 是否可互动家具
+function isFurnitureId(id) { return id >= 101 && id <= 110; }
+function isInteractive(id) { return id === 101 || id === 103 || id === 104 || id === 107 || id === 109; }
+
+function _furnitureDefById(typeId) {
+  for (var i = 0; i < FURNITURE_DEFS.length; i++) {
+    if (FURNITURE_DEFS[i].id === typeId) return FURNITURE_DEFS[i];
+  }
+  return null;
+}
+
+// 克隆并脚底对齐模型（placeFurniture 与幽灵共用）
+function _cloneFurnitureModel(def) {
+  var g = _furnitureGltf[def.file];
+  if (!g) return null;
+  var model = g.scene.clone(true);
+  model.scale.setScalar(def.scale);
+  model.updateMatrixWorld(true);
+  var bbox = new THREE.Box3().setFromObject(model);
+  model.position.y = -bbox.min.y;
+  return model;
+}
+
 // 加载所有家具 GLTF（首次放置或启动时调）
 function loadFurnitureModels(onDone) {
   if (_furnitureLoaded) { if (onDone) onDone(); return; }
@@ -4953,44 +5000,117 @@ function loadFurnitureModels(onDone) {
 
 // 在世界坐标放置一件家具（wx/wy/wz = 方块坐标，yaw 可选）
 function placeFurniture(typeId, wx, wy, wz, yaw) {
-  var def = null, i;
-  for (i = 0; i < FURNITURE_DEFS.length; i++) {
-    if (FURNITURE_DEFS[i].id === typeId) { def = FURNITURE_DEFS[i]; break; }
-  }
+  var def = _furnitureDefById(typeId);
   if (!def) return null;
-  var g = _furnitureGltf[def.file];
-  if (!g) return null;
+  var model = _cloneFurnitureModel(def);
+  if (!model) return null;
 
   if (yaw === undefined) {
     yaw = (typeof player !== 'undefined') ? player.yaw + Math.PI : 0;
   }
 
   var group = new THREE.Group();
-  var model = g.scene.clone(true);
-  model.scale.setScalar(def.scale);
-  // 脚底对齐：量缩放后世界包围盒，把模型底面归零到 group 原点（防止悬空/陷地）
-  model.updateMatrixWorld(true);
-  var bbox = new THREE.Box3().setFromObject(model);
-  model.position.y = -bbox.min.y;
   group.add(model);
   group.position.set(wx + 0.5, wy, wz + 0.5);
   group.rotation.y = yaw;
   scene.add(group);
 
-  // 落地灯：加点光源（暖黄，照亮半径 8m）
+  // 落地灯：伪造暖光（发光灯泡 + 地面暖光圈 + 点光源），独立子组便于开关显隐
+  var glow = null;
   if (typeId === FURNITURE_LAMP) {
+    glow = new THREE.Group();
+    // 发光灯泡（BasicMaterial 不受昼夜亮度影响，夜里自然醒目）
+    var bulb = new THREE.Mesh(
+      new THREE.SphereGeometry(0.12, 8, 8),
+      new THREE.MeshBasicMaterial({ color: 0xfff0c0 })
+    );
+    bulb.position.set(0, 1.6, 0);
+    glow.add(bulb);
+    // 地面暖光圈（半透明叠加，像一圈光池）
+    var pool = new THREE.Mesh(
+      new THREE.CircleGeometry(1.2, 16),
+      new THREE.MeshBasicMaterial({ color: 0xfff0c0, transparent: true, opacity: 0.18, depthWrite: false })
+    );
+    pool.rotation.x = -Math.PI / 2;
+    pool.position.y = 0.02;
+    glow.add(pool);
+    // 点光源（作用于受光的家具/角色模型）
     var ptLight = new THREE.PointLight(0xfff0c0, 1.8, 8);
-    ptLight.position.set(0, 1.6, 0);   // 灯罩位置
-    group.add(ptLight);
+    ptLight.position.set(0, 1.6, 0);
+    glow.add(ptLight);
+    group.add(glow);
   }
 
   var entry = {
     id: _furnitureSeq++, typeId: typeId,
     x: wx, y: wy, z: wz, yaw: yaw,
-    group: group
+    group: group, glow: glow, on: true
   };
   _furniturePlaced.push(entry);
   return entry;
+}
+
+// 开关落地灯（切换暖光子组显隐 + 状态）
+function toggleLamp(entry) {
+  if (!entry) return;
+  entry.on = !entry.on;
+  if (entry.glow) entry.glow.visible = entry.on;
+}
+
+// ── 摆放幽灵预览 ────────────────────────────────────────────────────────────────
+// 选中家具时显示半透明幽灵，跟随准星，🔄 按钮旋转，📦 确认放置
+function rotateFurnitureGhost() {
+  _ghostYaw += Math.PI / 2;
+  if (_ghostYaw >= Math.PI * 2) _ghostYaw -= Math.PI * 2;
+}
+
+function disposeFurnitureGhost() {
+  if (!_furnitureGhost) return;
+  scene.remove(_furnitureGhost);
+  _furnitureGhost.traverse(function (o) {
+    if (o.isMesh) {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) o.material.dispose();
+    }
+  });
+  _furnitureGhost = null;
+  _ghostTypeId = 0;
+}
+
+// 每帧调用：typeId 变化才重建克隆，否则只更新位置/朝向
+function updateFurnitureGhost(typeId, wx, wy, wz, yaw, visible) {
+  if (!visible || !typeId) {
+    if (_furnitureGhost) _furnitureGhost.visible = false;
+    return;
+  }
+  var def = _furnitureDefById(typeId);
+  if (!def || !_furnitureGltf[def.file]) {
+    // 模型未就绪 → 隐藏，待 GLB 加载完下帧自然出现
+    if (_furnitureGhost) _furnitureGhost.visible = false;
+    return;
+  }
+  if (typeId !== _ghostTypeId) {
+    disposeFurnitureGhost();
+    var model = _cloneFurnitureModel(def);
+    if (!model) return;
+    // 克隆每个 mesh 材质后改半透明（不能共享，否则污染真实家具材质）
+    model.traverse(function (o) {
+      if (o.isMesh && o.material) {
+        o.material = o.material.clone();
+        o.material.transparent = true;
+        o.material.opacity = 0.45;
+        o.material.depthWrite = false;
+      }
+    });
+    var grp = new THREE.Group();
+    grp.add(model);
+    scene.add(grp);
+    _furnitureGhost = grp;
+    _ghostTypeId = typeId;
+  }
+  _furnitureGhost.position.set(wx + 0.5, wy, wz + 0.5);
+  _furnitureGhost.rotation.y = yaw;
+  _furnitureGhost.visible = true;
 }
 
 // 按记录 id 移除家具
@@ -5008,7 +5128,7 @@ function removeFurnitureById(fid) {
 // 序列化供 save.js 调用
 function serializeFurniture() {
   return _furniturePlaced.map(function (f) {
-    return { typeId: f.typeId, x: f.x, y: f.y, z: f.z, yaw: f.yaw };
+    return { typeId: f.typeId, x: f.x, y: f.y, z: f.z, yaw: f.yaw, on: f.on };
   });
 }
 
@@ -5016,7 +5136,8 @@ function serializeFurniture() {
 function deserializeFurniture(arr) {
   if (!arr || !arr.length) return;
   arr.forEach(function (f) {
-    placeFurniture(f.typeId, f.x, f.y, f.z, f.yaw);
+    var en = placeFurniture(f.typeId, f.x, f.y, f.z, f.yaw);
+    if (en && f.on === false) toggleLamp(en);   // 旧档无 on → 默认开，向后兼容
   });
 }
 
@@ -5337,6 +5458,12 @@ var _place = {
 };
 var _lastPlaceSlot = -1;
 
+// ── 家具互动状态 ───────────────────────────────────────────────────────────────
+var _curInteract  = null;   // 本帧最近的可互动家具（或 null）
+var _sitting      = null;   // 当前坐着的家具（或 null）
+var _lastPromptId = -1;     // 互动提示去重（typeId+开关态变化才改 DOM）
+var _restT        = 0;      // 休息提示剩余秒数
+
 // ── 音频 ──────────────────────────────────────────────────────────────────────
 initAudio();              // 预载音效（异步，不阻塞）；解锁在 startGame（用户手势）
 var _stepPh  = 0;         // 脚步相位（_bobT 每半周期触发一步）
@@ -5354,6 +5481,60 @@ function toggleView() {
   if (xh) xh.classList.toggle('fp', viewFP);
   var b = document.getElementById('b-view');
   if (b) b.classList.toggle('on', viewFP);
+}
+
+// ── 家具互动 ───────────────────────────────────────────────────────────────────
+// 互动按钮（✋ b-act）调用：按家具类型分发开关灯/坐下/休息
+function doInteract() {
+  var e = _curInteract;
+  if (!e) return;
+  if (e.typeId === FURNITURE_LAMP) {
+    toggleLamp(e);
+  } else if (e.typeId === FURNITURE_CHAIR || e.typeId === FURNITURE_COUCH || e.typeId === FURNITURE_ARMCHAIR) {
+    doSit(e);
+  } else if (e.typeId === FURNITURE_BED) {
+    doRest(e);
+  }
+  _lastPromptId = -1;   // 强制刷新提示文字（坐下↔起身）
+}
+
+function doSit(e) {
+  if (_sitting) { _sitting = null; return; }   // 再按一次起身
+  player.x = e.x + 0.5; player.z = e.z + 0.5;
+  player.yaw = e.yaw;
+  player.vx = 0; player.vz = 0;
+  _sitting = e;
+}
+
+function doRest(e) {
+  player.x = e.x + 0.5; player.z = e.z + 0.5;
+  player.vx = 0; player.vz = 0;
+  _restT = 1.5;   // 休息提示持续 1.5s（无昼夜系统，纯视觉反馈）
+}
+
+// 更新互动按钮的显隐与图标/文字（仅在目标变化时改 DOM）
+function _updateInteractPrompt(e) {
+  var btns = document.getElementById('btns');
+  if (!btns) return;
+  if (!e) {
+    if (_lastPromptId !== 0) { btns.classList.remove('canact'); _lastPromptId = 0; }
+    return;
+  }
+  // 用 typeId*10 + (灯开关态/坐姿态) 作为去重键
+  var sub = (e.typeId === FURNITURE_LAMP) ? (e.on ? 1 : 2) : (_sitting === e ? 3 : 0);
+  var key = e.typeId * 10 + sub;
+  if (key === _lastPromptId) return;
+  _lastPromptId = key;
+  btns.classList.add('canact');
+  var act = document.getElementById('b-act');
+  if (!act) return;
+  var ic = act.querySelector('.ic'), lbl = act.querySelector('.actl');
+  var icon = '✋', text = '互动';
+  if (e.typeId === FURNITURE_LAMP)            { icon = '💡'; text = e.on ? '关灯' : '开灯'; }
+  else if (e.typeId === FURNITURE_BED)        { icon = '🛏'; text = '休息'; }
+  else                                        { icon = '🪑'; text = (_sitting === e) ? '起身' : '坐下'; }
+  if (ic)  ic.textContent  = icon;
+  if (lbl) lbl.textContent = text;
 }
 
 // ── 第三人称摄像机（吃鸡架构）──────────────────────────────────────────────────
@@ -5413,6 +5594,8 @@ function tick(now) {
   lastT = now;
 
   // ── 移动 ───────────────────────────────────────────────────────────────────
+  // 坐下时动摇杆即起身（防止卡在家具上）
+  if (_sitting && (joy.dx || joy.dy)) _sitting = null;
   var sy  = Math.sin(player.yaw), cy2 = Math.cos(player.yaw);
   var jx  = joy.dx / JOY_R, jy = joy.dy / JOY_R;
   // 斜向限速：摇杆向量长度截断到 1（否则对角线快 41%）
@@ -5514,6 +5697,17 @@ function tick(now) {
     _place.lastDir = null;
     _place.idleT   = 0;
     slotChangeSound();
+    // 家具：触发懒加载、重置幽灵朝向、显示🔄旋转按钮；非家具则清除幽灵
+    var _heldId = player.inv[player.slot];
+    var _btns = document.getElementById('btns');
+    if (isFurnitureId(_heldId)) {
+      _ghostYaw = player.yaw + Math.PI;
+      if (!_furnitureLoaded) loadFurnitureModels(function () {});
+      if (_btns) _btns.classList.add('furni');
+    } else {
+      disposeFurnitureGhost();
+      if (_btns) _btns.classList.remove('furni');
+    }
   }
 
   // ── 放置预览坐标计算 ──────────────────────────────────────────────────────
@@ -5624,6 +5818,15 @@ function tick(now) {
     invalidBox.visible = false;
   }
 
+  // ── 家具幽灵预览：跟随放置坐标，用半透明模型替代绿框 ──────────────────────
+  var _heldNow = player.inv[player.slot];
+  if (isFurnitureId(_heldNow) && _place.pos) {
+    updateFurnitureGhost(_heldNow, _place.pos.x, _place.pos.y, _place.pos.z, _ghostYaw, true);
+    placeBox.visible = false;   // 幽灵代替绿框（invalidBox 仍保留作阻挡提示）
+  } else {
+    updateFurnitureGhost(0, 0, 0, 0, 0, false);
+  }
+
   // ── 放置（单次 + 长按节流）─────────────────────────────────────────────────
   if (player.placeQ || (placeHeld && nowS - _lastPlace > PLACE_CD)) {
     player.placeQ = false;
@@ -5640,11 +5843,11 @@ function tick(now) {
         if (_placedId === TOWER_ITEM) {
           if (typeof placeTower === 'function') placeTower(pv.x + 0.5, pv.z + 0.5);
           _lastPlace = nowS;
-        } else if (_placedId >= 101 && _placedId <= 110) {
-          // 家具放置：按需加载 GLTF 后生成模型
+        } else if (isFurnitureId(_placedId)) {
+          // 家具放置：按需加载 GLTF 后生成模型，方位继承幽灵预览的 _ghostYaw
           if (typeof loadFurnitureModels === 'function') {
             loadFurnitureModels(function () {
-              placeFurniture(_placedId, pv.x, pv.y, pv.z);
+              placeFurniture(_placedId, pv.x, pv.y, pv.z, _ghostYaw);
               placeSound();
             });
           }
@@ -5683,6 +5886,27 @@ function tick(now) {
   if (coordEl) {
     coordEl.textContent =
       'X:' + Math.floor(player.x) + ' Y:' + Math.floor(player.y) + ' Z:' + Math.floor(player.z);
+  }
+
+  // ── 家具邻近互动扫描（2m 内最近的可互动家具）────────────────────────────────
+  if (typeof _furniturePlaced !== 'undefined') {
+    var _nearF = null, _nearD2 = 2.0 * 2.0;
+    for (var _fi = 0; _fi < _furniturePlaced.length; _fi++) {
+      var _fe = _furniturePlaced[_fi];
+      if (!isInteractive(_fe.typeId)) continue;
+      var _ddx = (_fe.x + 0.5) - player.x;
+      var _ddz = (_fe.z + 0.5) - player.z;
+      var _ddy = _fe.y - player.y;
+      var _fd2 = _ddx * _ddx + _ddz * _ddz + _ddy * _ddy * 0.25;   // 竖向软化
+      if (_fd2 < _nearD2) { _nearD2 = _fd2; _nearF = _fe; }
+    }
+    _curInteract = _nearF;
+    _updateInteractPrompt(_nearF);
+  }
+  // 休息提示计时
+  if (_restT > 0) {
+    _restT -= dt;
+    if (_restT <= 0) { _restT = 0; _updateInteractPrompt(_curInteract); }
   }
 
   // ── 区块流 ─────────────────────────────────────────────────────────────────
@@ -5741,17 +5965,19 @@ function tick(now) {
   var bobY = Math.sin(_bobT * Math.PI * 2) * 0.016 * bobOn;
   var bobL = Math.sin(_bobT * Math.PI)     * 0.012 * bobOn;
 
+  // 坐下时视角下沉（盒子模型无坐姿动画，用降低眼高模拟）
+  var _sitDip = _sitting ? 0.45 : 0;
   if (viewFP) {
     // ── 第一人称：相机即眼睛，Bob 减半（贴脸晃动更敏感）─────────────────────
     camera.position.set(
       player.x + rwx * bobL * 0.5,
-      player.y + PH * 0.85 + bobY * 0.6 + _dipY,
+      player.y + PH * 0.85 - _sitDip + bobY * 0.6 + _dipY,
       player.z + rwz * bobL * 0.5
     );
   } else {
     // ── 第三人称：支臂碰撞，从「肩偏后的枢轴」沿 -forward 步进找无遮挡长度 ──
     var shX = _pivX + rwx * CAM_SHOULDER;
-    var shY = _pivY;
+    var shY = _pivY - _sitDip;
     var shZ = _pivZ + rwz * CAM_SHOULDER;
     var hitD = CAM_DIST, cd, cid;
     for (cd = 0.2; cd <= CAM_DIST; cd += 0.1) {
@@ -5820,7 +6046,7 @@ window.startGame = function () {
   // 脚本初始化时可能用了错误的高度导致画面压瘪；在这里强制刷新一次。
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(window.innerWidth, window.innerHeight, false);
 
   if (menuEl) menuEl.style.display = 'none';
   if (uiEl)   uiEl.style.display   = 'block';

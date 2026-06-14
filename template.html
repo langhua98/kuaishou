@@ -65,6 +65,10 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
 #b-plc{background:rgba(60,220,100,.38);border-color:rgba(80,255,130,.5)}
 #b-view{background:rgba(60,200,220,.35);border-color:rgba(110,230,250,.5)}
 #b-view.on{background:rgba(60,200,220,.7);border-color:#5ee0f5;box-shadow:0 0 16px rgba(60,200,220,.5)}
+#b-rot{display:none;background:rgba(180,120,255,.4);border-color:rgba(200,160,255,.5)}
+#btns.furni #b-rot{display:flex}
+#b-act{display:none;background:rgba(255,200,80,.4);border-color:rgba(255,220,120,.5)}
+#btns.canact #b-act{display:flex}
 
 /* 热键栏 — 全量横向滚动 */
 #hotbar{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);display:flex;gap:5px;max-width:95vw;overflow-x:auto;-webkit-overflow-scrolling:touch;scroll-snap-type:x mandatory;padding-bottom:3px;flex-wrap:nowrap}
@@ -109,6 +113,8 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
   <div id="look-zone"></div>
   <div id="btns">
     <div class="row">
+      <button class="btn" id="b-act"><span class="ic">✋</span><span class="actl">互动</span></button>
+      <button class="btn" id="b-rot"><span class="ic">🔄</span><span>旋转</span></button>
       <button class="btn" id="b-view"><span class="ic">👁</span><span>视角</span></button>
       <button class="btn" id="b-brk"><span class="ic">🔨</span><span>破坏</span></button>
       <button class="btn" id="b-plc"><span class="ic">📦</span><span>放置</span></button>

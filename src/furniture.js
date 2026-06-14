@@ -20,6 +20,34 @@ var _furniturePlaced = [];    // 所有已放置家具记录
 var _furnitureSeq = 1;
 var _furnitureLoaded = false;
 
+// 摆放幽灵预览状态
+var _furnitureGhost = null;   // 当前半透明幽灵 Group（或 null）
+var _ghostTypeId    = 0;      // 幽灵对应的 typeId（变化才重建克隆）
+var _ghostYaw       = 0;      // 用户控制的朝向，由旋转按钮改
+
+// 工具：是否家具道具 / 是否可互动家具
+function isFurnitureId(id) { return id >= 101 && id <= 110; }
+function isInteractive(id) { return id === 101 || id === 103 || id === 104 || id === 107 || id === 109; }
+
+function _furnitureDefById(typeId) {
+  for (var i = 0; i < FURNITURE_DEFS.length; i++) {
+    if (FURNITURE_DEFS[i].id === typeId) return FURNITURE_DEFS[i];
+  }
+  return null;
+}
+
+// 克隆并脚底对齐模型（placeFurniture 与幽灵共用）
+function _cloneFurnitureModel(def) {
+  var g = _furnitureGltf[def.file];
+  if (!g) return null;
+  var model = g.scene.clone(true);
+  model.scale.setScalar(def.scale);
+  model.updateMatrixWorld(true);
+  var bbox = new THREE.Box3().setFromObject(model);
+  model.position.y = -bbox.min.y;
+  return model;
+}
+
 // 加载所有家具 GLTF（首次放置或启动时调）
 function loadFurnitureModels(onDone) {
   if (_furnitureLoaded) { if (onDone) onDone(); return; }
@@ -42,44 +70,117 @@ function loadFurnitureModels(onDone) {
 
 // 在世界坐标放置一件家具（wx/wy/wz = 方块坐标，yaw 可选）
 function placeFurniture(typeId, wx, wy, wz, yaw) {
-  var def = null, i;
-  for (i = 0; i < FURNITURE_DEFS.length; i++) {
-    if (FURNITURE_DEFS[i].id === typeId) { def = FURNITURE_DEFS[i]; break; }
-  }
+  var def = _furnitureDefById(typeId);
   if (!def) return null;
-  var g = _furnitureGltf[def.file];
-  if (!g) return null;
+  var model = _cloneFurnitureModel(def);
+  if (!model) return null;
 
   if (yaw === undefined) {
     yaw = (typeof player !== 'undefined') ? player.yaw + Math.PI : 0;
   }
 
   var group = new THREE.Group();
-  var model = g.scene.clone(true);
-  model.scale.setScalar(def.scale);
-  // 脚底对齐：量缩放后世界包围盒，把模型底面归零到 group 原点（防止悬空/陷地）
-  model.updateMatrixWorld(true);
-  var bbox = new THREE.Box3().setFromObject(model);
-  model.position.y = -bbox.min.y;
   group.add(model);
   group.position.set(wx + 0.5, wy, wz + 0.5);
   group.rotation.y = yaw;
   scene.add(group);
 
-  // 落地灯：加点光源（暖黄，照亮半径 8m）
+  // 落地灯：伪造暖光（发光灯泡 + 地面暖光圈 + 点光源），独立子组便于开关显隐
+  var glow = null;
   if (typeId === FURNITURE_LAMP) {
+    glow = new THREE.Group();
+    // 发光灯泡（BasicMaterial 不受昼夜亮度影响，夜里自然醒目）
+    var bulb = new THREE.Mesh(
+      new THREE.SphereGeometry(0.12, 8, 8),
+      new THREE.MeshBasicMaterial({ color: 0xfff0c0 })
+    );
+    bulb.position.set(0, 1.6, 0);
+    glow.add(bulb);
+    // 地面暖光圈（半透明叠加，像一圈光池）
+    var pool = new THREE.Mesh(
+      new THREE.CircleGeometry(1.2, 16),
+      new THREE.MeshBasicMaterial({ color: 0xfff0c0, transparent: true, opacity: 0.18, depthWrite: false })
+    );
+    pool.rotation.x = -Math.PI / 2;
+    pool.position.y = 0.02;
+    glow.add(pool);
+    // 点光源（作用于受光的家具/角色模型）
     var ptLight = new THREE.PointLight(0xfff0c0, 1.8, 8);
-    ptLight.position.set(0, 1.6, 0);   // 灯罩位置
-    group.add(ptLight);
+    ptLight.position.set(0, 1.6, 0);
+    glow.add(ptLight);
+    group.add(glow);
   }
 
   var entry = {
     id: _furnitureSeq++, typeId: typeId,
     x: wx, y: wy, z: wz, yaw: yaw,
-    group: group
+    group: group, glow: glow, on: true
   };
   _furniturePlaced.push(entry);
   return entry;
+}
+
+// 开关落地灯（切换暖光子组显隐 + 状态）
+function toggleLamp(entry) {
+  if (!entry) return;
+  entry.on = !entry.on;
+  if (entry.glow) entry.glow.visible = entry.on;
+}
+
+// ── 摆放幽灵预览 ────────────────────────────────────────────────────────────────
+// 选中家具时显示半透明幽灵，跟随准星，🔄 按钮旋转，📦 确认放置
+function rotateFurnitureGhost() {
+  _ghostYaw += Math.PI / 2;
+  if (_ghostYaw >= Math.PI * 2) _ghostYaw -= Math.PI * 2;
+}
+
+function disposeFurnitureGhost() {
+  if (!_furnitureGhost) return;
+  scene.remove(_furnitureGhost);
+  _furnitureGhost.traverse(function (o) {
+    if (o.isMesh) {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) o.material.dispose();
+    }
+  });
+  _furnitureGhost = null;
+  _ghostTypeId = 0;
+}
+
+// 每帧调用：typeId 变化才重建克隆，否则只更新位置/朝向
+function updateFurnitureGhost(typeId, wx, wy, wz, yaw, visible) {
+  if (!visible || !typeId) {
+    if (_furnitureGhost) _furnitureGhost.visible = false;
+    return;
+  }
+  var def = _furnitureDefById(typeId);
+  if (!def || !_furnitureGltf[def.file]) {
+    // 模型未就绪 → 隐藏，待 GLB 加载完下帧自然出现
+    if (_furnitureGhost) _furnitureGhost.visible = false;
+    return;
+  }
+  if (typeId !== _ghostTypeId) {
+    disposeFurnitureGhost();
+    var model = _cloneFurnitureModel(def);
+    if (!model) return;
+    // 克隆每个 mesh 材质后改半透明（不能共享，否则污染真实家具材质）
+    model.traverse(function (o) {
+      if (o.isMesh && o.material) {
+        o.material = o.material.clone();
+        o.material.transparent = true;
+        o.material.opacity = 0.45;
+        o.material.depthWrite = false;
+      }
+    });
+    var grp = new THREE.Group();
+    grp.add(model);
+    scene.add(grp);
+    _furnitureGhost = grp;
+    _ghostTypeId = typeId;
+  }
+  _furnitureGhost.position.set(wx + 0.5, wy, wz + 0.5);
+  _furnitureGhost.rotation.y = yaw;
+  _furnitureGhost.visible = true;
 }
 
 // 按记录 id 移除家具
@@ -97,7 +198,7 @@ function removeFurnitureById(fid) {
 // 序列化供 save.js 调用
 function serializeFurniture() {
   return _furniturePlaced.map(function (f) {
-    return { typeId: f.typeId, x: f.x, y: f.y, z: f.z, yaw: f.yaw };
+    return { typeId: f.typeId, x: f.x, y: f.y, z: f.z, yaw: f.yaw, on: f.on };
   });
 }
 
@@ -105,6 +206,7 @@ function serializeFurniture() {
 function deserializeFurniture(arr) {
   if (!arr || !arr.length) return;
   arr.forEach(function (f) {
-    placeFurniture(f.typeId, f.x, f.y, f.z, f.yaw);
+    var en = placeFurniture(f.typeId, f.x, f.y, f.z, f.yaw);
+    if (en && f.on === false) toggleLamp(en);   // 旧档无 on → 默认开，向后兼容
   });
 }

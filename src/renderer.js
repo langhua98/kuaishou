@@ -4,7 +4,9 @@
 
 var renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-renderer.setSize(window.innerWidth, window.innerHeight);
+// 第三参 updateStyle=false：不让 Three 把像素宽高写进 canvas 内联样式，
+// 保留 cssText 的 width/height:100% 始终铺满视口（修复竖屏定尺后转横屏露黑边）
+renderer.setSize(window.innerWidth, window.innerHeight, false);
 renderer.domElement.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;z-index:1;touch-action:none';
 document.body.appendChild(renderer.domElement);
 
@@ -21,10 +23,15 @@ camera.rotation.order = 'YXZ';
 function _onResize() {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(window.innerWidth, window.innerHeight, false);
 }
 window.addEventListener('resize', _onResize);
 // iOS Safari：地址栏动态显隐只触发 visualViewport resize，不触发 window resize
 if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', _onResize);
 }
+// 旋转屏幕时 innerWidth 可能短暂滞后，延迟两次兜底重定尺
+window.addEventListener('orientationchange', function () {
+  setTimeout(_onResize, 250);
+  setTimeout(_onResize, 600);
+});
