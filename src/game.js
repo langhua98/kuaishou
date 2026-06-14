@@ -35,7 +35,7 @@ var player = {
         CROP_APPLE, CROP_BAMBOO, CROP_BEET, CROP_BUSHBERRIES, CROP_CACTUS,
         CROP_CORN, CROP_FLOWER, CROP_LETTUCE, CROP_MUSHROOM, CROP_ORANGE,
         CROP_PALMTREE, CROP_PUMPKIN_CROP, CROP_RICE, CROP_TOMATO, CROP_WATERMELON,
-        VEH_CAR, VEH_SUV, VEH_PICKUP]
+        VEH_CAR, VEH_TAXI, VEH_POLICE]
 };
 
 window._step = 4;
@@ -701,6 +701,10 @@ function tick(now) {
   playerGroup.position.set(player.x, player.y, player.z);
   playerGroup.rotation.y = player.yaw;
 
+  var _mounted = (typeof _mountedVehicle !== 'undefined' && _mountedVehicle);
+  if (!viewFP) playerGroup.visible = !_mounted;  // 驾驶时隐藏玩家模型，避免穿出车顶
+  if (_mounted && typeof syncMountedVehicle === 'function') syncMountedVehicle();
+
   var moveMag = Math.sqrt(player.vx * player.vx + player.vz * player.vz);
   if (playerMixer) {
     if      (!player.onGround && !player.flying && player.vy >  2) playerAnim('jump');
@@ -748,6 +752,15 @@ function tick(now) {
       player.y + PH * 0.85 - _sitDip + bobY * 0.6 + _dipY,
       player.z + rwz * bobL * 0.5
     );
+  } else if (typeof _mountedVehicle !== 'undefined' && _mountedVehicle) {
+    // 驾驶追车相机：车后上方俯视，沿车头朝向；不与车体碰撞，避免埋进车体黑屏
+    var vcd = 6.0, vch = 3.2;
+    var vsx = -Math.sin(player.yaw), vsz = -Math.cos(player.yaw); // 车头方向
+    camera.position.set(
+      player.x - vsx * vcd,
+      player.y + vch,
+      player.z - vsz * vcd
+    );
   } else {
     var shX = _pivX + rwx * CAM_SHOULDER;
     var shY = _pivY - _sitDip;
@@ -773,7 +786,11 @@ function tick(now) {
 
   var tgtRoll = -jx * 0.007;
   _rollCur += (tgtRoll - _rollCur) * Math.min(1, 8 * dt);
-  camera.rotation.set(player.pitch, player.yaw, _rollCur);
+  if (typeof _mountedVehicle !== 'undefined' && _mountedVehicle) {
+    camera.rotation.set(-0.35, player.yaw, 0);  // 固定俯角看向车
+  } else {
+    camera.rotation.set(player.pitch, player.yaw, _rollCur);
+  }
 
   if (_swingT > 0) _swingT -= dt;
   if (viewFP) {
