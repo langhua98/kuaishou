@@ -64,6 +64,27 @@ CROP_DEFS[CROP_WATERMELON]  ={stages:['Watermelon_1','Watermelon_2','Watermelon_
 var _cropGltf   = {};  // filename → THREE.Group (raw scene, 用于 clone)
 var _cropPlaced = {};  // "wx,wy,wz" → { typeId, stage, elapsed, group, sprite }
 
+// 每种作物的双色调：[顶部/主色(hex), 底部/茎色(hex)]
+// 按 mesh 中心 Y 在整体包围盒中的位置决定用哪种颜色（低于30%用底色）
+var _CROP_2COL = {};
+_CROP_2COL[CROP_WHEAT]        = [0xd4c222, 0x6aaa30];  // 金黄穗 + 综mao
+_CROP_2COL[CROP_CARROT]       = [0x3a9030, 0xe87820];  // 绿叶(上) + 橙根(下)
+_CROP_2COL[CROP_APPLE]        = [0x4a9822, 0x6b4226];  // 绿冠 + 棕干
+_CROP_2COL[CROP_BAMBOO]       = [0x5ab030, 0x3a8020];  // 亮绿节 + 深绿基
+_CROP_2COL[CROP_BEET]         = [0xb02258, 0x3a8030];  // 紫红根 + 绿叶
+_CROP_2COL[CROP_BUSHBERRIES]  = [0x7850d0, 0x3a7028];  // 紫浆果 + 绿灌木
+_CROP_2COL[CROP_CACTUS]       = [0x48a840, 0x38903a];  // 亮绿 + 深绿基
+_CROP_2COL[CROP_CORN]         = [0xf0d020, 0x4a9030];  // 黄穗 + 综mao
+_CROP_2COL[CROP_FLOWER]       = [0xf060a0, 0x3a9030];  // 粉花 + 综mao
+_CROP_2COL[CROP_LETTUCE]      = [0x58c040, 0x40901a];  // 亮绿叶 + 深绿基
+_CROP_2COL[CROP_MUSHROOM]     = [0xc87820, 0xd0b880];  // 橙棕菌盖 + 米白菌柄
+_CROP_2COL[CROP_ORANGE]       = [0x4a9020, 0x6b4226];  // 绿冠(橙果混) + 棕干
+_CROP_2COL[CROP_PALMTREE]     = [0x42a828, 0x7a5c28];  // 绿棕叶 + 沙棕干
+_CROP_2COL[CROP_PUMPKIN_CROP] = [0xe08020, 0x4a9030];  // 橙南瓜 + 绿藤
+_CROP_2COL[CROP_RICE]         = [0xc8cc3a, 0x6aaa30];  // 黄穗 + 综mao
+_CROP_2COL[CROP_TOMATO]       = [0xe03020, 0x3a9030];  // 红番茄 + 绿株
+_CROP_2COL[CROP_WATERMELON]   = [0x38b838, 0x2a9028];  // 绿皮 + 深绿基
+
 // ── 3D Billboard 倒计时标签 ───────────────────────────────────────────────────
 function _makeTimerSprite(text, isMature) {
   var c = document.createElement('canvas');
@@ -169,9 +190,8 @@ function _loadCropModel(filename, cb) {
   });
 }
 
-// GLB模型颜色修复：obj2gltf双重gamma导致material.color极暗（近黑）。
-// 策略：读取原始色値，若极暗则按比例放大至可见亮度；若真黑则回退到BCOL。
-// 这样在颜色有差异的模型上能保留色相多样性，否则至少是正确的BCOL颜色。
+// 双色调材质：按 mesh 中心 Y 占模型总高的比例决定用顶色还是底色。
+// GLTF 原始颜色不可用（obj2gltf 颜色空间问题导致全黑），改用 _CROP_2COL 表。
 function _makeCropModel(typeId, filename) {
   var src = _cropGltf[filename];
   if (!src) return null;
@@ -181,26 +201,21 @@ function _makeCropModel(typeId, filename) {
   var sc = def.scale || (def.targetH > 1.5 ? 0.50 : 0.85);
   model.scale.setScalar(sc);
 
-  var bc = BCOL[typeId];
-  var bcolColor = new THREE.Color(bc[0], bc[1], bc[2]);
+  var pal = _CROP_2COL[typeId];
+  var topColor = pal ? new THREE.Color(pal[0]) : new THREE.Color(BCOL[typeId][0], BCOL[typeId][1], BCOL[typeId][2]);
+  var botColor = pal ? new THREE.Color(pal[1]) : topColor;
+
+  // 先算整体包围盒（已缩放后）
+  var bb = new THREE.Box3().setFromObject(model);
+  var totalH = bb.max.y - bb.min.y;
+  var minY   = bb.min.y;
 
   model.traverse(function (child) {
     if (!child.isMesh) return;
-    var col;
-    if (child.material && child.material.color) {
-      col = child.material.color.clone();
-      var maxC = Math.max(col.r, col.g, col.b);
-      if (maxC < 0.001) {
-        col.copy(bcolColor);            // 真黑 → 回退到BCOL
-      } else if (maxC < 0.15) {
-        var f = 0.55 / maxC;            // 放大使最亮通道≈0.55，保留色比
-        col.r = Math.min(1, col.r * f);
-        col.g = Math.min(1, col.g * f);
-        col.b = Math.min(1, col.b * f);
-      }
-    } else {
-      col = bcolColor.clone();
-    }
+    var meshBB = new THREE.Box3().setFromObject(child);
+    var centerY = (meshBB.min.y + meshBB.max.y) * 0.5;
+    var relY = totalH > 0.01 ? (centerY - minY) / totalH : 0.5;
+    var col = (relY < 0.30) ? botColor.clone() : topColor.clone();
     child.material = new THREE.MeshLambertMaterial({ color: col });
   });
   return model;
