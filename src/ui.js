@@ -123,16 +123,52 @@ function buildHotbar() {
   hbar.appendChild(bagBtn);
 }
 
+// ── 仓库面板 ──────────────────────────────────────────────────────────────────
+// 全屏半透明遮罩 + 居中滚动网格，触摸事件完全归属遮罩，不渗入游戏视角区域
+var _bagOverlay = null;   // 遮罩层（拦截所有触摸）
+var _bagScroll  = null;   // 可滚动内容区
+
 function _ensureBag() {
   if (_bagEl) return;
   var ui = document.getElementById('ui') || document.body;
+
+  // 遮罩：覆盖整屏，拦截所有触摸防止穿透到摄像机
+  _bagOverlay = document.createElement('div');
+  _bagOverlay.style.cssText =
+    'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;display:none;' +
+    'flex-direction:column;align-items:center;justify-content:center;touch-action:none';
+  _bagOverlay.addEventListener('touchmove', function (e) { e.preventDefault(); }, { passive: false });
+
+  // 标题栏
+  var title = document.createElement('div');
+  title.style.cssText = 'color:#fff;font-size:15px;font-family:monospace;letter-spacing:2px;' +
+    'margin-bottom:8px;display:flex;align-items:center;gap:12px;width:100%;max-width:340px;justify-content:space-between;padding:0 4px';
+  title.innerHTML = '<span>📦 物品仓库</span>';
+  var closeBtn = document.createElement('button');
+  closeBtn.textContent = '✕';
+  closeBtn.style.cssText = 'background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);' +
+    'color:#fff;border-radius:8px;padding:4px 12px;font-size:14px;cursor:pointer;font-family:monospace';
+  closeBtn.addEventListener('touchstart', function (e) { e.preventDefault(); toggleBag(); }, { passive: false });
+  closeBtn.addEventListener('click', toggleBag);
+  title.appendChild(closeBtn);
+  _bagOverlay.appendChild(title);
+
+  // 滚动容器
+  _bagScroll = document.createElement('div');
+  _bagScroll.style.cssText =
+    'width:100%;max-width:340px;max-height:60vh;overflow-y:scroll;' +
+    '-webkit-overflow-scrolling:touch;touch-action:pan-y;';
+
+  // 网格
   _bagEl = document.createElement('div');
   _bagEl.id = 'bag';
-  _bagEl.style.cssText = 'position:absolute;bottom:80px;left:50%;transform:translateX(-50%);' +
-    'display:none;grid-template-columns:repeat(5,62px);gap:5px;padding:10px;' +
-    'background:rgba(0,0,0,.80);border-radius:12px;z-index:105;' +
-    'overflow-y:auto;max-height:55vh;-webkit-overflow-scrolling:touch';
-  ui.appendChild(_bagEl);
+  _bagEl.style.cssText =
+    'display:grid;grid-template-columns:repeat(5,62px);gap:5px;padding:10px;' +
+    'background:rgba(0,0,0,.80);border-radius:12px;justify-content:center';
+
+  _bagScroll.appendChild(_bagEl);
+  _bagOverlay.appendChild(_bagScroll);
+  ui.appendChild(_bagOverlay);
 }
 
 function _renderBag() {
@@ -155,6 +191,7 @@ function _renderBag() {
         player.inv[player.slot] = player.inv[idx];
         player.inv[idx] = tmp;
         buildHotbar();
+        toggleBag();   // 选完自动关闭
         if (typeof _updateHeldItem === 'function') _updateHeldItem(player.slot);
       }
       el.addEventListener('touchstart', pick, { passive: false });
@@ -165,7 +202,8 @@ function _renderBag() {
 }
 
 function toggleBag() {
-  if (!_bagEl) return;
+  if (!_bagOverlay) return;
   if (typeof bagToggleSound === 'function') bagToggleSound();
-  _bagEl.style.display = _bagEl.style.display === 'none' ? 'grid' : 'none';
+  var open = _bagOverlay.style.display !== 'flex';
+  _bagOverlay.style.display = open ? 'flex' : 'none';
 }

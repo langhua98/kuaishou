@@ -61,7 +61,9 @@ function buildMesh(cx, cz, data) {
             wx+1, y,   wz,    wx,   y,   wz+1,  wx,   y+1, wz+1,
             wx+1, y,   wz,    wx,   y+1, wz+1,  wx+1, y+1, wz
           );
-          for (var _pv = 0; _pv < 12; _pv++) col.push(1, 1, 1);  // 满亮（无方向明暗）
+          // 植物用 BCOL 顶色着色（草丛=绿，蒲公英=黄，虞美人=红），保留贴图细节
+          var _pc = BCOL[id]; var _pr = _pc?_pc[0]:1, _pg = _pc?_pc[1]:1, _pb = _pc?_pc[2]:1;
+          for (var _pv = 0; _pv < 12; _pv++) col.push(_pr, _pg, _pb);
           uv.push(u0,v0, u1,v0, u1,v1,  u0,v0, u1,v1, u0,v1);
           uv.push(u0,v0, u1,v0, u1,v1,  u0,v0, u1,v1, u0,v1);
           continue;

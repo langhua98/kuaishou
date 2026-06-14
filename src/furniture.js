@@ -66,6 +66,13 @@ function placeFurniture(typeId, wx, wy, wz, yaw) {
   group.rotation.y = yaw;
   scene.add(group);
 
+  // 落地灯：加点光源（暖黄，照亮半径 8m）
+  if (typeId === FURNITURE_LAMP) {
+    var ptLight = new THREE.PointLight(0xfff0c0, 1.8, 8);
+    ptLight.position.set(0, 1.6, 0);   // 灯罩位置
+    group.add(ptLight);
+  }
+
   var entry = {
     id: _furnitureSeq++, typeId: typeId,
     x: wx, y: wy, z: wz, yaw: yaw,
