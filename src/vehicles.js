@@ -157,6 +157,7 @@ function mountVehicle(key) {
   var entry = _vehiclePlaced[key];
   if (!entry) return;
   _mountedVehicle = entry;
+  entry.speed = 0;
   _driveSteer = 0; _driveGas = 0; _driveBrake = 0;
   _driveCamYaw = entry.yaw;
   // Force third-person so the driving chase-cam is used
@@ -203,19 +204,43 @@ function updateVehicles(dt) {
   var def = _VEHICLE_DEFS[_mountedVehicle.typeId];
   if (!def) return;
 
-  // 按钮优先，无按钮时 fallback 到摇杆
+  // 按钮优先，无按钮时 fallback 到摇杆（摇杆驾驶时通常被隐藏）
   var jx = joy.dx / JOY_R, jy = joy.dy / JOY_R;
   var jLen = Math.sqrt(jx * jx + jy * jy);
   if (jLen > 1) { jx /= jLen; jy /= jLen; }
 
-  var steer = _driveSteer || jx;
-  var fwd   = _driveGas ? 1 : (_driveBrake ? -0.5 : -jy);
+  var gas   = _driveGas   ? 1 : (jy < -0.1 ? -jy : 0);   // 0..1
+  var brake = _driveBrake ? 1 : (jy >  0.1 ?  jy : 0);   // 0..1
+  var steer = _driveSteer || jx;                          // -1..1
 
-  _mountedVehicle.yaw -= steer * def.turnSpd * dt;
+  // ── 动量模型：油门加速 / 松开滑行 / 刹车减速并倒车（吃鸡手感）──
+  var maxFwd = def.speed, maxRev = def.speed * 0.4;
+  var accel  = def.speed * 1.3;   // 加速度
+  var bDecel = def.speed * 2.4;   // 刹车减速度
+  var fric   = def.speed * 0.9;   // 松油门滑行摩擦
+  var spd = _mountedVehicle.speed || 0;
+
+  if (gas) {
+    spd += accel * gas * dt;
+  } else if (brake) {
+    if (spd > 0.3)      spd -= bDecel * dt;            // 前进中先刹停
+    else                spd -= accel * 0.7 * brake * dt; // 已停 → 倒车
+  } else {
+    if (spd > 0)        spd = Math.max(0, spd - fric * dt);  // 滑行回 0
+    else if (spd < 0)   spd = Math.min(0, spd + fric * dt);
+  }
+  if (spd >  maxFwd) spd = maxFwd;
+  if (spd < -maxRev) spd = -maxRev;
+  _mountedVehicle.speed = spd;
+
+  // ── 转向：需要车速才能转，转速随车速增益；倒车时方向反向 ──
+  var speedF = Math.min(1, Math.abs(spd) / 2.5);
+  var dir    = spd >= 0 ? 1 : -1;
+  _mountedVehicle.yaw -= steer * def.turnSpd * dt * speedF * dir;
   player.yaw = _mountedVehicle.yaw;
 
-  player.vx = -Math.sin(_mountedVehicle.yaw) * fwd * def.speed;
-  player.vz = -Math.cos(_mountedVehicle.yaw) * fwd * def.speed;
+  player.vx = -Math.sin(_mountedVehicle.yaw) * spd;
+  player.vz = -Math.cos(_mountedVehicle.yaw) * spd;
 }
 
 // 在 resolveAABB 之后调用：把车模型同步到玩家的权威位置，平滑相机朝向，刷新速度表
