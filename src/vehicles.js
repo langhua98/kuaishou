@@ -31,8 +31,9 @@ var _driveGas   = 0;   // 1=踩油门 0=松开
 var _driveBrake = 0;   // 1=刹车/倒车 0=松开
 var _driveCamYaw = 0;  // 相机朝向（平滑跟随车头，制造"车在转"的观感）
 var _driveUIBound = false;
-
-var _hasGsap = (typeof gsap !== 'undefined');
+var _camIntro = { d: 6.0, h: 3.2 };  // 追车相机距离/高度（上车时 GSAP 缓动入场）
+var _spObj = { v: 0 }, _spQuick = null;  // 速度表数字滚动（gsap.quickTo）
+// _hasGsap 在 init.js 定义（全局共享）
 
 // 按钮按下/抬起的 GSAP 缩放反馈
 function _pressFX(el, down) {
@@ -176,6 +177,8 @@ function mountVehicle(key) {
     gsap.from('#drive-pedals .dbtn', { x:  60, autoAlpha: 0, duration: 0.4, stagger: 0.06, ease: 'back.out(1.7)', overwrite: true });
     gsap.from('#d-exit', { y: -40, autoAlpha: 0, duration: 0.4, ease: 'back.out(1.7)', overwrite: true });
     if (sp) gsap.from(sp, { autoAlpha: 0, y: 10, duration: 0.3, overwrite: true });
+    // 相机入场：从更高更远缓降到驾驶视角（建立镜头）
+    gsap.fromTo(_camIntro, { d: 9.5, h: 6.5 }, { d: 6.0, h: 3.2, duration: 0.7, ease: 'power3.out', overwrite: true });
   }
 }
 
@@ -278,9 +281,18 @@ function syncMountedVehicle(dt) {
   while (d < -Math.PI) d += 2 * Math.PI;
   _driveCamYaw += d * Math.min(1, (dt || 0.016) * 4);
 
+  // 速度表：用 gsap.quickTo 平滑滚动数字（适合每帧高频更新的属性）
   var spv = document.getElementById('speedo-val');
   if (spv) {
-    var sp = Math.sqrt(player.vx * player.vx + player.vz * player.vz);
-    spv.textContent = Math.round(sp * 6);  // 格/秒 → km/h 风格数值
+    var target = Math.sqrt(player.vx * player.vx + player.vz * player.vz) * 6;
+    if (_hasGsap) {
+      if (!_spQuick) {
+        _spQuick = gsap.quickTo(_spObj, 'v', { duration: 0.25, ease: 'power2.out',
+          onUpdate: function () { spv.textContent = Math.round(_spObj.v); } });
+      }
+      _spQuick(target);
+    } else {
+      spv.textContent = Math.round(target);
+    }
   }
 }

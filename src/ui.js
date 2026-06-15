@@ -99,6 +99,8 @@ function buildHotbar() {
         if (prev) prev.classList.remove('on');
         player.slot = idx;
         slotEl.classList.add('on');
+        if (_hasGsap) gsap.fromTo(slotEl, { scale: 0.82 },
+          { scale: 1, duration: 0.36, ease: 'back.out(2.4)', overwrite: true });
       }, { passive: false });
     }(i, slot));
 
@@ -260,5 +262,17 @@ function toggleBag() {
   if (!_bagOverlay) return;
   if (typeof bagToggleSound === 'function') bagToggleSound();
   var open = _bagOverlay.style.display !== 'flex';
-  _bagOverlay.style.display = open ? 'flex' : 'none';
+  if (open) {
+    _bagOverlay.style.display = 'flex';
+    if (_hasGsap) {
+      gsap.fromTo(_bagOverlay, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.2, overwrite: true });
+      if (_bagScroll) gsap.from(_bagScroll.children, { y: 18, autoAlpha: 0, scale: 0.92,
+        duration: 0.32, stagger: 0.025, ease: 'power2.out', overwrite: true });
+    }
+  } else if (_hasGsap) {
+    gsap.to(_bagOverlay, { autoAlpha: 0, duration: 0.18, ease: 'power2.in', overwrite: true,
+      onComplete: function () { _bagOverlay.style.display = 'none'; gsap.set(_bagOverlay, { clearProps: 'opacity,visibility' }); } });
+  } else {
+    _bagOverlay.style.display = 'none';
+  }
 }

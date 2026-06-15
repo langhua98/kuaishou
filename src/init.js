@@ -15,9 +15,21 @@ var menuEl   = document.getElementById('menu');
 var uiEl     = document.getElementById('ui');
 var coordEl  = document.getElementById('coords');
 
+// GSAP 是否可用（gsap.min.js 在游戏包之前以 <script> 加载）。全局共享给所有源文件。
+var _hasGsap = (typeof gsap !== 'undefined');
+
+// 标题入场弹跳（加载页 + 菜单页）
+if (_hasGsap) {
+  gsap.from('#loading h1, #menu h1', { scale: 0.7, autoAlpha: 0, y: -14,
+    duration: 0.7, ease: 'back.out(1.7)' });
+}
+
 // 更新加载进度条和文字
 function setProgress(pct, msg) {
-  if (loadFill) loadFill.style.width = pct + '%';
+  if (loadFill) {
+    if (_hasGsap) gsap.to(loadFill, { width: pct + '%', duration: 0.4, ease: 'power2.out', overwrite: true });
+    else loadFill.style.width = pct + '%';
+  }
   if (loadText) loadText.textContent = msg;
 }
 

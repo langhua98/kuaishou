@@ -754,7 +754,8 @@ function tick(now) {
     );
   } else if (typeof _mountedVehicle !== 'undefined' && _mountedVehicle) {
     // 驾驶追车相机：车后上方俯视，沿平滑相机朝向；不与车体碰撞，避免埋进车体黑屏
-    var vcd = 6.0, vch = 3.2;
+    var vcd = (typeof _camIntro !== 'undefined') ? _camIntro.d : 6.0;
+    var vch = (typeof _camIntro !== 'undefined') ? _camIntro.h : 3.2;
     var vsx = -Math.sin(_driveCamYaw), vsz = -Math.cos(_driveCamYaw); // 平滑跟随车头
     camera.position.set(
       player.x - vsx * vcd,
