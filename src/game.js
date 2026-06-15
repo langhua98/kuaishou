@@ -839,6 +839,17 @@ window.startGame = function () {
 
 var bootSX, bootSZ, bootStep = 0;
 
+// 覆写初始已生成区块中的道路区（genTerrain 会处理新区块，这里补已生成的近端区域）
+function _buildInitialRoad() {
+  var flatY = SEA + 2;
+  for (var rx = -3; rx <= 8; rx++) {
+    for (var rz = 14; rz <= 64; rz++) {
+      for (var ry = flatY + 1; ry <= SEA + AMP + 3; ry++) setBlock(rx, ry, rz, AIR);
+      setBlock(rx, flatY, rz, OBSIDIAN);
+    }
+  }
+}
+
 function bootNext() {
   try {
     if (bootStep === 0) {
@@ -904,6 +915,7 @@ function bootNext() {
       addProgressLog('生成城堡与建筑...');
       placeStructures();
       placeSimpleCastle(-8, -8);
+      _buildInitialRoad();
       if (typeof loadGame === 'function') loadGame();
       bootStep = 10; requestAnimationFrame(bootNext);
 

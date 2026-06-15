@@ -67,8 +67,12 @@ function genTerrain(cx, cz) {
       noiseH = Math.floor(SEA + noise2D(wx * SCALE, wz * SCALE) * AMP);
       h      = Math.round(_FLAT_H * (1 - blend) + noiseH * blend);
 
+      // 柏油路：城堡南门前 12 格宽，向南无限延伸
+      var _road = (wx >= -3 && wx <= 8 && wz >= 14);
+      if (_road) h = SEA + 2;
+
       for (y = 0; y <= h && y < CHUNK_H; y++) {
-        id = (y === h)    ? ((h <= SEA + 1) ? SAND : GRASS)
+        id = (y === h)    ? (_road ? OBSIDIAN : (h <= SEA + 1) ? SAND : GRASS)
            : (y >= h - 3) ? DIRT
            :                STONE;
         data[lx + y * CHUNK_W + lz * CHUNK_W * CHUNK_H] = id;
@@ -88,6 +92,7 @@ function genTerrain(cx, cz) {
       twz = cz * CHUNK_D + tz;
       twR = Math.max(Math.abs(twx), Math.abs(twz));
       if (twR < 40) continue;
+      if (twx >= -3 && twx <= 8 && twz >= 14) continue;  // 路区无树
       // 确定性伪随机（sin hash，每格唯一）
       th = Math.sin(twx * 127.1 + twz * 311.7) * 43758.5453;
       th = th - Math.floor(th);

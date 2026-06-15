@@ -16,14 +16,35 @@ BCOL[VEH_POLICE] = [0.20,0.25,0.55, 0.20,0.25,0.55, 0.20,0.25,0.55];
 // gltf = assets/models/vehicles/ 下的 KayKit City Builder Bits 模型（CC0）
 // w/h/d = 占位方块半尺寸（格），仅在模型未加载时使用。
 var _VEHICLE_DEFS = {};
-_VEHICLE_DEFS[VEH_CAR]    = { name:'🚗轿车',   gltf:'car_sedan.gltf',  speed:16, turnSpd:2.0, color:0x3366cc, w:0.45, h:0.30, d:0.85, scaleW:1.0 };
-_VEHICLE_DEFS[VEH_TAXI]   = { name:'🚕出租车', gltf:'car_taxi.gltf',   speed:15, turnSpd:1.9, color:0xf2cc1a, w:0.45, h:0.32, d:0.85, scaleW:1.0 };
-_VEHICLE_DEFS[VEH_POLICE] = { name:'🚓警车',   gltf:'car_police.gltf', speed:17, turnSpd:2.0, color:0x33408c, w:0.45, h:0.31, d:0.85, scaleW:1.0 };
+_VEHICLE_DEFS[VEH_CAR]    = { name:'🚗轿车',   gltf:'car_sedan.gltf',  speed:16, turnSpd:2.0, color:0x3366cc, w:0.45, h:0.30, d:0.85, scaleW:2.0 };
+_VEHICLE_DEFS[VEH_TAXI]   = { name:'🚕出租车', gltf:'car_taxi.gltf',   speed:15, turnSpd:1.9, color:0xf2cc1a, w:0.45, h:0.32, d:0.85, scaleW:2.0 };
+_VEHICLE_DEFS[VEH_POLICE] = { name:'🚓警车',   gltf:'car_police.gltf', speed:17, turnSpd:2.0, color:0x33408c, w:0.45, h:0.31, d:0.85, scaleW:2.0 };
 
 // placed vehicles: key → { typeId, key, cx, cy, cz, yaw, group }
 // cx/cy/cz = world-space center (float), updated every frame while mounted
 var _vehiclePlaced = {};
 var _mountedVehicle = null;  // entry object from _vehiclePlaced, or null
+
+// 驾驶按钮状态（被 drive-ui 的 touchstart/touchend 更新）
+var _driveSteer = 0;   // -1=左转 0=直行 +1=右转
+var _driveGas   = 0;   // 1=踩油门 0=松开
+var _driveBrake = 0;   // 1=刹车/倒车 0=松开
+
+function _initDriveUI() {
+  function hold(el, onStart, onEnd) {
+    el.addEventListener('touchstart',  function(e){ e.preventDefault(); onStart(); }, { passive:false });
+    el.addEventListener('touchend',    function(e){ e.preventDefault(); onEnd();   }, { passive:false });
+    el.addEventListener('touchcancel', function(e){ e.preventDefault(); onEnd();   }, { passive:false });
+  }
+  var dL = document.getElementById('d-left');
+  var dR = document.getElementById('d-right');
+  var dG = document.getElementById('d-gas');
+  var dB = document.getElementById('d-brake');
+  if (dL) hold(dL, function(){ _driveSteer = -1; }, function(){ if (_driveSteer===-1) _driveSteer=0; });
+  if (dR) hold(dR, function(){ _driveSteer =  1; }, function(){ if (_driveSteer===1)  _driveSteer=0; });
+  if (dG) hold(dG, function(){ _driveGas   =  1; }, function(){ _driveGas   = 0; });
+  if (dB) hold(dB, function(){ _driveBrake =  1; }, function(){ _driveBrake = 0; });
+}
 
 function isVehicleId(id) { return id >= 301 && id <= 303; }
 
@@ -112,14 +133,29 @@ function mountVehicle(key) {
   var entry = _vehiclePlaced[key];
   if (!entry) return;
   _mountedVehicle = entry;
+  _driveSteer = 0; _driveGas = 0; _driveBrake = 0;
   // Force third-person so the driving chase-cam is used
   if (typeof viewFP !== 'undefined' && viewFP && typeof toggleView === 'function') toggleView();
+  // 显示驾驶 UI，隐藏普通按钮和摇杆
+  var du = document.getElementById('drive-ui');
+  if (du) { _initDriveUI(); du.classList.add('on'); }
+  var btns = document.getElementById('btns');
+  if (btns) btns.style.display = 'none';
+  var jz = document.getElementById('joy-zone');
+  if (jz) jz.style.display = 'none';
   var sp = document.getElementById('speedo');
   if (sp) sp.classList.add('on');
 }
 
 function dismountVehicle() {
   _mountedVehicle = null;
+  _driveSteer = 0; _driveGas = 0; _driveBrake = 0;
+  var du = document.getElementById('drive-ui');
+  if (du) du.classList.remove('on');
+  var btns = document.getElementById('btns');
+  if (btns) btns.style.display = '';
+  var jz = document.getElementById('joy-zone');
+  if (jz) jz.style.display = '';
   var sp = document.getElementById('speedo');
   if (sp) sp.classList.remove('on');
 }
@@ -129,17 +165,17 @@ function updateVehicles(dt) {
   var def = _VEHICLE_DEFS[_mountedVehicle.typeId];
   if (!def) return;
 
-  // Joystick input (same normalisation as game.js movement)
+  // 按钮优先，无按钮时 fallback 到摇杆
   var jx = joy.dx / JOY_R, jy = joy.dy / JOY_R;
   var jLen = Math.sqrt(jx * jx + jy * jy);
   if (jLen > 1) { jx /= jLen; jy /= jLen; }
 
-  // Steering: joystick X rotates vehicle yaw
-  _mountedVehicle.yaw -= jx * def.turnSpd * dt;
+  var steer = _driveSteer || jx;
+  var fwd   = _driveGas ? 1 : (_driveBrake ? -0.5 : -jy);
+
+  _mountedVehicle.yaw -= steer * def.turnSpd * dt;
   player.yaw = _mountedVehicle.yaw;
 
-  // Drive: joystick Y < 0 = forward (push up)
-  var fwd = -jy;
   player.vx = -Math.sin(_mountedVehicle.yaw) * fwd * def.speed;
   player.vz = -Math.cos(_mountedVehicle.yaw) * fwd * def.speed;
 }

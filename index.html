@@ -46,6 +46,14 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
 #speedo.on{display:block}
 #speedo-val{font-size:26px;font-weight:700}
 #speedo-unit{font-size:11px;opacity:.7;margin-left:4px}
+#drive-ui{display:none;position:absolute;bottom:20px;left:0;width:100%;padding:0 16px;box-sizing:border-box;pointer-events:none;justify-content:space-between;align-items:flex-end}
+#drive-ui.on{display:flex}
+#drive-steer{display:flex;gap:12px;pointer-events:auto}
+#drive-pedals{display:flex;flex-direction:column;gap:10px;align-items:flex-end;pointer-events:auto}
+.dbtn{width:88px;height:88px;border-radius:50%;border:3px solid rgba(255,255,255,.35);background:rgba(0,0,0,.55);color:#fff;font-size:36px;display:flex;align-items:center;justify-content:center;cursor:pointer;user-select:none;-webkit-user-select:none;touch-action:manipulation;box-shadow:0 2px 16px rgba(0,0,0,.5)}
+.dbtn:active{background:rgba(255,255,255,.2);transform:scale(.91)}
+#d-gas{background:rgba(30,160,60,.55);border-color:rgba(80,220,100,.5);height:96px;width:96px}
+#d-brake{background:rgba(180,30,30,.55);border-color:rgba(220,80,80,.5);font-size:28px;height:72px;width:72px}
 
 /* 摇杆区占左侧 42%，给右侧更大空间 */
 #joy-zone{position:absolute;left:0;top:0;bottom:72px;width:42%;touch-action:none}
@@ -114,6 +122,16 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
   <div id="xhair"></div>
   <div id="coords">X:0 Y:0 Z:0</div>
   <div id="speedo"><span id="speedo-val">0</span><span id="speedo-unit">km/h</span></div>
+  <div id="drive-ui">
+    <div id="drive-steer">
+      <button class="dbtn" id="d-left">◄</button>
+      <button class="dbtn" id="d-right">►</button>
+    </div>
+    <div id="drive-pedals">
+      <button class="dbtn" id="d-gas">▲</button>
+      <button class="dbtn" id="d-brake">■</button>
+    </div>
+  </div>
   <div id="joy-zone"><div id="joy-base"><div id="joy-thumb"></div></div></div>
   <div id="look-zone"></div>
   <div id="btns">
@@ -594,8 +612,12 @@ function genTerrain(cx, cz) {
       noiseH = Math.floor(SEA + noise2D(wx * SCALE, wz * SCALE) * AMP);
       h      = Math.round(_FLAT_H * (1 - blend) + noiseH * blend);
 
+      // 柏油路：城堡南门前 12 格宽，向南无限延伸
+      var _road = (wx >= -3 && wx <= 8 && wz >= 14);
+      if (_road) h = SEA + 2;
+
       for (y = 0; y <= h && y < CHUNK_H; y++) {
-        id = (y === h)    ? ((h <= SEA + 1) ? SAND : GRASS)
+        id = (y === h)    ? (_road ? OBSIDIAN : (h <= SEA + 1) ? SAND : GRASS)
            : (y >= h - 3) ? DIRT
            :                STONE;
         data[lx + y * CHUNK_W + lz * CHUNK_W * CHUNK_H] = id;
@@ -615,6 +637,7 @@ function genTerrain(cx, cz) {
       twz = cz * CHUNK_D + tz;
       twR = Math.max(Math.abs(twx), Math.abs(twz));
       if (twR < 40) continue;
+      if (twx >= -3 && twx <= 8 && twz >= 14) continue;  // 路区无树
       // 确定性伪随机（sin hash，每格唯一）
       th = Math.sin(twx * 127.1 + twz * 311.7) * 43758.5453;
       th = th - Math.floor(th);
@@ -5706,14 +5729,35 @@ BCOL[VEH_POLICE] = [0.20,0.25,0.55, 0.20,0.25,0.55, 0.20,0.25,0.55];
 // gltf = assets/models/vehicles/ 下的 KayKit City Builder Bits 模型（CC0）
 // w/h/d = 占位方块半尺寸（格），仅在模型未加载时使用。
 var _VEHICLE_DEFS = {};
-_VEHICLE_DEFS[VEH_CAR]    = { name:'🚗轿车',   gltf:'car_sedan.gltf',  speed:16, turnSpd:2.0, color:0x3366cc, w:0.45, h:0.30, d:0.85, scaleW:1.0 };
-_VEHICLE_DEFS[VEH_TAXI]   = { name:'🚕出租车', gltf:'car_taxi.gltf',   speed:15, turnSpd:1.9, color:0xf2cc1a, w:0.45, h:0.32, d:0.85, scaleW:1.0 };
-_VEHICLE_DEFS[VEH_POLICE] = { name:'🚓警车',   gltf:'car_police.gltf', speed:17, turnSpd:2.0, color:0x33408c, w:0.45, h:0.31, d:0.85, scaleW:1.0 };
+_VEHICLE_DEFS[VEH_CAR]    = { name:'🚗轿车',   gltf:'car_sedan.gltf',  speed:16, turnSpd:2.0, color:0x3366cc, w:0.45, h:0.30, d:0.85, scaleW:2.0 };
+_VEHICLE_DEFS[VEH_TAXI]   = { name:'🚕出租车', gltf:'car_taxi.gltf',   speed:15, turnSpd:1.9, color:0xf2cc1a, w:0.45, h:0.32, d:0.85, scaleW:2.0 };
+_VEHICLE_DEFS[VEH_POLICE] = { name:'🚓警车',   gltf:'car_police.gltf', speed:17, turnSpd:2.0, color:0x33408c, w:0.45, h:0.31, d:0.85, scaleW:2.0 };
 
 // placed vehicles: key → { typeId, key, cx, cy, cz, yaw, group }
 // cx/cy/cz = world-space center (float), updated every frame while mounted
 var _vehiclePlaced = {};
 var _mountedVehicle = null;  // entry object from _vehiclePlaced, or null
+
+// 驾驶按钮状态（被 drive-ui 的 touchstart/touchend 更新）
+var _driveSteer = 0;   // -1=左转 0=直行 +1=右转
+var _driveGas   = 0;   // 1=踩油门 0=松开
+var _driveBrake = 0;   // 1=刹车/倒车 0=松开
+
+function _initDriveUI() {
+  function hold(el, onStart, onEnd) {
+    el.addEventListener('touchstart',  function(e){ e.preventDefault(); onStart(); }, { passive:false });
+    el.addEventListener('touchend',    function(e){ e.preventDefault(); onEnd();   }, { passive:false });
+    el.addEventListener('touchcancel', function(e){ e.preventDefault(); onEnd();   }, { passive:false });
+  }
+  var dL = document.getElementById('d-left');
+  var dR = document.getElementById('d-right');
+  var dG = document.getElementById('d-gas');
+  var dB = document.getElementById('d-brake');
+  if (dL) hold(dL, function(){ _driveSteer = -1; }, function(){ if (_driveSteer===-1) _driveSteer=0; });
+  if (dR) hold(dR, function(){ _driveSteer =  1; }, function(){ if (_driveSteer===1)  _driveSteer=0; });
+  if (dG) hold(dG, function(){ _driveGas   =  1; }, function(){ _driveGas   = 0; });
+  if (dB) hold(dB, function(){ _driveBrake =  1; }, function(){ _driveBrake = 0; });
+}
 
 function isVehicleId(id) { return id >= 301 && id <= 303; }
 
@@ -5802,14 +5846,29 @@ function mountVehicle(key) {
   var entry = _vehiclePlaced[key];
   if (!entry) return;
   _mountedVehicle = entry;
+  _driveSteer = 0; _driveGas = 0; _driveBrake = 0;
   // Force third-person so the driving chase-cam is used
   if (typeof viewFP !== 'undefined' && viewFP && typeof toggleView === 'function') toggleView();
+  // 显示驾驶 UI，隐藏普通按钮和摇杆
+  var du = document.getElementById('drive-ui');
+  if (du) { _initDriveUI(); du.classList.add('on'); }
+  var btns = document.getElementById('btns');
+  if (btns) btns.style.display = 'none';
+  var jz = document.getElementById('joy-zone');
+  if (jz) jz.style.display = 'none';
   var sp = document.getElementById('speedo');
   if (sp) sp.classList.add('on');
 }
 
 function dismountVehicle() {
   _mountedVehicle = null;
+  _driveSteer = 0; _driveGas = 0; _driveBrake = 0;
+  var du = document.getElementById('drive-ui');
+  if (du) du.classList.remove('on');
+  var btns = document.getElementById('btns');
+  if (btns) btns.style.display = '';
+  var jz = document.getElementById('joy-zone');
+  if (jz) jz.style.display = '';
   var sp = document.getElementById('speedo');
   if (sp) sp.classList.remove('on');
 }
@@ -5819,17 +5878,17 @@ function updateVehicles(dt) {
   var def = _VEHICLE_DEFS[_mountedVehicle.typeId];
   if (!def) return;
 
-  // Joystick input (same normalisation as game.js movement)
+  // 按钮优先，无按钮时 fallback 到摇杆
   var jx = joy.dx / JOY_R, jy = joy.dy / JOY_R;
   var jLen = Math.sqrt(jx * jx + jy * jy);
   if (jLen > 1) { jx /= jLen; jy /= jLen; }
 
-  // Steering: joystick X rotates vehicle yaw
-  _mountedVehicle.yaw -= jx * def.turnSpd * dt;
+  var steer = _driveSteer || jx;
+  var fwd   = _driveGas ? 1 : (_driveBrake ? -0.5 : -jy);
+
+  _mountedVehicle.yaw -= steer * def.turnSpd * dt;
   player.yaw = _mountedVehicle.yaw;
 
-  // Drive: joystick Y < 0 = forward (push up)
-  var fwd = -jy;
   player.vx = -Math.sin(_mountedVehicle.yaw) * fwd * def.speed;
   player.vz = -Math.cos(_mountedVehicle.yaw) * fwd * def.speed;
 }
@@ -6836,6 +6895,17 @@ window.startGame = function () {
 
 var bootSX, bootSZ, bootStep = 0;
 
+// 覆写初始已生成区块中的道路区（genTerrain 会处理新区块，这里补已生成的近端区域）
+function _buildInitialRoad() {
+  var flatY = SEA + 2;
+  for (var rx = -3; rx <= 8; rx++) {
+    for (var rz = 14; rz <= 64; rz++) {
+      for (var ry = flatY + 1; ry <= SEA + AMP + 3; ry++) setBlock(rx, ry, rz, AIR);
+      setBlock(rx, flatY, rz, OBSIDIAN);
+    }
+  }
+}
+
 function bootNext() {
   try {
     if (bootStep === 0) {
@@ -6901,6 +6971,7 @@ function bootNext() {
       addProgressLog('生成城堡与建筑...');
       placeStructures();
       placeSimpleCastle(-8, -8);
+      _buildInitialRoad();
       if (typeof loadGame === 'function') loadGame();
       bootStep = 10; requestAnimationFrame(bootNext);
 
