@@ -67,12 +67,12 @@ function genTerrain(cx, cz) {
       noiseH = Math.floor(SEA + noise2D(wx * SCALE, wz * SCALE) * AMP);
       h      = Math.round(_FLAT_H * (1 - blend) + noiseH * blend);
 
-      // 柏油路：城堡南门前 12 格宽，向南无限延伸
+      // 石头路：城堡南门前 12 格宽，向南无限延伸（随地形生成永久烤入地图）
       var _road = (wx >= -3 && wx <= 8 && wz >= 14);
       if (_road) h = SEA + 2;
 
       for (y = 0; y <= h && y < CHUNK_H; y++) {
-        id = (y === h)    ? (_road ? OBSIDIAN : (h <= SEA + 1) ? SAND : GRASS)
+        id = (y === h)    ? (_road ? STONE : (h <= SEA + 1) ? SAND : GRASS)
            : (y >= h - 3) ? DIRT
            :                STONE;
         data[lx + y * CHUNK_W + lz * CHUNK_W * CHUNK_H] = id;

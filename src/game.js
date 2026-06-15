@@ -785,9 +785,12 @@ function tick(now) {
     );
   }
 
-  var tgtRoll = -jx * 0.007;
+  // jx 仅在"行走"分支里赋值；驾驶时为 undefined → 防止 NaN 污染 _rollCur（曾导致下车黑屏）
+  var _rollIn = (!_mounted && typeof jx === 'number') ? jx : 0;
+  if (isNaN(_rollCur)) _rollCur = 0;
+  var tgtRoll = -_rollIn * 0.007;
   _rollCur += (tgtRoll - _rollCur) * Math.min(1, 8 * dt);
-  if (typeof _mountedVehicle !== 'undefined' && _mountedVehicle) {
+  if (_mounted) {
     camera.rotation.set(-0.35, _driveCamYaw, 0);  // 固定俯角，朝向平滑跟随车头
   } else {
     camera.rotation.set(player.pitch, player.yaw, _rollCur);
