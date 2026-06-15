@@ -46,14 +46,17 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
 #speedo.on{display:block}
 #speedo-val{font-size:26px;font-weight:700}
 #speedo-unit{font-size:11px;opacity:.7;margin-left:4px}
-#drive-ui{display:none;position:absolute;bottom:20px;left:0;width:100%;padding:0 16px;box-sizing:border-box;pointer-events:none;justify-content:space-between;align-items:flex-end}
-#drive-ui.on{display:flex}
-#drive-steer{display:flex;gap:12px;pointer-events:auto}
-#drive-pedals{display:flex;flex-direction:column;gap:10px;align-items:flex-end;pointer-events:auto}
-.dbtn{width:88px;height:88px;border-radius:50%;border:3px solid rgba(255,255,255,.35);background:rgba(0,0,0,.55);color:#fff;font-size:36px;display:flex;align-items:center;justify-content:center;cursor:pointer;user-select:none;-webkit-user-select:none;touch-action:manipulation;box-shadow:0 2px 16px rgba(0,0,0,.5)}
-.dbtn:active{background:rgba(255,255,255,.2);transform:scale(.91)}
-#d-gas{background:rgba(30,160,60,.55);border-color:rgba(80,220,100,.5);height:96px;width:96px}
-#d-brake{background:rgba(180,30,30,.55);border-color:rgba(220,80,80,.5);font-size:28px;height:72px;width:72px}
+#drive-ui{display:none;position:absolute;inset:0;z-index:50;pointer-events:none}
+#drive-ui.on{display:block}
+#drive-steer{position:absolute;left:20px;bottom:26px;display:flex;gap:16px;pointer-events:auto}
+#drive-pedals{position:absolute;right:20px;bottom:26px;display:flex;flex-direction:column;gap:14px;align-items:center;pointer-events:auto}
+.dbtn{position:relative;width:92px;height:92px;border-radius:50%;border:none;color:#fff;font-size:40px;display:flex;align-items:center;justify-content:center;cursor:pointer;user-select:none;-webkit-user-select:none;touch-action:none;-webkit-tap-highlight-color:transparent;will-change:transform}
+.dbtn>span{pointer-events:none;line-height:1;text-shadow:0 2px 6px rgba(0,0,0,.6)}
+.d-steer{background:radial-gradient(circle at 35% 30%,rgba(120,170,255,.95),rgba(40,90,190,.92));box-shadow:0 6px 18px rgba(0,40,120,.55),inset 0 2px 6px rgba(255,255,255,.4),inset 0 -4px 10px rgba(0,0,0,.35)}
+#d-gas{width:104px;height:104px;font-size:44px;background:radial-gradient(circle at 35% 30%,rgba(120,240,150,.96),rgba(20,150,60,.94));box-shadow:0 6px 18px rgba(0,90,30,.55),inset 0 2px 6px rgba(255,255,255,.45),inset 0 -4px 10px rgba(0,0,0,.35)}
+#d-brake{width:78px;height:78px;font-size:28px;background:radial-gradient(circle at 35% 30%,rgba(255,130,130,.96),rgba(190,30,30,.94));box-shadow:0 6px 18px rgba(120,0,0,.55),inset 0 2px 6px rgba(255,255,255,.4),inset 0 -4px 10px rgba(0,0,0,.35)}
+#d-exit{position:absolute;left:50%;top:18px;transform:translateX(-50%);pointer-events:auto;display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 18px;border:none;border-radius:14px;color:#fff;font-size:13px;font-family:inherit;cursor:pointer;user-select:none;-webkit-user-select:none;touch-action:none;-webkit-tap-highlight-color:transparent;background:linear-gradient(180deg,rgba(60,66,82,.92),rgba(28,32,44,.92));box-shadow:0 4px 14px rgba(0,0,0,.5);will-change:transform}
+#d-exit .ic{font-size:22px}
 
 /* 摇杆区占左侧 42%，给右侧更大空间 */
 #joy-zone{position:absolute;left:0;top:0;bottom:72px;width:42%;touch-action:none}
@@ -122,16 +125,6 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
   <div id="xhair"></div>
   <div id="coords">X:0 Y:0 Z:0</div>
   <div id="speedo"><span id="speedo-val">0</span><span id="speedo-unit">km/h</span></div>
-  <div id="drive-ui">
-    <div id="drive-steer">
-      <button class="dbtn" id="d-left">◄</button>
-      <button class="dbtn" id="d-right">►</button>
-    </div>
-    <div id="drive-pedals">
-      <button class="dbtn" id="d-gas">▲</button>
-      <button class="dbtn" id="d-brake">■</button>
-    </div>
-  </div>
   <div id="joy-zone"><div id="joy-base"><div id="joy-thumb"></div></div></div>
   <div id="look-zone"></div>
   <div id="btns">
@@ -149,10 +142,24 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
     </div>
   </div>
   <div id="hotbar"></div>
+
+  <!-- 驾驶专用控制层（仅上车时显示，盖在最上层） -->
+  <div id="drive-ui">
+    <div id="drive-steer">
+      <button class="dbtn d-steer" id="d-left"><span>◄</span></button>
+      <button class="dbtn d-steer" id="d-right"><span>►</span></button>
+    </div>
+    <div id="drive-pedals">
+      <button class="dbtn" id="d-gas"><span>▲</span></button>
+      <button class="dbtn" id="d-brake"><span>■</span></button>
+    </div>
+    <button id="d-exit"><span class="ic">🚪</span><span>下车</span></button>
+  </div>
 </div>
 
 <script src="three.min.js"></script>
 <script src="GLTFLoader.js"></script>
+<script src="gsap.min.js"></script>
 
 <!-- Diagnostic: runs before the game bundle -->
 <script>

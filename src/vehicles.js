@@ -29,21 +29,36 @@ var _mountedVehicle = null;  // entry object from _vehiclePlaced, or null
 var _driveSteer = 0;   // -1=左转 0=直行 +1=右转
 var _driveGas   = 0;   // 1=踩油门 0=松开
 var _driveBrake = 0;   // 1=刹车/倒车 0=松开
+var _driveCamYaw = 0;  // 相机朝向（平滑跟随车头，制造"车在转"的观感）
+var _driveUIBound = false;
+
+var _hasGsap = (typeof gsap !== 'undefined');
+
+// 按钮按下/抬起的 GSAP 缩放反馈
+function _pressFX(el, down) {
+  if (!_hasGsap) return;
+  gsap.to(el, { scale: down ? 0.88 : 1, duration: down ? 0.08 : 0.32,
+                ease: down ? 'power2.out' : 'back.out(2.2)', overwrite: true });
+}
 
 function _initDriveUI() {
+  if (_driveUIBound) return;   // 只绑定一次，避免重复监听
+  _driveUIBound = true;
   function hold(el, onStart, onEnd) {
-    el.addEventListener('touchstart',  function(e){ e.preventDefault(); onStart(); }, { passive:false });
-    el.addEventListener('touchend',    function(e){ e.preventDefault(); onEnd();   }, { passive:false });
-    el.addEventListener('touchcancel', function(e){ e.preventDefault(); onEnd();   }, { passive:false });
+    if (!el) return;
+    el.addEventListener('touchstart',  function(e){ e.preventDefault(); onStart(); _pressFX(el, true);  }, { passive:false });
+    el.addEventListener('touchend',    function(e){ e.preventDefault(); onEnd();   _pressFX(el, false); }, { passive:false });
+    el.addEventListener('touchcancel', function(e){ e.preventDefault(); onEnd();   _pressFX(el, false); }, { passive:false });
   }
-  var dL = document.getElementById('d-left');
-  var dR = document.getElementById('d-right');
-  var dG = document.getElementById('d-gas');
-  var dB = document.getElementById('d-brake');
-  if (dL) hold(dL, function(){ _driveSteer = -1; }, function(){ if (_driveSteer===-1) _driveSteer=0; });
-  if (dR) hold(dR, function(){ _driveSteer =  1; }, function(){ if (_driveSteer===1)  _driveSteer=0; });
-  if (dG) hold(dG, function(){ _driveGas   =  1; }, function(){ _driveGas   = 0; });
-  if (dB) hold(dB, function(){ _driveBrake =  1; }, function(){ _driveBrake = 0; });
+  hold(document.getElementById('d-left'),  function(){ _driveSteer = -1; }, function(){ if (_driveSteer===-1) _driveSteer=0; });
+  hold(document.getElementById('d-right'), function(){ _driveSteer =  1; }, function(){ if (_driveSteer===1)  _driveSteer=0; });
+  hold(document.getElementById('d-gas'),   function(){ _driveGas   =  1; }, function(){ _driveGas   = 0; });
+  hold(document.getElementById('d-brake'), function(){ _driveBrake =  1; }, function(){ _driveBrake = 0; });
+  var ex = document.getElementById('d-exit');
+  if (ex) {
+    ex.addEventListener('touchstart', function(e){ e.preventDefault(); _pressFX(ex, true); }, { passive:false });
+    ex.addEventListener('touchend',   function(e){ e.preventDefault(); _pressFX(ex, false); dismountVehicle(); }, { passive:false });
+  }
 }
 
 function isVehicleId(id) { return id >= 301 && id <= 303; }
@@ -129,35 +144,58 @@ function placeVehicle(typeId, wx, wy, wz, yaw) {
   return entry;
 }
 
+// 驾驶时需要隐藏的常规 UI（热键栏/按钮/摇杆/视角拖动区）
+function _setWalkUI(show) {
+  var ids = ['btns', 'joy-zone', 'look-zone', 'hotbar'];
+  for (var i = 0; i < ids.length; i++) {
+    var el = document.getElementById(ids[i]);
+    if (el) el.style.display = show ? '' : 'none';
+  }
+}
+
 function mountVehicle(key) {
   var entry = _vehiclePlaced[key];
   if (!entry) return;
   _mountedVehicle = entry;
   _driveSteer = 0; _driveGas = 0; _driveBrake = 0;
+  _driveCamYaw = entry.yaw;
   // Force third-person so the driving chase-cam is used
   if (typeof viewFP !== 'undefined' && viewFP && typeof toggleView === 'function') toggleView();
-  // 显示驾驶 UI，隐藏普通按钮和摇杆
+
+  _initDriveUI();
+  _setWalkUI(false);
   var du = document.getElementById('drive-ui');
-  if (du) { _initDriveUI(); du.classList.add('on'); }
-  var btns = document.getElementById('btns');
-  if (btns) btns.style.display = 'none';
-  var jz = document.getElementById('joy-zone');
-  if (jz) jz.style.display = 'none';
+  if (du) du.classList.add('on');
   var sp = document.getElementById('speedo');
   if (sp) sp.classList.add('on');
+
+  // GSAP 入场：转向键从左滑入、踏板从右滑入、下车键从上落下、速度表淡入
+  if (_hasGsap) {
+    gsap.from('#drive-steer .dbtn',  { x: -60, autoAlpha: 0, duration: 0.4, stagger: 0.06, ease: 'back.out(1.7)', overwrite: true });
+    gsap.from('#drive-pedals .dbtn', { x:  60, autoAlpha: 0, duration: 0.4, stagger: 0.06, ease: 'back.out(1.7)', overwrite: true });
+    gsap.from('#d-exit', { y: -40, autoAlpha: 0, duration: 0.4, ease: 'back.out(1.7)', overwrite: true });
+    if (sp) gsap.from(sp, { autoAlpha: 0, y: 10, duration: 0.3, overwrite: true });
+  }
 }
 
 function dismountVehicle() {
   _mountedVehicle = null;
   _driveSteer = 0; _driveGas = 0; _driveBrake = 0;
   var du = document.getElementById('drive-ui');
-  if (du) du.classList.remove('on');
-  var btns = document.getElementById('btns');
-  if (btns) btns.style.display = '';
-  var jz = document.getElementById('joy-zone');
-  if (jz) jz.style.display = '';
   var sp = document.getElementById('speedo');
-  if (sp) sp.classList.remove('on');
+
+  function _finish() {
+    if (du) du.classList.remove('on');
+    if (sp) sp.classList.remove('on');
+    _setWalkUI(true);   // 恢复行走 UI → 玩家模型重新出现（game.js 控制 playerGroup 可见性）
+  }
+  // GSAP 退场后再恢复常规 UI
+  if (_hasGsap && du) {
+    gsap.to('#drive-ui .dbtn, #d-exit', { autoAlpha: 0, scale: 0.6, duration: 0.22, ease: 'power2.in', overwrite: true,
+      onComplete: function(){ gsap.set('#drive-ui .dbtn, #d-exit', { clearProps: 'all' }); _finish(); } });
+  } else {
+    _finish();
+  }
 }
 
 function updateVehicles(dt) {
@@ -180,17 +218,23 @@ function updateVehicles(dt) {
   player.vz = -Math.cos(_mountedVehicle.yaw) * fwd * def.speed;
 }
 
-// 在 resolveAABB 之后调用：把车模型同步到玩家的权威位置，并刷新速度表
-function syncMountedVehicle() {
+// 在 resolveAABB 之后调用：把车模型同步到玩家的权威位置，平滑相机朝向，刷新速度表
+function syncMountedVehicle(dt) {
   if (!_mountedVehicle) return;
   var grp = _mountedVehicle.group;
   if (grp) {
     grp.position.set(player.x, player.y, player.z);
-    grp.rotation.y = _mountedVehicle.yaw;
+    grp.rotation.y = _mountedVehicle.yaw;   // 车模型立即转向 → 看得到车在转
   }
   _mountedVehicle.cx = player.x;
   _mountedVehicle.cy = player.y;
   _mountedVehicle.cz = player.z;
+
+  // 相机朝向以最短角差平滑跟随车头（滞后 → 转弯时车体相对镜头明显旋转）
+  var d = _mountedVehicle.yaw - _driveCamYaw;
+  while (d >  Math.PI) d -= 2 * Math.PI;
+  while (d < -Math.PI) d += 2 * Math.PI;
+  _driveCamYaw += d * Math.min(1, (dt || 0.016) * 4);
 
   var spv = document.getElementById('speedo-val');
   if (spv) {

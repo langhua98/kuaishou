@@ -46,14 +46,17 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
 #speedo.on{display:block}
 #speedo-val{font-size:26px;font-weight:700}
 #speedo-unit{font-size:11px;opacity:.7;margin-left:4px}
-#drive-ui{display:none;position:absolute;bottom:20px;left:0;width:100%;padding:0 16px;box-sizing:border-box;pointer-events:none;justify-content:space-between;align-items:flex-end}
-#drive-ui.on{display:flex}
-#drive-steer{display:flex;gap:12px;pointer-events:auto}
-#drive-pedals{display:flex;flex-direction:column;gap:10px;align-items:flex-end;pointer-events:auto}
-.dbtn{width:88px;height:88px;border-radius:50%;border:3px solid rgba(255,255,255,.35);background:rgba(0,0,0,.55);color:#fff;font-size:36px;display:flex;align-items:center;justify-content:center;cursor:pointer;user-select:none;-webkit-user-select:none;touch-action:manipulation;box-shadow:0 2px 16px rgba(0,0,0,.5)}
-.dbtn:active{background:rgba(255,255,255,.2);transform:scale(.91)}
-#d-gas{background:rgba(30,160,60,.55);border-color:rgba(80,220,100,.5);height:96px;width:96px}
-#d-brake{background:rgba(180,30,30,.55);border-color:rgba(220,80,80,.5);font-size:28px;height:72px;width:72px}
+#drive-ui{display:none;position:absolute;inset:0;z-index:50;pointer-events:none}
+#drive-ui.on{display:block}
+#drive-steer{position:absolute;left:20px;bottom:26px;display:flex;gap:16px;pointer-events:auto}
+#drive-pedals{position:absolute;right:20px;bottom:26px;display:flex;flex-direction:column;gap:14px;align-items:center;pointer-events:auto}
+.dbtn{position:relative;width:92px;height:92px;border-radius:50%;border:none;color:#fff;font-size:40px;display:flex;align-items:center;justify-content:center;cursor:pointer;user-select:none;-webkit-user-select:none;touch-action:none;-webkit-tap-highlight-color:transparent;will-change:transform}
+.dbtn>span{pointer-events:none;line-height:1;text-shadow:0 2px 6px rgba(0,0,0,.6)}
+.d-steer{background:radial-gradient(circle at 35% 30%,rgba(120,170,255,.95),rgba(40,90,190,.92));box-shadow:0 6px 18px rgba(0,40,120,.55),inset 0 2px 6px rgba(255,255,255,.4),inset 0 -4px 10px rgba(0,0,0,.35)}
+#d-gas{width:104px;height:104px;font-size:44px;background:radial-gradient(circle at 35% 30%,rgba(120,240,150,.96),rgba(20,150,60,.94));box-shadow:0 6px 18px rgba(0,90,30,.55),inset 0 2px 6px rgba(255,255,255,.45),inset 0 -4px 10px rgba(0,0,0,.35)}
+#d-brake{width:78px;height:78px;font-size:28px;background:radial-gradient(circle at 35% 30%,rgba(255,130,130,.96),rgba(190,30,30,.94));box-shadow:0 6px 18px rgba(120,0,0,.55),inset 0 2px 6px rgba(255,255,255,.4),inset 0 -4px 10px rgba(0,0,0,.35)}
+#d-exit{position:absolute;left:50%;top:18px;transform:translateX(-50%);pointer-events:auto;display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 18px;border:none;border-radius:14px;color:#fff;font-size:13px;font-family:inherit;cursor:pointer;user-select:none;-webkit-user-select:none;touch-action:none;-webkit-tap-highlight-color:transparent;background:linear-gradient(180deg,rgba(60,66,82,.92),rgba(28,32,44,.92));box-shadow:0 4px 14px rgba(0,0,0,.5);will-change:transform}
+#d-exit .ic{font-size:22px}
 
 /* 摇杆区占左侧 42%，给右侧更大空间 */
 #joy-zone{position:absolute;left:0;top:0;bottom:72px;width:42%;touch-action:none}
@@ -122,16 +125,6 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
   <div id="xhair"></div>
   <div id="coords">X:0 Y:0 Z:0</div>
   <div id="speedo"><span id="speedo-val">0</span><span id="speedo-unit">km/h</span></div>
-  <div id="drive-ui">
-    <div id="drive-steer">
-      <button class="dbtn" id="d-left">◄</button>
-      <button class="dbtn" id="d-right">►</button>
-    </div>
-    <div id="drive-pedals">
-      <button class="dbtn" id="d-gas">▲</button>
-      <button class="dbtn" id="d-brake">■</button>
-    </div>
-  </div>
   <div id="joy-zone"><div id="joy-base"><div id="joy-thumb"></div></div></div>
   <div id="look-zone"></div>
   <div id="btns">
@@ -149,10 +142,24 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
     </div>
   </div>
   <div id="hotbar"></div>
+
+  <!-- 驾驶专用控制层（仅上车时显示，盖在最上层） -->
+  <div id="drive-ui">
+    <div id="drive-steer">
+      <button class="dbtn d-steer" id="d-left"><span>◄</span></button>
+      <button class="dbtn d-steer" id="d-right"><span>►</span></button>
+    </div>
+    <div id="drive-pedals">
+      <button class="dbtn" id="d-gas"><span>▲</span></button>
+      <button class="dbtn" id="d-brake"><span>■</span></button>
+    </div>
+    <button id="d-exit"><span class="ic">🚪</span><span>下车</span></button>
+  </div>
 </div>
 
 <script src="three.min.js"></script>
 <script src="GLTFLoader.js"></script>
+<script src="gsap.min.js"></script>
 
 <!-- Diagnostic: runs before the game bundle -->
 <script>
@@ -5742,21 +5749,36 @@ var _mountedVehicle = null;  // entry object from _vehiclePlaced, or null
 var _driveSteer = 0;   // -1=左转 0=直行 +1=右转
 var _driveGas   = 0;   // 1=踩油门 0=松开
 var _driveBrake = 0;   // 1=刹车/倒车 0=松开
+var _driveCamYaw = 0;  // 相机朝向（平滑跟随车头，制造"车在转"的观感）
+var _driveUIBound = false;
+
+var _hasGsap = (typeof gsap !== 'undefined');
+
+// 按钮按下/抬起的 GSAP 缩放反馈
+function _pressFX(el, down) {
+  if (!_hasGsap) return;
+  gsap.to(el, { scale: down ? 0.88 : 1, duration: down ? 0.08 : 0.32,
+                ease: down ? 'power2.out' : 'back.out(2.2)', overwrite: true });
+}
 
 function _initDriveUI() {
+  if (_driveUIBound) return;   // 只绑定一次，避免重复监听
+  _driveUIBound = true;
   function hold(el, onStart, onEnd) {
-    el.addEventListener('touchstart',  function(e){ e.preventDefault(); onStart(); }, { passive:false });
-    el.addEventListener('touchend',    function(e){ e.preventDefault(); onEnd();   }, { passive:false });
-    el.addEventListener('touchcancel', function(e){ e.preventDefault(); onEnd();   }, { passive:false });
+    if (!el) return;
+    el.addEventListener('touchstart',  function(e){ e.preventDefault(); onStart(); _pressFX(el, true);  }, { passive:false });
+    el.addEventListener('touchend',    function(e){ e.preventDefault(); onEnd();   _pressFX(el, false); }, { passive:false });
+    el.addEventListener('touchcancel', function(e){ e.preventDefault(); onEnd();   _pressFX(el, false); }, { passive:false });
   }
-  var dL = document.getElementById('d-left');
-  var dR = document.getElementById('d-right');
-  var dG = document.getElementById('d-gas');
-  var dB = document.getElementById('d-brake');
-  if (dL) hold(dL, function(){ _driveSteer = -1; }, function(){ if (_driveSteer===-1) _driveSteer=0; });
-  if (dR) hold(dR, function(){ _driveSteer =  1; }, function(){ if (_driveSteer===1)  _driveSteer=0; });
-  if (dG) hold(dG, function(){ _driveGas   =  1; }, function(){ _driveGas   = 0; });
-  if (dB) hold(dB, function(){ _driveBrake =  1; }, function(){ _driveBrake = 0; });
+  hold(document.getElementById('d-left'),  function(){ _driveSteer = -1; }, function(){ if (_driveSteer===-1) _driveSteer=0; });
+  hold(document.getElementById('d-right'), function(){ _driveSteer =  1; }, function(){ if (_driveSteer===1)  _driveSteer=0; });
+  hold(document.getElementById('d-gas'),   function(){ _driveGas   =  1; }, function(){ _driveGas   = 0; });
+  hold(document.getElementById('d-brake'), function(){ _driveBrake =  1; }, function(){ _driveBrake = 0; });
+  var ex = document.getElementById('d-exit');
+  if (ex) {
+    ex.addEventListener('touchstart', function(e){ e.preventDefault(); _pressFX(ex, true); }, { passive:false });
+    ex.addEventListener('touchend',   function(e){ e.preventDefault(); _pressFX(ex, false); dismountVehicle(); }, { passive:false });
+  }
 }
 
 function isVehicleId(id) { return id >= 301 && id <= 303; }
@@ -5842,35 +5864,58 @@ function placeVehicle(typeId, wx, wy, wz, yaw) {
   return entry;
 }
 
+// 驾驶时需要隐藏的常规 UI（热键栏/按钮/摇杆/视角拖动区）
+function _setWalkUI(show) {
+  var ids = ['btns', 'joy-zone', 'look-zone', 'hotbar'];
+  for (var i = 0; i < ids.length; i++) {
+    var el = document.getElementById(ids[i]);
+    if (el) el.style.display = show ? '' : 'none';
+  }
+}
+
 function mountVehicle(key) {
   var entry = _vehiclePlaced[key];
   if (!entry) return;
   _mountedVehicle = entry;
   _driveSteer = 0; _driveGas = 0; _driveBrake = 0;
+  _driveCamYaw = entry.yaw;
   // Force third-person so the driving chase-cam is used
   if (typeof viewFP !== 'undefined' && viewFP && typeof toggleView === 'function') toggleView();
-  // 显示驾驶 UI，隐藏普通按钮和摇杆
+
+  _initDriveUI();
+  _setWalkUI(false);
   var du = document.getElementById('drive-ui');
-  if (du) { _initDriveUI(); du.classList.add('on'); }
-  var btns = document.getElementById('btns');
-  if (btns) btns.style.display = 'none';
-  var jz = document.getElementById('joy-zone');
-  if (jz) jz.style.display = 'none';
+  if (du) du.classList.add('on');
   var sp = document.getElementById('speedo');
   if (sp) sp.classList.add('on');
+
+  // GSAP 入场：转向键从左滑入、踏板从右滑入、下车键从上落下、速度表淡入
+  if (_hasGsap) {
+    gsap.from('#drive-steer .dbtn',  { x: -60, autoAlpha: 0, duration: 0.4, stagger: 0.06, ease: 'back.out(1.7)', overwrite: true });
+    gsap.from('#drive-pedals .dbtn', { x:  60, autoAlpha: 0, duration: 0.4, stagger: 0.06, ease: 'back.out(1.7)', overwrite: true });
+    gsap.from('#d-exit', { y: -40, autoAlpha: 0, duration: 0.4, ease: 'back.out(1.7)', overwrite: true });
+    if (sp) gsap.from(sp, { autoAlpha: 0, y: 10, duration: 0.3, overwrite: true });
+  }
 }
 
 function dismountVehicle() {
   _mountedVehicle = null;
   _driveSteer = 0; _driveGas = 0; _driveBrake = 0;
   var du = document.getElementById('drive-ui');
-  if (du) du.classList.remove('on');
-  var btns = document.getElementById('btns');
-  if (btns) btns.style.display = '';
-  var jz = document.getElementById('joy-zone');
-  if (jz) jz.style.display = '';
   var sp = document.getElementById('speedo');
-  if (sp) sp.classList.remove('on');
+
+  function _finish() {
+    if (du) du.classList.remove('on');
+    if (sp) sp.classList.remove('on');
+    _setWalkUI(true);   // 恢复行走 UI → 玩家模型重新出现（game.js 控制 playerGroup 可见性）
+  }
+  // GSAP 退场后再恢复常规 UI
+  if (_hasGsap && du) {
+    gsap.to('#drive-ui .dbtn, #d-exit', { autoAlpha: 0, scale: 0.6, duration: 0.22, ease: 'power2.in', overwrite: true,
+      onComplete: function(){ gsap.set('#drive-ui .dbtn, #d-exit', { clearProps: 'all' }); _finish(); } });
+  } else {
+    _finish();
+  }
 }
 
 function updateVehicles(dt) {
@@ -5893,17 +5938,23 @@ function updateVehicles(dt) {
   player.vz = -Math.cos(_mountedVehicle.yaw) * fwd * def.speed;
 }
 
-// 在 resolveAABB 之后调用：把车模型同步到玩家的权威位置，并刷新速度表
-function syncMountedVehicle() {
+// 在 resolveAABB 之后调用：把车模型同步到玩家的权威位置，平滑相机朝向，刷新速度表
+function syncMountedVehicle(dt) {
   if (!_mountedVehicle) return;
   var grp = _mountedVehicle.group;
   if (grp) {
     grp.position.set(player.x, player.y, player.z);
-    grp.rotation.y = _mountedVehicle.yaw;
+    grp.rotation.y = _mountedVehicle.yaw;   // 车模型立即转向 → 看得到车在转
   }
   _mountedVehicle.cx = player.x;
   _mountedVehicle.cy = player.y;
   _mountedVehicle.cz = player.z;
+
+  // 相机朝向以最短角差平滑跟随车头（滞后 → 转弯时车体相对镜头明显旋转）
+  var d = _mountedVehicle.yaw - _driveCamYaw;
+  while (d >  Math.PI) d -= 2 * Math.PI;
+  while (d < -Math.PI) d += 2 * Math.PI;
+  _driveCamYaw += d * Math.min(1, (dt || 0.016) * 4);
 
   var spv = document.getElementById('speedo-val');
   if (spv) {
@@ -6759,7 +6810,7 @@ function tick(now) {
 
   var _mounted = (typeof _mountedVehicle !== 'undefined' && _mountedVehicle);
   if (!viewFP) playerGroup.visible = !_mounted;  // 驾驶时隐藏玩家模型，避免穿出车顶
-  if (_mounted && typeof syncMountedVehicle === 'function') syncMountedVehicle();
+  if (_mounted && typeof syncMountedVehicle === 'function') syncMountedVehicle(dt);
 
   var moveMag = Math.sqrt(player.vx * player.vx + player.vz * player.vz);
   if (playerMixer) {
@@ -6809,9 +6860,9 @@ function tick(now) {
       player.z + rwz * bobL * 0.5
     );
   } else if (typeof _mountedVehicle !== 'undefined' && _mountedVehicle) {
-    // 驾驶追车相机：车后上方俯视，沿车头朝向；不与车体碰撞，避免埋进车体黑屏
+    // 驾驶追车相机：车后上方俯视，沿平滑相机朝向；不与车体碰撞，避免埋进车体黑屏
     var vcd = 6.0, vch = 3.2;
-    var vsx = -Math.sin(player.yaw), vsz = -Math.cos(player.yaw); // 车头方向
+    var vsx = -Math.sin(_driveCamYaw), vsz = -Math.cos(_driveCamYaw); // 平滑跟随车头
     camera.position.set(
       player.x - vsx * vcd,
       player.y + vch,
@@ -6843,7 +6894,7 @@ function tick(now) {
   var tgtRoll = -jx * 0.007;
   _rollCur += (tgtRoll - _rollCur) * Math.min(1, 8 * dt);
   if (typeof _mountedVehicle !== 'undefined' && _mountedVehicle) {
-    camera.rotation.set(-0.35, player.yaw, 0);  // 固定俯角看向车
+    camera.rotation.set(-0.35, _driveCamYaw, 0);  // 固定俯角，朝向平滑跟随车头
   } else {
     camera.rotation.set(player.pitch, player.yaw, _rollCur);
   }

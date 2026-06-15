@@ -703,7 +703,7 @@ function tick(now) {
 
   var _mounted = (typeof _mountedVehicle !== 'undefined' && _mountedVehicle);
   if (!viewFP) playerGroup.visible = !_mounted;  // 驾驶时隐藏玩家模型，避免穿出车顶
-  if (_mounted && typeof syncMountedVehicle === 'function') syncMountedVehicle();
+  if (_mounted && typeof syncMountedVehicle === 'function') syncMountedVehicle(dt);
 
   var moveMag = Math.sqrt(player.vx * player.vx + player.vz * player.vz);
   if (playerMixer) {
@@ -753,9 +753,9 @@ function tick(now) {
       player.z + rwz * bobL * 0.5
     );
   } else if (typeof _mountedVehicle !== 'undefined' && _mountedVehicle) {
-    // 驾驶追车相机：车后上方俯视，沿车头朝向；不与车体碰撞，避免埋进车体黑屏
+    // 驾驶追车相机：车后上方俯视，沿平滑相机朝向；不与车体碰撞，避免埋进车体黑屏
     var vcd = 6.0, vch = 3.2;
-    var vsx = -Math.sin(player.yaw), vsz = -Math.cos(player.yaw); // 车头方向
+    var vsx = -Math.sin(_driveCamYaw), vsz = -Math.cos(_driveCamYaw); // 平滑跟随车头
     camera.position.set(
       player.x - vsx * vcd,
       player.y + vch,
@@ -787,7 +787,7 @@ function tick(now) {
   var tgtRoll = -jx * 0.007;
   _rollCur += (tgtRoll - _rollCur) * Math.min(1, 8 * dt);
   if (typeof _mountedVehicle !== 'undefined' && _mountedVehicle) {
-    camera.rotation.set(-0.35, player.yaw, 0);  // 固定俯角看向车
+    camera.rotation.set(-0.35, _driveCamYaw, 0);  // 固定俯角，朝向平滑跟随车头
   } else {
     camera.rotation.set(player.pitch, player.yaw, _rollCur);
   }
