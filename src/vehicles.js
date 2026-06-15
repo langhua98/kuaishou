@@ -26,11 +26,13 @@ var _vehiclePlaced = {};
 var _mountedVehicle = null;  // entry object from _vehiclePlaced, or null
 
 // 驾驶按钮状态（被 drive-ui 的 touchstart/touchend 更新）
-var _driveSteer = 0;   // -1=左转 0=直行 +1=右转
-var _driveGas   = 0;   // 1=踩油门 0=松开
-var _driveBrake = 0;   // 1=刹车/倒车 0=松开
-var _driveCamYaw = 0;  // 相机朝向（平滑跟随车头，制造"车在转"的观感）
-var _driveUIBound = false;
+var _driveSteer     = 0;      // 模拟量 -1.0~+1.0（转向摇杆）
+var _driveGas       = 0;      // 1=踩油门 0=松开
+var _driveBrake     = 0;      // 1=刹车/倒车 0=松开
+var _driveHandbrake = 0;      // 1=手刹按下（漂移）
+var _driveAuto      = false;  // 自动驾驶（持续油门，无需按油门键）
+var _driveCamYaw    = 0;      // 相机朝向（平滑跟随车头，制造"车在转"的观感）
+var _driveUIBound   = false;
 var _camIntro = { d: 6.0, h: 3.2 };  // 追车相机距离/高度（上车时 GSAP 缓动入场）
 var _spObj = { v: 0 }, _spQuick = null;  // 速度表数字滚动（gsap.quickTo）
 // _hasGsap 在 init.js 定义（全局共享）
@@ -43,18 +45,74 @@ function _pressFX(el, down) {
 }
 
 function _initDriveUI() {
-  if (_driveUIBound) return;   // 只绑定一次，避免重复监听
+  if (_driveUIBound) return;
   _driveUIBound = true;
+
+  // ── 长按辅助（油门/刹车/手刹）──
   function hold(el, onStart, onEnd) {
     if (!el) return;
     el.addEventListener('touchstart',  function(e){ e.preventDefault(); onStart(); _pressFX(el, true);  }, { passive:false });
     el.addEventListener('touchend',    function(e){ e.preventDefault(); onEnd();   _pressFX(el, false); }, { passive:false });
     el.addEventListener('touchcancel', function(e){ e.preventDefault(); onEnd();   _pressFX(el, false); }, { passive:false });
   }
-  hold(document.getElementById('d-left'),  function(){ _driveSteer = -1; }, function(){ if (_driveSteer===-1) _driveSteer=0; });
-  hold(document.getElementById('d-right'), function(){ _driveSteer =  1; }, function(){ if (_driveSteer===1)  _driveSteer=0; });
-  hold(document.getElementById('d-gas'),   function(){ _driveGas   =  1; }, function(){ _driveGas   = 0; });
-  hold(document.getElementById('d-brake'), function(){ _driveBrake =  1; }, function(){ _driveBrake = 0; });
+  hold(document.getElementById('d-gas'),   function(){ _driveGas       = 1; }, function(){ _driveGas       = 0; });
+  hold(document.getElementById('d-brake'), function(){ _driveBrake     = 1; }, function(){ _driveBrake     = 0; });
+  hold(document.getElementById('d-hb'),    function(){ _driveHandbrake = 1; }, function(){ _driveHandbrake = 0; });
+
+  // ── 模拟转向摇杆（X 轴 = 转向，-1.0 ~ +1.0）──
+  var _djRing = document.getElementById('d-steer-ring');
+  var _djKnob = document.getElementById('d-steer-knob');
+  var _djId = -1, _djOx = 0, _djOy = 0, _DJ_R = 36;
+  function _djUpdate(cx, cy) {
+    var dx = cx - _djOx, dy = cy - _djOy;
+    var dist = Math.sqrt(dx * dx + dy * dy);
+    var s = dist > _DJ_R ? _DJ_R / dist : 1;
+    var nx = dx * s, ny = dy * s;
+    _driveSteer = nx / _DJ_R;
+    if (_djKnob) {
+      if (_hasGsap) gsap.to(_djKnob, { x: nx, y: ny, duration: 0.04, overwrite: true });
+      else _djKnob.style.transform = 'translate(calc(-50% + ' + nx + 'px),calc(-50% + ' + ny + 'px))';
+    }
+  }
+  function _djReset() {
+    _driveSteer = 0; _djId = -1;
+    if (_djKnob) {
+      if (_hasGsap) gsap.to(_djKnob, { x: 0, y: 0, duration: 0.25, ease: 'elastic.out(1,0.5)', overwrite: true });
+      else _djKnob.style.transform = 'translate(-50%,-50%)';
+    }
+  }
+  if (_djRing) {
+    _djRing.addEventListener('touchstart', function(e) {
+      e.preventDefault();
+      var t = e.changedTouches[0]; _djId = t.identifier;
+      var r = _djRing.getBoundingClientRect();
+      _djOx = r.left + r.width / 2; _djOy = r.top + r.height / 2;
+      _djUpdate(t.clientX, t.clientY);
+    }, { passive: false });
+    _djRing.addEventListener('touchmove', function(e) {
+      e.preventDefault();
+      for (var i = 0; i < e.changedTouches.length; i++) {
+        if (e.changedTouches[i].identifier === _djId)
+          _djUpdate(e.changedTouches[i].clientX, e.changedTouches[i].clientY);
+      }
+    }, { passive: false });
+    _djRing.addEventListener('touchend',    function(e) { e.preventDefault(); _djReset(); }, { passive: false });
+    _djRing.addEventListener('touchcancel', function(e) { e.preventDefault(); _djReset(); }, { passive: false });
+  }
+
+  // ── 自动驾驶切换（点击切换，持续油门）──
+  var autoBtn = document.getElementById('d-auto');
+  if (autoBtn) {
+    autoBtn.addEventListener('touchstart', function(e) {
+      e.preventDefault();
+      _driveAuto = !_driveAuto;
+      autoBtn.classList.toggle('active', _driveAuto);
+      _pressFX(autoBtn, true);
+    }, { passive: false });
+    autoBtn.addEventListener('touchend', function(e) { e.preventDefault(); _pressFX(autoBtn, false); }, { passive: false });
+  }
+
+  // ── 下车按钮 ──
   var ex = document.getElementById('d-exit');
   if (ex) {
     ex.addEventListener('touchstart', function(e){ e.preventDefault(); _pressFX(ex, true); }, { passive:false });
@@ -145,9 +203,9 @@ function placeVehicle(typeId, wx, wy, wz, yaw) {
   return entry;
 }
 
-// 驾驶时需要隐藏的常规 UI（热键栏/按钮/摇杆/视角拖动区）
+// 驾驶时需要隐藏的常规 UI（热键栏/按钮/摇杆；保留 look-zone 以支持驾驶自由视角）
 function _setWalkUI(show) {
-  var ids = ['btns', 'joy-zone', 'look-zone', 'hotbar'];
+  var ids = ['btns', 'joy-zone', 'hotbar'];
   for (var i = 0; i < ids.length; i++) {
     var el = document.getElementById(ids[i]);
     if (el) el.style.display = show ? '' : 'none';
@@ -159,8 +217,10 @@ function mountVehicle(key) {
   if (!entry) return;
   _mountedVehicle = entry;
   entry.speed = 0;
-  _driveSteer = 0; _driveGas = 0; _driveBrake = 0;
+  _driveSteer = 0; _driveGas = 0; _driveBrake = 0; _driveHandbrake = 0; _driveAuto = false;
   _driveCamYaw = entry.yaw;
+  var autoBtn = document.getElementById('d-auto');
+  if (autoBtn) autoBtn.classList.remove('active');
   // Force third-person so the driving chase-cam is used
   if (typeof viewFP !== 'undefined' && viewFP && typeof toggleView === 'function') toggleView();
 
@@ -171,13 +231,13 @@ function mountVehicle(key) {
   var sp = document.getElementById('speedo');
   if (sp) sp.classList.add('on');
 
-  // GSAP 入场：转向键从左滑入、踏板从右滑入、下车键从上落下、速度表淡入
+  // GSAP 入场：转向摇杆从左滑入、踏板从右滑入、下车/自驾从上落下、速度表淡入
   if (_hasGsap) {
-    gsap.from('#drive-steer .dbtn',  { x: -60, autoAlpha: 0, duration: 0.4, stagger: 0.06, ease: 'back.out(1.7)', overwrite: true });
-    gsap.from('#drive-pedals .dbtn', { x:  60, autoAlpha: 0, duration: 0.4, stagger: 0.06, ease: 'back.out(1.7)', overwrite: true });
-    gsap.from('#d-exit', { y: -40, autoAlpha: 0, duration: 0.4, ease: 'back.out(1.7)', overwrite: true });
+    gsap.from('#d-steer-ring', { x: -60, autoAlpha: 0, duration: 0.4, ease: 'back.out(1.7)', overwrite: true });
+    gsap.from('#drive-pedals .dbtn', { x: 60, autoAlpha: 0, duration: 0.4, stagger: 0.06, ease: 'back.out(1.7)', overwrite: true });
+    gsap.from('#d-exit',  { y: -40, autoAlpha: 0, duration: 0.4, ease: 'back.out(1.7)', overwrite: true });
+    gsap.from('#d-auto',  { y: -30, autoAlpha: 0, duration: 0.35, ease: 'back.out(1.7)', overwrite: true, delay: 0.08 });
     if (sp) gsap.from(sp, { autoAlpha: 0, y: 10, duration: 0.3, overwrite: true });
-    // 相机入场：从更高更远缓降到驾驶视角（建立镜头）
     gsap.fromTo(_camIntro, { d: 9.5, h: 6.5 }, { d: 6.0, h: 3.2, duration: 0.7, ease: 'power3.out', overwrite: true });
   }
 }
@@ -185,7 +245,10 @@ function mountVehicle(key) {
 function dismountVehicle() {
   var ent = _mountedVehicle;
   _mountedVehicle = null;
-  _driveSteer = 0; _driveGas = 0; _driveBrake = 0;
+  _driveSteer = 0; _driveGas = 0; _driveBrake = 0; _driveHandbrake = 0;
+  _driveAuto = false;
+  var _autoEl = document.getElementById('d-auto');
+  if (_autoEl) _autoEl.classList.remove('active');
 
   // 把玩家挪到车左侧并落到地面：否则玩家留在车体内，第三人称相机被不透明车体挡住 → 黑屏
   if (ent) {
@@ -212,8 +275,8 @@ function dismountVehicle() {
   }
   // GSAP 退场后再恢复常规 UI
   if (_hasGsap && du) {
-    gsap.to('#drive-ui .dbtn, #d-exit', { autoAlpha: 0, scale: 0.6, duration: 0.22, ease: 'power2.in', overwrite: true,
-      onComplete: function(){ gsap.set('#drive-ui .dbtn, #d-exit', { clearProps: 'all' }); _finish(); } });
+    gsap.to('#drive-ui .dbtn, #d-exit, #d-auto, #d-steer-ring', { autoAlpha: 0, scale: 0.6, duration: 0.22, ease: 'power2.in', overwrite: true,
+      onComplete: function(){ gsap.set('#drive-ui .dbtn, #d-exit, #d-auto, #d-steer-ring', { clearProps: 'all' }); _finish(); } });
   } else {
     _finish();
   }
@@ -224,38 +287,45 @@ function updateVehicles(dt) {
   var def = _VEHICLE_DEFS[_mountedVehicle.typeId];
   if (!def) return;
 
-  // 按钮优先，无按钮时 fallback 到摇杆（摇杆驾驶时通常被隐藏）
+  // 转向摇杆优先；无摇杆时 fallback 到行走摇杆（jx）
   var jx = joy.dx / JOY_R, jy = joy.dy / JOY_R;
   var jLen = Math.sqrt(jx * jx + jy * jy);
   if (jLen > 1) { jx /= jLen; jy /= jLen; }
 
-  var gas   = _driveGas   ? 1 : (jy < -0.1 ? -jy : 0);   // 0..1
-  var brake = _driveBrake ? 1 : (jy >  0.1 ?  jy : 0);   // 0..1
-  var steer = _driveSteer || jx;                          // -1..1
+  // 自动驾驶时视同持续按油门（手刹/倒车仍可覆盖）
+  var gas   = (_driveGas || _driveAuto) ? 1 : (jy < -0.1 ? -jy : 0);   // 0..1
+  var brake = _driveBrake ? 1 : (jy > 0.1 ? jy : 0);                   // 0..1
+  var steer = _driveSteer || jx;                                         // -1..1
 
-  // ── 动量模型：油门加速 / 松开滑行 / 刹车减速并倒车（吃鸡手感）──
+  // ── 动量模型：手刹 / 油门 / 刹车 / 滑行 ──
   var maxFwd = def.speed, maxRev = def.speed * 0.4;
-  var accel  = def.speed * 1.3;   // 加速度
-  var bDecel = def.speed * 2.4;   // 刹车减速度
-  var fric   = def.speed * 0.9;   // 松油门滑行摩擦
+  var accel  = def.speed * 1.3;
+  var bDecel = def.speed * 2.4;
+  var fric   = def.speed * 0.9;
   var spd = _mountedVehicle.speed || 0;
 
-  if (gas) {
+  if (_driveHandbrake) {
+    // 手刹：强制快速减速，不倒车；维持高转向比以模拟漂移甩尾
+    var hbFric = def.speed * 3.5;
+    if (spd > 0) spd = Math.max(0, spd - hbFric * dt);
+    else if (spd < 0) spd = Math.min(0, spd + hbFric * dt);
+  } else if (gas) {
     spd += accel * gas * dt;
   } else if (brake) {
-    if (spd > 0.3)      spd -= bDecel * dt;            // 前进中先刹停
-    else                spd -= accel * 0.7 * brake * dt; // 已停 → 倒车
+    if (spd > 0.3) spd -= bDecel * dt;               // 前进中先刹停
+    else           spd -= accel * 0.7 * brake * dt;  // 已停 → 倒车
   } else {
-    if (spd > 0)        spd = Math.max(0, spd - fric * dt);  // 滑行回 0
-    else if (spd < 0)   spd = Math.min(0, spd + fric * dt);
+    if (spd > 0) spd = Math.max(0, spd - fric * dt);
+    else if (spd < 0) spd = Math.min(0, spd + fric * dt);
   }
   if (spd >  maxFwd) spd = maxFwd;
   if (spd < -maxRev) spd = -maxRev;
   _mountedVehicle.speed = spd;
 
-  // ── 转向：需要车速才能转，转速随车速增益；倒车时方向反向 ──
+  // ── 转向：手刹时维持最低 0.6 转向系数，模拟甩尾仍能大幅打方向 ──
   var speedF = Math.min(1, Math.abs(spd) / 2.5);
-  var dir    = spd >= 0 ? 1 : -1;
+  if (_driveHandbrake) speedF = Math.max(0.6, speedF);
+  var dir = spd >= 0 ? 1 : -1;
   _mountedVehicle.yaw -= steer * def.turnSpd * dt * speedF * dir;
   player.yaw = _mountedVehicle.yaw;
 

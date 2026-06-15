@@ -93,7 +93,13 @@ lookZone.addEventListener('touchmove', function (e) {
   for (i = 0; i < e.changedTouches.length; i++) {
     t = e.changedTouches[i];
     if (t.identifier !== lookId) continue;
-    player.yaw   -= (t.clientX - lookLx) * 0.005;
+    var dyaw = (t.clientX - lookLx) * 0.005;
+    // 驾驶时：滑动只转相机，不转车头
+    if (typeof _mountedVehicle !== 'undefined' && _mountedVehicle) {
+      _driveCamYaw -= dyaw;
+    } else {
+      player.yaw -= dyaw;
+    }
     player.pitch -= (t.clientY - lookLy) * 0.005;
     // ±89°（原版 ±90°；留 1° 余量避免万向锁奇点）
     player.pitch  = Math.max(-1.55, Math.min(1.55, player.pitch));
