@@ -5900,8 +5900,25 @@ function mountVehicle(key) {
 }
 
 function dismountVehicle() {
+  var ent = _mountedVehicle;
   _mountedVehicle = null;
   _driveSteer = 0; _driveGas = 0; _driveBrake = 0;
+
+  // 把玩家挪到车左侧并落到地面：否则玩家留在车体内，第三人称相机被不透明车体挡住 → 黑屏
+  if (ent) {
+    var lx = -Math.cos(ent.yaw), lz = Math.sin(ent.yaw);  // 车体左方（与车头垂直）
+    player.x = ent.cx + lx * 2.4;
+    player.z = ent.cz + lz * 2.4;
+    for (var gy = CHUNK_H - 1; gy >= 0; gy--) {
+      if (getBlock(Math.floor(player.x), gy, Math.floor(player.z)) !== AIR) { player.y = gy + 1; break; }
+    }
+    player.vx = 0; player.vy = 0; player.vz = 0;
+    ent.speed = 0;
+    // 重置第三人称相机平滑，避免镜头从车位猛拉
+    if (typeof _camDcur !== 'undefined') _camDcur = CAM_DIST;
+    if (typeof _pivInit !== 'undefined') _pivInit = false;
+  }
+
   var du = document.getElementById('drive-ui');
   var sp = document.getElementById('speedo');
 
