@@ -22,6 +22,10 @@ var UNIT_TYPES = {
                wpnR: 'Skeleton_Blade', wpnL: null,          name: '骷髅杂兵' },
   skel_rog:  { model: 'Skeleton_Rogue',   h: 1.70, hp: 18, dmg: 2, range: 12,  spd: 3.6, atkCd: 2.5, ranged: true,
                wpnR: 'Skeleton_Crossbow', wpnL: null,       name: '骷髅弩手' },
+  // 村民（平民，无战斗 AI）
+  farmer:   { model: 'Barbarian', h: 1.75, hp: 20, isCivilian: true, spd: 2.5, name: '农民' },
+  merchant: { model: 'Rogue',     h: 1.75, hp: 18, isCivilian: true, spd: 2.2, name: '商人' },
+  guard:    { model: 'Knight',    h: 1.80, hp: 30, isCivilian: true, spd: 3.0, name: '守卫' },
 };
 
 // 骑兵调参（需求文档关键数值）

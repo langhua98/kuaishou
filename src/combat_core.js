@@ -137,12 +137,61 @@ function spawnUnit(kind, side, x, z) {
     chargeFrom: null, breakDir: null, regroupT: 0,
     group: group, model: model, mixer: mixer, anims: anims, curAnim: '',
     horseMixer: horseMixer, hpBar: null, blobShadow: blobShadow,
+    // 平民字段（战斗单位忽略这些字段）
+    isCivilian: t.isCivilian || false,
+    homeX: x, homeZ: z,
+    wanderT: Math.random() * 3,
+    wanderYaw: Math.random() * Math.PI * 2,
+    wanderStop: false,
   };
   if (typeof initMorale === 'function') initMorale(u);   // 注入士气/恐惧/纪律
   playAnim(u, ANIM.idle, 0);
   makeHpBar(u);
   combatUnits.push(u);
   return u;
+}
+
+// 生成村民（side=1 友方，不参与战斗 AI）
+function spawnVillager(kind, x, z) {
+  return spawnUnit(kind, 1, x, z);
+}
+
+// 每帧更新村民漫游（在 game.js 主循环调用）
+function updateVillagers(dt) {
+  var i, u, nx, nz, dx, dz, ang;
+  for (i = 0; i < combatUnits.length; i++) {
+    u = combatUnits[i];
+    if (!u.isCivilian || u.dead) continue;
+
+    u.wanderT -= dt;
+    if (u.wanderT <= 0) {
+      u.wanderT = 2 + Math.random() * 3;
+      u.wanderStop = Math.random() < 0.25;
+      if (!u.wanderStop) {
+        // 朝家方向加随机偏角漫游
+        ang = Math.atan2(u.homeX - u.x, u.homeZ - u.z);
+        u.wanderYaw = ang + (Math.random() - 0.5) * Math.PI * 1.2;
+      }
+    }
+
+    if (!u.wanderStop) {
+      nx = u.x - Math.sin(u.wanderYaw) * u.t.spd * dt;
+      nz = u.z - Math.cos(u.wanderYaw) * u.t.spd * dt;
+      dx = nx - u.homeX; dz = nz - u.homeZ;
+      if (dx * dx + dz * dz < 144) {
+        u.x = nx; u.z = nz;
+      } else {
+        u.wanderYaw = Math.atan2(u.homeX - u.x, u.homeZ - u.z);
+      }
+      u.group.rotation.y = u.wanderYaw;
+      playAnim(u, ANIM.walk);
+    } else {
+      playAnim(u, ANIM.idle);
+    }
+    u.group.position.set(u.x, _groundY(u.x, u.z), u.z);
+    // 更新动画混合器
+    if (u.mixer) u.mixer.update(dt);
+  }
 }
 
 // ── 动画切换（同名去重 + crossFade；once=true 播完即停留末帧）──────────────────

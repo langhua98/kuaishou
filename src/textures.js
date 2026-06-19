@@ -155,6 +155,7 @@ function _drawTile(ctx, img, spec, dx, dy) {
 
   if (!spec.tint) {
     // 按图片真实尺寸裁切后缩放填满 TILE×TILE（兼容 16×16 和 128×128 贴图）
+    ctx.imageSmoothingEnabled = false;
     ctx.drawImage(img, 0, 0, img.width, img.height, dx, dy, TILE, TILE);
     return;
   }
@@ -163,6 +164,7 @@ function _drawTile(ctx, img, spec, dx, dy) {
   var oc = document.createElement('canvas');
   oc.width = oc.height = TILE;
   var octx = oc.getContext('2d');
+  octx.imageSmoothingEnabled = false;
   octx.drawImage(img, 0, 0, img.width, img.height, 0, 0, TILE, TILE);
   octx.globalCompositeOperation = 'multiply';
   octx.fillStyle = spec.tint;
@@ -195,8 +197,8 @@ function loadTextures(onReady, onProgress) {
     // 贴图集禁用 mipmap：缩小级别会把相邻贴图格颜色混入（atlas bleeding），
     // 远景方块串色。Kenney 贴图为低频平滑风格，Linear 缩小的闪烁可忽略。
     atlasTexture = new THREE.CanvasTexture(cv);
-    atlasTexture.magFilter = THREE.LinearFilter;
-    atlasTexture.minFilter = THREE.LinearFilter;
+    atlasTexture.magFilter = THREE.NearestFilter;
+    atlasTexture.minFilter = THREE.NearestFilter;
     atlasTexture.generateMipmaps = false;
     atlasTexture.needsUpdate = true;
     onReady();

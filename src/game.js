@@ -817,6 +817,7 @@ function tick(now) {
   updateSky(dt);
   if (typeof updateCrops === 'function') updateCrops(dt);
   combatUpdate(dt, nowS);
+  if (typeof updateVillagers === 'function') updateVillagers(dt);
 
   renderer.render(scene, camera);
 }
@@ -908,6 +909,9 @@ function bootNext() {
       addProgressLog('生成城堡与建筑...');
       placeStructures();
       placeSimpleCastle(-8, -8);
+      placeVillage( 110,  70);   // 东南村庄
+      placeVillage(-110,  90);   // 西南村庄
+      placeVillage(  70, -130);  // 北方村庄
       if (typeof loadGame === 'function') loadGame();
       bootStep = 10; requestAnimationFrame(bootNext);
 
