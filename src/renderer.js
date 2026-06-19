@@ -12,7 +12,7 @@ document.body.appendChild(renderer.domElement);
 
 var scene = new THREE.Scene();
 scene.background = null;                             // 由天空穹顶接管
-scene.fog = new THREE.Fog(0x8ec5f5, 55, 105);       // 颜色/距离每帧由 sky.js 更新
+scene.fog = null;                                   // 迷雾已关闭（sky.js 中有空值保护）
 
 var camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 200);
 // FPS/TPS 摄像机必须用 YXZ 欧拉顺序：先偏航（世界 Y）再俯仰（本地 X）再横滚，

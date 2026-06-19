@@ -71,8 +71,12 @@ function genTerrain(cx, cz) {
       var _road = (wx >= -3 && wx <= 8 && wz >= 14 && wz <= 200);
       if (_road) h = SEA + 2;
 
+      // 高铁轨道床：沿 X 轴 Z=30 一线，5 格宽，X∈[-100,100]，烤平到 SEA+2
+      var _rail = (wz >= 28 && wz <= 32 && wx >= -100 && wx <= 100);
+      if (_rail) h = SEA + 2;
+
       for (y = 0; y <= h && y < CHUNK_H; y++) {
-        id = (y === h)    ? (_road ? STONE : (h <= SEA + 1) ? SAND : GRASS)
+        id = (y === h)    ? ((_road || _rail) ? STONE : (h <= SEA + 1) ? SAND : GRASS)
            : (y >= h - 3) ? DIRT
            :                STONE;
         data[lx + y * CHUNK_W + lz * CHUNK_W * CHUNK_H] = id;
@@ -93,6 +97,7 @@ function genTerrain(cx, cz) {
       twR = Math.max(Math.abs(twx), Math.abs(twz));
       if (twR < 40) continue;
       if (twx >= -3 && twx <= 8 && twz >= 14 && twz <= 200) continue;  // 路区无树
+      if (twz >= 27 && twz <= 33 && twx >= -100 && twx <= 100) continue;  // 轨道区无树
       // 确定性伪随机（sin hash，每格唯一）
       th = Math.sin(twx * 127.1 + twz * 311.7) * 43758.5453;
       th = th - Math.floor(th);
