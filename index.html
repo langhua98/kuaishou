@@ -2273,22 +2273,20 @@ function loadPlayerModel() {
   gltfLoader.load('assets/models/player.glb', function (gltf) {
     var model = gltf.scene;
 
-    // 归一化身高，脚底对齐 y=0
-    // SkinnedMesh 首帧前 setFromObject 返回空盒；且 Mixamo 骨架自带 0.01 缩放，
-    // 须用各网格 matrixWorld 把几何体包围盒变换到显示尺度再合并，否则身高被高估 ~100×。
+    // 归一化身高，脚底对齐 y=0。
+    // 注意：蒙皮网格挂在 Armature(0.01 缩放) 下，geometry.boundingBox×matrixWorld
+    // 会得到 0.01 空间的绑定盒（≈0.004，无意义）→ 缩放暴涨成上千米。
+    // 几何体顶点本就以「米」为单位（头顶 y≈1.78），直接用原始 geometry.boundingBox
+    // 即等于真实渲染高度（已无头 CPU 蒙皮实测验证）。
     model.updateMatrixWorld(true);
     var bbox = new THREE.Box3();
-    var _tb = new THREE.Box3();
     model.traverse(function (o) {
       if (o.isSkinnedMesh || o.isMesh) {
         if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
-        if (o.geometry.boundingBox) {
-          _tb.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
-          bbox.union(_tb);
-        }
+        if (o.geometry.boundingBox) bbox.union(o.geometry.boundingBox);
       }
     });
-    var bh = bbox.max.y - bbox.min.y;
+    var bh = bbox.max.y - bbox.min.y;   // ≈ 1.78
     if (!(bh > 0.01)) bh = PH;   // 极端保底
     var s = PLAYER_MODEL_H / bh;
     model.scale.set(s, s, s);
