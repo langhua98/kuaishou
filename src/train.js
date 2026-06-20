@@ -85,8 +85,41 @@ function _addCar(model, isFront) {
   var carLen = Math.max(bb.max.z - bb.min.z, bb.max.x - bb.min.x);
   if (carLen + 0.8 > _carSpacing) _carSpacing = carLen + 0.8;
 
+  // 强制白色高铁涂装
+  model.traverse(function(node) {
+    if (node.isMesh) {
+      node.material = new THREE.MeshLambertMaterial({ color: 0xf5f5f5 });
+    }
+  });
+
   var grp = new THREE.Group();
   grp.add(model);
+
+  // ── 车厢内部（座椅 + 白色内壁，供乘车时第三人称视角欣赏）──
+  var iLen = Math.max(carLen - 1.2, 3);
+  var iW = 2.2, iH = 2.5;
+  // 内壁用 BackSide：从车厢外部不可见，从内部可见
+  var wallMat = new THREE.MeshLambertMaterial({ color: 0xf0eeea, side: THREE.BackSide });
+  var interior = new THREE.Mesh(new THREE.BoxGeometry(iW, iH, iLen), wallMat);
+  interior.position.set(0, RAIL_TOP + iH / 2, 0);
+  grp.add(interior);
+  // 蓝色座椅（两侧各一排，每 1.6 格一组）
+  var seatMat = new THREE.MeshLambertMaterial({ color: 0x1a4a8a });
+  var backMat = new THREE.MeshLambertMaterial({ color: 0x122f6a });
+  var sxArr = [-0.75, 0.75];
+  var isz, isi, isx;
+  for (isz = -iLen / 2 + 0.9; isz < iLen / 2 - 0.4; isz += 1.6) {
+    for (isi = 0; isi < 2; isi++) {
+      isx = sxArr[isi];
+      var seatM = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.08, 0.48), seatMat);
+      seatM.position.set(isx, RAIL_TOP + 0.46, isz);
+      grp.add(seatM);
+      var backM = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.55, 0.08), backMat);
+      backM.position.set(isx, RAIL_TOP + 0.74, isz + 0.20);
+      grp.add(backM);
+    }
+  }
+
   scene.add(grp);
   _trainCars.push({ group: grp });
 }
