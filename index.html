@@ -6497,8 +6497,8 @@ function updateTrain(dt) {
   // 状态机：停靠倒计时 / 加速巡航减速进站
   if (_trainState === 'dwell') {
     _trainV = 0;
-    // 玩家在候车范围内时保持停靠，不发车
-    if (_canBoard() || _onTrain) {
+    // 玩家在候车范围内时保持停靠（只在未上车时生效）
+    if (!_onTrain && _canBoard()) {
       _trainDwellT = Math.max(_trainDwellT, 5);
     }
     _trainDwellT -= dt;
@@ -7552,6 +7552,16 @@ function tick(now) {
       player.y + PH * 0.85 - _sitDip + bobY * 0.6 + _dipY,
       player.z + rwz * bobL * 0.5
     );
+  } else if (typeof _onTrain !== 'undefined' && _onTrain) {
+    // 高铁第三人称追车相机：从车尾正后方 8 格、上方 4 格俯视行进方向
+    var _tFwx = -Math.sin(player.yaw);
+    var _tFwz = -Math.cos(player.yaw);
+    _pivX = player.x; _pivY = player.y; _pivZ = player.z; _pivInit = true;
+    camera.position.set(
+      player.x - _tFwx * 8,
+      player.y + 4.0,
+      player.z - _tFwz * 8
+    );
   } else if (typeof _mountedVehicle !== 'undefined' && _mountedVehicle) {
     // 驾驶追车相机：车后上方俯视，沿平滑相机朝向；不与车体碰撞，避免埋进车体黑屏
     var vcd = (typeof _camIntro !== 'undefined') ? _camIntro.d : 6.0;
@@ -7590,10 +7600,11 @@ function tick(now) {
   if (isNaN(_rollCur)) _rollCur = 0;
   var tgtRoll = -_rollIn * 0.007;
   _rollCur += (tgtRoll - _rollCur) * Math.min(1, 8 * dt);
-  if (typeof _mountedVehicle !== 'undefined' && _mountedVehicle) {
+  if (typeof _onTrain !== 'undefined' && _onTrain) {
+    camera.rotation.set(-0.3, player.yaw, 0);      // 高铁：固定俯角，朝行进方向
+  } else if (typeof _mountedVehicle !== 'undefined' && _mountedVehicle) {
     camera.rotation.set(-0.35, _driveCamYaw, 0);  // 驾驶：固定俯角，朝向平滑跟随车头
   } else {
-    // 行走 / 乘高铁：常规第三人称，朝向跟随 player.yaw（高铁里锁定为行进方向）
     camera.rotation.set(player.pitch, player.yaw, _rollCur);
   }
 

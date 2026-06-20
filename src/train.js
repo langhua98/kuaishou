@@ -165,8 +165,8 @@ function updateTrain(dt) {
   // 状态机：停靠倒计时 / 加速巡航减速进站
   if (_trainState === 'dwell') {
     _trainV = 0;
-    // 玩家在候车范围内时保持停靠，不发车
-    if (_canBoard() || _onTrain) {
+    // 玩家在候车范围内时保持停靠（只在未上车时生效）
+    if (!_onTrain && _canBoard()) {
       _trainDwellT = Math.max(_trainDwellT, 5);
     }
     _trainDwellT -= dt;
