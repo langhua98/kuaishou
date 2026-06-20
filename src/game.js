@@ -395,10 +395,17 @@ function tick(now) {
     _sitting = null;
   }
   if (typeof _onTrain !== 'undefined' && _onTrain) {
-    // 乘坐高铁：位置由 updateTrain 直接锁定，跳过行走物理
-    player.vx = 0; player.vy = 0; player.vz = 0;
+    // 乘坐高铁：按摇杆算车厢内行走速度（公式同正常行走），由 updateTrain 积分+夹紧
+    var tsy = Math.sin(player.yaw), tcy = Math.cos(player.yaw);
+    var tjx = joy.dx / JOY_R, tjy = joy.dy / JOY_R;
+    var tjLen = Math.sqrt(tjx * tjx + tjy * tjy);
+    if (tjLen > 1) { tjx /= tjLen; tjy /= tjLen; }
+    var tspd = MOVE_SPD * 0.6;  // 车厢内行走稍慢
+    player.vx = (tjy * tsy + tjx *  tcy) * tspd;
+    player.vz = (tjy * tcy + tjx * (-tsy)) * tspd;
+    player.vy = 0;
     player.jumpQ = false;
-    player.onGround = false;
+    player.onGround = true;
   } else if (typeof _mountedVehicle !== 'undefined' && _mountedVehicle) {
     if (typeof updateVehicles === 'function') updateVehicles(dt);
     player.vy -= GRAVITY * dt;
@@ -714,7 +721,9 @@ function tick(now) {
 
   var _mounted = (typeof _mountedVehicle !== 'undefined' && _mountedVehicle) ||
                  (typeof _onTrain !== 'undefined' && _onTrain);
-  if (!viewFP) playerGroup.visible = !_mounted;  // 驾驶/乘车时隐藏玩家模型，避免穿模
+  // 驾驶车辆时隐藏玩家模型避免穿模；乘高铁时第三人称仍显示角色（第一人称本就隐藏）
+  var _hideModel = (typeof _mountedVehicle !== 'undefined' && _mountedVehicle);
+  if (!viewFP) playerGroup.visible = !_hideModel;
   if (_mounted && typeof syncMountedVehicle === 'function') syncMountedVehicle(dt);
 
   var moveMag = Math.sqrt(player.vx * player.vx + player.vz * player.vz);
@@ -812,8 +821,8 @@ function tick(now) {
   if (isNaN(_rollCur)) _rollCur = 0;
   var tgtRoll = -_rollIn * 0.007;
   _rollCur += (tgtRoll - _rollCur) * Math.min(1, 8 * dt);
-  if (typeof _onTrain !== 'undefined' && _onTrain) {
-    camera.rotation.set(-0.3, player.yaw, 0);      // 高铁：固定俯角，朝行进方向
+  if (typeof _onTrain !== 'undefined' && _onTrain && !viewFP) {
+    camera.rotation.set(-0.3, player.yaw, 0);      // 高铁第三人称：固定俯角，朝行进方向
   } else if (typeof _mountedVehicle !== 'undefined' && _mountedVehicle) {
     camera.rotation.set(-0.35, _driveCamYaw, 0);  // 驾驶：固定俯角，朝向平滑跟随车头
   } else {

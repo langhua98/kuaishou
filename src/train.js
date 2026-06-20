@@ -32,6 +32,13 @@ var _trainDwellT = 30;  // 初始多等 30s，让玩家有时间走到站台
 var _trainBoardBtn = null;
 var _trainMixers  = [];   // AnimationMixer per car
 
+// ── 车厢内行走（移动平台模型）─────────────────────────────────────────────────
+var _carCX        = RAIL_X + 0.5;  // 车厢 X 中心
+var _TRAIN_FLOOR_Y = RAIL_TOP;     // 车厢地板站立高度（可调；眼高=floor+PH*0.85）
+var _carInHZ      = 15;            // 车厢内可走半长（Z）—— _addCar 载入后按模型更新
+var _carInHX      = 0.8;           // 过道半宽（X）—— _addCar 载入后按模型更新
+var _trainZprev   = _trainZ;       // 上一帧车头 Z，用于把玩家随车带动
+
 // ── 初始化（game.js boot step 9 调用）────────────────────────────────────────
 function initTrain() {
   if (typeof gltfLoader === 'undefined') return;
@@ -98,6 +105,12 @@ function _addCar(model, isFront, clips) {
 
   var carLen = bb.max.z - bb.min.z;
   if (carLen + 1 > _carSpacing) _carSpacing = carLen + 1;
+
+  // 由车厢实际包围盒推导内部可走范围（车头 car 0 决定）
+  if (isFront) {
+    _carInHZ = Math.max(2, carLen / 2 - 2.0);                 // 两端各留 2 格端墙余量
+    _carInHX = Math.max(0.5, (bb.max.x - bb.min.x) / 2 - 0.8); // 窄过道
+  }
 
   // 播放所有内置动画（保留原速度循环）
   if (clips && clips.length > 0) {
@@ -200,17 +213,24 @@ function updateTrain(dt) {
     _trainCars[i].group.rotation.y = (_trainDir > 0) ? Math.PI : 0;
   }
 
-  // 乘车：把玩家锁定在车内（轨面 +1.5 高度，朝行进方向）
+  // 乘车：移动平台模型 —— 列车带着玩家走，叠加玩家自己的行走，再夹紧到车厢内部盒
   if (_onTrain) {
-    player.x = RAIL_X + 0.5;
-    player.z = _trainZ;
-    player.y = RAIL_TOP + 1.5;
-    player.yaw = (_trainDir > 0) ? Math.PI : 0;
-    player.vx = 0; player.vy = 0; player.vz = 0;
+    var dZ = _trainZ - _trainZprev;       // 本帧列车位移
+    player.z += dZ;                        // 随车带动
+    player.x += player.vx * dt;            // 叠加玩家行走（vx/vz 由 game.js 移动块算出）
+    player.z += player.vz * dt;
+    // 夹紧到车头内部盒（中心 _carCX, _trainZ）
+    if (player.x < _carCX - _carInHX) player.x = _carCX - _carInHX;
+    if (player.x > _carCX + _carInHX) player.x = _carCX + _carInHX;
+    if (player.z < _trainZ - _carInHZ) player.z = _trainZ - _carInHZ;
+    if (player.z > _trainZ + _carInHZ) player.z = _trainZ + _carInHZ;
+    player.y  = _TRAIN_FLOOR_Y;
+    player.vy = 0;
     // 速度表
     var spv = document.getElementById('speedo-val');
     if (spv) spv.textContent = Math.round(_trainV * 3.6);
   }
+  _trainZprev = _trainZ;
 
   _updateBoardBtn();
 }
@@ -226,6 +246,15 @@ function _canBoard() {
 function boardTrain() {
   if (_onTrain || !_canBoard()) return;
   _onTrain = true;
+  // 强制第一人称，相机即在眼睛高度
+  if (typeof viewFP !== 'undefined' && !viewFP && typeof toggleView === 'function') toggleView();
+  // 落到车头地板中心，面朝车厢纵向
+  player.x = _carCX;
+  player.z = _trainZ;
+  player.y = _TRAIN_FLOOR_Y;
+  player.yaw = (_trainDir > 0) ? Math.PI : 0;
+  player.vx = 0; player.vy = 0; player.vz = 0;
+  _trainZprev = _trainZ;
   if (typeof _pivInit !== 'undefined') _pivInit = false;
   if (typeof _camDcur !== 'undefined') _camDcur = CAM_DIST;
   var sp = document.getElementById('speedo'); if (sp) sp.classList.add('on');
