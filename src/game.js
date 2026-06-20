@@ -348,6 +348,7 @@ var _camDcur = CAM_DIST;
 var _bobT = 0, _fovCur = 70, _rollCur = 0;
 var _dipY = 0, _dipV = 0;
 var _wasGround = false;
+var _playerRunning = false;   // 当前是否奔跑（摇杆推到底），驱动 run 动画与 FOV
 
 // ── 长按交互冷却 ───────────────────────────────────────────────────────────────────
 var BREAK_CD = 0.22;
@@ -414,13 +415,25 @@ function tick(now) {
   } else {
     var sy  = Math.sin(player.yaw), cy2 = Math.cos(player.yaw);
     var jx  = joy.dx / JOY_R, jy = joy.dy / JOY_R;
-    // 斜向限速：摇杆向量长度截断到 1（否则对角线快 41%）
+    // 摇杆推程（向量长度，0~1）决定走/跑；方向取单位向量
     var jLen = Math.sqrt(jx * jx + jy * jy);
-    if (jLen > 1) { jx /= jLen; jy /= jLen; }
-    var spd = player.flying ? FLY_SPD : MOVE_SPD;
-    // 摇杆上（jy<0）→ 沿视线水平方向前进，右（jx>0）→ 向右侧移
-    player.vx = (jy * sy  + jx *  cy2) * spd;
-    player.vz = (jy * cy2 + jx * (-sy)) * spd;
+    if (jLen > 1) jLen = 1;
+    var ux = 0, uy = 0;
+    if (jLen > 0.001) { ux = jx / jLen; uy = jy / jLen; }
+    var spd;
+    if (player.flying) {
+      spd = FLY_SPD * jLen;          // 飞行保持模拟量
+      _playerRunning = false;
+    } else if (jLen < MOVE_DZ) {
+      spd = 0; _playerRunning = false;          // 死区：不动
+    } else if (jLen < RUN_T) {
+      spd = MOVE_SPD; _playerRunning = false;   // 轻推：走
+    } else {
+      spd = RUN_SPD;  _playerRunning = true;    // 推到底：跑
+    }
+    // 摇杆上（uy<0）→ 沿视线水平方向前进，右（ux>0）→ 向右侧移
+    player.vx = (uy * sy  + ux *  cy2) * spd;
+    player.vz = (uy * cy2 + ux * (-sy)) * spd;
 
     if (player.flying) {
       // 飞行升降：按住跳跃=升，按住下降键=降，松开悬停
@@ -736,9 +749,9 @@ function tick(now) {
   if (playerMixer) {
     if      (!player.onGround && !player.flying && player.vy >  2) playerAnim('jump');
     else if (!player.onGround && !player.flying && player.vy < -4) playerAnim('fall');
-    else if (moveMag > FLY_SPD * 0.8) playerAnim('run');
-    else if (moveMag > 0.5)           playerAnim('walk');
-    else                              playerAnim('idle');
+    else if (_playerRunning && moveMag > 0.5) playerAnim('run');
+    else if (moveMag > 0.5)                   playerAnim('walk');
+    else                                      playerAnim('idle');
     playerMixer.update(dt);
     if (typeof updatePlayerProcAnim === 'function') updatePlayerProcAnim(dt);
   }
@@ -847,7 +860,7 @@ function tick(now) {
     armGroupL.position.x = -0.30 + jx * 0.02;
   }
 
-  var tgFov = (!player.flying && player.onGround && moveMag > MOVE_SPD * 0.8) ? 76 : 70;
+  var tgFov = (!player.flying && player.onGround && _playerRunning) ? 76 : 70;
   _fovCur += (tgFov - _fovCur) * Math.min(1, 6 * dt);
   if (Math.abs(_fovCur - camera.fov) > 0.05) {
     camera.fov = _fovCur;

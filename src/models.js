@@ -59,17 +59,23 @@ function loadPlayerModel() {
     var model = gltf.scene;
 
     // 归一化身高，脚底对齐 y=0
-    // SkinnedMesh 在首帧前 setFromObject 返回空盒 → 改用几何体 boundingBox
+    // SkinnedMesh 首帧前 setFromObject 返回空盒；且 Mixamo 骨架自带 0.01 缩放，
+    // 须用各网格 matrixWorld 把几何体包围盒变换到显示尺度再合并，否则身高被高估 ~100×。
+    model.updateMatrixWorld(true);
     var bbox = new THREE.Box3();
+    var _tb = new THREE.Box3();
     model.traverse(function (o) {
       if (o.isSkinnedMesh || o.isMesh) {
-        o.geometry.computeBoundingBox();
-        if (o.geometry.boundingBox) bbox.union(o.geometry.boundingBox);
+        if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+        if (o.geometry.boundingBox) {
+          _tb.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
+          bbox.union(_tb);
+        }
       }
     });
     var bh = bbox.max.y - bbox.min.y;
     if (!(bh > 0.01)) bh = PH;   // 极端保底
-    var s = (PH * 0.95) / bh;
+    var s = (PH * 0.98) / bh;
     model.scale.set(s, s, s);
     model.position.y = -bbox.min.y * s;
     // 模型默认朝 +Z，游戏前进方向为 -Z → 转 180°
@@ -81,6 +87,7 @@ function loadPlayerModel() {
     playerMixer = new THREE.AnimationMixer(model);
     var i;
     for (i = 0; i < gltf.animations.length; i++) {
+      _lockRootMotion(gltf.animations[i]);   // 去除根骨水平位移，原地循环播放
       _pActions[gltf.animations[i].name] = playerMixer.clipAction(gltf.animations[i]);
     }
 
@@ -96,6 +103,19 @@ function loadPlayerModel() {
 
     playerAnim('idle');
   }, undefined, function () { /* 加载失败：保留盒子占位 */ });
+}
+
+// 去除剪辑的根运动（Mixamo 跑/走带 Hips 前移，原地播放会滑出去再瞬移回原点）。
+// 把 Hips.position 轨道的 x/z 固定为首帧值，仅保留 y（垂直起伏），实现原地循环。
+function _lockRootMotion(clip) {
+  var t, tr, v, n, i, x0, z0;
+  for (t = 0; t < clip.tracks.length; t++) {
+    tr = clip.tracks[t];
+    if (!/Hips\.position$/i.test(tr.name)) continue;
+    v = tr.values; n = v.length;
+    x0 = v[0]; z0 = v[2];
+    for (i = 0; i < n; i += 3) { v[i] = x0; v[i + 2] = z0; }
+  }
 }
 
 // 切换玩家动画状态（同状态重复调用为空操作）

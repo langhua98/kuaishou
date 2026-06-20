@@ -288,11 +288,14 @@ var SCALE = 0.04;  // Perlin 采样缩放（越小地形越平缓）
 
 // 物理参数
 var GRAVITY  = 28;   // 重力加速度（方块/秒²）
-var JUMP_V   = 10;   // 跳跃初速度（方块/秒）
+var JUMP_V   = 8.4;  // 跳跃初速度（方块/秒）峰高≈1.26 格，可越 1 格台阶
 var PH       = 1.7;  // 玩家碰撞箱高度（方块）
 var PR       = 0.3;  // 玩家碰撞箱半径（方块）
-var MOVE_SPD = 5;    // 步行速度
+var MOVE_SPD = 4.3;  // 步行速度（摇杆轻推）
+var RUN_SPD  = 7.5;  // 奔跑速度（摇杆推到底）
 var FLY_SPD  = 8;    // 飞行速度
+var RUN_T    = 0.78; // 摇杆推程超过此值 → 奔跑
+var MOVE_DZ  = 0.18; // 摇杆死区（推程低于此值视为不动）
 
 // 方块类型 ID
 var AIR         = 0;
@@ -2270,17 +2273,23 @@ function loadPlayerModel() {
     var model = gltf.scene;
 
     // 归一化身高，脚底对齐 y=0
-    // SkinnedMesh 在首帧前 setFromObject 返回空盒 → 改用几何体 boundingBox
+    // SkinnedMesh 首帧前 setFromObject 返回空盒；且 Mixamo 骨架自带 0.01 缩放，
+    // 须用各网格 matrixWorld 把几何体包围盒变换到显示尺度再合并，否则身高被高估 ~100×。
+    model.updateMatrixWorld(true);
     var bbox = new THREE.Box3();
+    var _tb = new THREE.Box3();
     model.traverse(function (o) {
       if (o.isSkinnedMesh || o.isMesh) {
-        o.geometry.computeBoundingBox();
-        if (o.geometry.boundingBox) bbox.union(o.geometry.boundingBox);
+        if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+        if (o.geometry.boundingBox) {
+          _tb.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
+          bbox.union(_tb);
+        }
       }
     });
     var bh = bbox.max.y - bbox.min.y;
     if (!(bh > 0.01)) bh = PH;   // 极端保底
-    var s = (PH * 0.95) / bh;
+    var s = (PH * 0.98) / bh;
     model.scale.set(s, s, s);
     model.position.y = -bbox.min.y * s;
     // 模型默认朝 +Z，游戏前进方向为 -Z → 转 180°
@@ -2292,6 +2301,7 @@ function loadPlayerModel() {
     playerMixer = new THREE.AnimationMixer(model);
     var i;
     for (i = 0; i < gltf.animations.length; i++) {
+      _lockRootMotion(gltf.animations[i]);   // 去除根骨水平位移，原地循环播放
       _pActions[gltf.animations[i].name] = playerMixer.clipAction(gltf.animations[i]);
     }
 
@@ -2307,6 +2317,19 @@ function loadPlayerModel() {
 
     playerAnim('idle');
   }, undefined, function () { /* 加载失败：保留盒子占位 */ });
+}
+
+// 去除剪辑的根运动（Mixamo 跑/走带 Hips 前移，原地播放会滑出去再瞬移回原点）。
+// 把 Hips.position 轨道的 x/z 固定为首帧值，仅保留 y（垂直起伏），实现原地循环。
+function _lockRootMotion(clip) {
+  var t, tr, v, n, i, x0, z0;
+  for (t = 0; t < clip.tracks.length; t++) {
+    tr = clip.tracks[t];
+    if (!/Hips\.position$/i.test(tr.name)) continue;
+    v = tr.values; n = v.length;
+    x0 = v[0]; z0 = v[2];
+    for (i = 0; i < n; i += 3) { v[i] = x0; v[i + 2] = z0; }
+  }
 }
 
 // 切换玩家动画状态（同状态重复调用为空操作）
@@ -7263,6 +7286,7 @@ var _camDcur = CAM_DIST;
 var _bobT = 0, _fovCur = 70, _rollCur = 0;
 var _dipY = 0, _dipV = 0;
 var _wasGround = false;
+var _playerRunning = false;   // 当前是否奔跑（摇杆推到底），驱动 run 动画与 FOV
 
 // ── 长按交互冷却 ───────────────────────────────────────────────────────────────────
 var BREAK_CD = 0.22;
@@ -7329,13 +7353,25 @@ function tick(now) {
   } else {
     var sy  = Math.sin(player.yaw), cy2 = Math.cos(player.yaw);
     var jx  = joy.dx / JOY_R, jy = joy.dy / JOY_R;
-    // 斜向限速：摇杆向量长度截断到 1（否则对角线快 41%）
+    // 摇杆推程（向量长度，0~1）决定走/跑；方向取单位向量
     var jLen = Math.sqrt(jx * jx + jy * jy);
-    if (jLen > 1) { jx /= jLen; jy /= jLen; }
-    var spd = player.flying ? FLY_SPD : MOVE_SPD;
-    // 摇杆上（jy<0）→ 沿视线水平方向前进，右（jx>0）→ 向右侧移
-    player.vx = (jy * sy  + jx *  cy2) * spd;
-    player.vz = (jy * cy2 + jx * (-sy)) * spd;
+    if (jLen > 1) jLen = 1;
+    var ux = 0, uy = 0;
+    if (jLen > 0.001) { ux = jx / jLen; uy = jy / jLen; }
+    var spd;
+    if (player.flying) {
+      spd = FLY_SPD * jLen;          // 飞行保持模拟量
+      _playerRunning = false;
+    } else if (jLen < MOVE_DZ) {
+      spd = 0; _playerRunning = false;          // 死区：不动
+    } else if (jLen < RUN_T) {
+      spd = MOVE_SPD; _playerRunning = false;   // 轻推：走
+    } else {
+      spd = RUN_SPD;  _playerRunning = true;    // 推到底：跑
+    }
+    // 摇杆上（uy<0）→ 沿视线水平方向前进，右（ux>0）→ 向右侧移
+    player.vx = (uy * sy  + ux *  cy2) * spd;
+    player.vz = (uy * cy2 + ux * (-sy)) * spd;
 
     if (player.flying) {
       // 飞行升降：按住跳跃=升，按住下降键=降，松开悬停
@@ -7651,9 +7687,9 @@ function tick(now) {
   if (playerMixer) {
     if      (!player.onGround && !player.flying && player.vy >  2) playerAnim('jump');
     else if (!player.onGround && !player.flying && player.vy < -4) playerAnim('fall');
-    else if (moveMag > FLY_SPD * 0.8) playerAnim('run');
-    else if (moveMag > 0.5)           playerAnim('walk');
-    else                              playerAnim('idle');
+    else if (_playerRunning && moveMag > 0.5) playerAnim('run');
+    else if (moveMag > 0.5)                   playerAnim('walk');
+    else                                      playerAnim('idle');
     playerMixer.update(dt);
     if (typeof updatePlayerProcAnim === 'function') updatePlayerProcAnim(dt);
   }
@@ -7762,7 +7798,7 @@ function tick(now) {
     armGroupL.position.x = -0.30 + jx * 0.02;
   }
 
-  var tgFov = (!player.flying && player.onGround && moveMag > MOVE_SPD * 0.8) ? 76 : 70;
+  var tgFov = (!player.flying && player.onGround && _playerRunning) ? 76 : 70;
   _fovCur += (tgFov - _fovCur) * Math.min(1, 6 * dt);
   if (Math.abs(_fovCur - camera.fov) > 0.05) {
     camera.fov = _fovCur;
