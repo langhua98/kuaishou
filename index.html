@@ -6481,8 +6481,15 @@ function _buildStations() {
         m.position.x = RAIL_X - 6 - (bb.min.x + bb.max.x) / 2;
         m.position.z = stationZ - (bb.min.z + bb.max.z) / 2;
         m.position.y = RAIL_TOP - bb.min.y;
+        // PBR→Lambert（与游戏风格一致，避免 PBR 在低光照下变黑）
+        m.traverse(function(node) {
+          if (!node.isMesh || !node.material) return;
+          var src = Array.isArray(node.material) ? node.material[0] : node.material;
+          var hex = (src && src.color) ? src.color.getHex() : 0xcccccc;
+          node.material = new THREE.MeshLambertMaterial({ color: hex });
+        });
         scene.add(m);
-      }, undefined, function() {});
+      }, undefined, function(err) { console.error('train_station load err', err); });
     })(sz);
   }
 }
@@ -6606,33 +6613,36 @@ function _updateBoardBtn() {
   }
 }
 
-// ── 高架桥（桥墩 + 桥面板，跳过两端站台区域）───────────────────────────────
+// ── 高架桥（轨道侧边护墙 + 桥墩帽，跳过两端站台区域）────────────────────────
+// RAIL_TOP=15 = 地面顶面高度（terrain block y=14 占 world y=14~15）
+// 护墙从 y=RAIL_TOP 向上延伸，确保在地面以上可见
 function _buildViaduct() {
-  var pillarMat = new THREE.MeshLambertMaterial({ color: 0xd0ccc8 });
-  var deckMat   = new THREE.MeshLambertMaterial({ color: 0xc8c4c0 });
-  var pillarH   = RAIL_TOP - 1;
-  var northEnd  = RAIL_Z0 + TRAIN_MARGIN + 15;
-  var southEnd  = RAIL_Z1 - TRAIN_MARGIN - 15;
+  var wallMat = new THREE.MeshLambertMaterial({ color: 0xd4d0cc }); // 混凝土灰
+  var capMat  = new THREE.MeshLambertMaterial({ color: 0xa8a4a0 }); // 深灰桥墩帽
+  var northZ  = RAIL_Z0 + TRAIN_MARGIN + 16;  // 跳过北端站台
+  var southZ  = RAIL_Z1 - TRAIN_MARGIN - 16;  // 跳过南端站台
+  var midZ    = (northZ + southZ) / 2;
+  var segLen  = southZ - northZ;
 
-  for (var z = RAIL_Z0 + 4; z < RAIL_Z1; z += 8) {
-    if (z > northEnd && z < southEnd) {
-      var p1 = new THREE.Mesh(new THREE.BoxGeometry(0.8, pillarH, 0.8), pillarMat);
-      p1.position.set(RAIL_X - 0.8, pillarH / 2, z);
-      scene.add(p1);
-      var p2 = new THREE.Mesh(new THREE.BoxGeometry(0.8, pillarH, 0.8), pillarMat);
-      p2.position.set(RAIL_X + 1.8, pillarH / 2, z);
-      scene.add(p2);
-      var beam = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.5, 1.2), pillarMat);
-      beam.position.set(RAIL_X + 0.5, pillarH + 0.25, z);
-      scene.add(beam);
-    }
+  // 左侧护墙（x = RAIL_X - 0.6，轨道左侧紧贴）
+  var bL = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1.4, segLen), wallMat);
+  bL.position.set(RAIL_X - 0.6, RAIL_TOP + 0.7, midZ);
+  scene.add(bL);
+
+  // 右侧护墙（x = RAIL_X + 1.6，轨道右侧紧贴）
+  var bR = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1.4, segLen), wallMat);
+  bR.position.set(RAIL_X + 1.6, RAIL_TOP + 0.7, midZ);
+  scene.add(bR);
+
+  // 桥墩帽块：每 12 格一组，突出于护墙顶部
+  for (var vz = northZ + 6; vz < southZ; vz += 12) {
+    var cL = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.45, 1.6), capMat);
+    cL.position.set(RAIL_X - 0.65, RAIL_TOP + 1.625, vz);
+    scene.add(cL);
+    var cR = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.45, 1.6), capMat);
+    cR.position.set(RAIL_X + 1.65, RAIL_TOP + 1.625, vz);
+    scene.add(cR);
   }
-  var deck = new THREE.Mesh(
-    new THREE.BoxGeometry(4, 0.4, RAIL_Z1 - RAIL_Z0),
-    deckMat
-  );
-  deck.position.set(RAIL_X + 0.5, RAIL_TOP - 0.3, (RAIL_Z0 + RAIL_Z1) / 2);
-  scene.add(deck);
 }
 
 
