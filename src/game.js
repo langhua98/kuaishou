@@ -442,6 +442,7 @@ function tick(now) {
     player.z += player.vz * dt;
     resolveAABB();
     _resolveCircuitGround();
+    if (typeof _resolveTrainCollision === 'function') _resolveTrainCollision();
 
     if (!_wasGround && player.onGround && preVy < -12) {
       _dipV = Math.max(-1.5, preVy * 0.05);
@@ -466,33 +467,35 @@ function tick(now) {
   var nowS = now * 0.001;
   if (player.breakQ || (breakHeld && nowS - _lastBreak > BREAK_CD)) {
     player.breakQ = false;
-    if (_swingT <= 0) _swingT = SWING_DUR;
-    if (tryPlayerAttack()) {
-      _lastBreak = nowS;
-    } else {
-      var hitB = raycast(12);
-      if (hitB) {
-        var _brokenId = getBlock(hitB.x, hitB.y, hitB.z);
-        removeSound(_brokenId);
-        if (typeof spawnBurst === 'function' && BCOL[_brokenId]) {
-          var _bc = BCOL[_brokenId];
-          spawnBurst(hitB.x + 0.5, hitB.y + 0.5, hitB.z + 0.5, {
-            count: 16,
-            color: (Math.round(_bc[0]*255) << 16) | (Math.round(_bc[1]*255) << 8) | Math.round(_bc[2]*255),
-            speed: 3, size: 0.14, life: 0.45, gravity: 16
-          });
-        }
-        setBlock(hitB.x, hitB.y, hitB.z, AIR);
-        if (typeof recordEdit === 'function') recordEdit(hitB.x, hitB.y, hitB.z, AIR);
-        if (_brokenId === TERRITORY_STONE && typeof _removeTerritory === 'function') _removeTerritory(hitB.x, hitB.y, hitB.z);
-        if (_brokenId === OBSIDIAN && typeof _enemyStrongholdPos !== 'undefined' && _enemyStrongholdPos &&
-            hitB.x === _enemyStrongholdPos.x && hitB.y === _enemyStrongholdPos.y && hitB.z === _enemyStrongholdPos.z) {
-          for (var _si = 0; _si < combatUnits.length; _si++) {
-            if (combatUnits[_si].side === 1 && combatUnits[_si].passive) combatUnits[_si].passive = false;
-          }
-          _enemyStrongholdPos = null;
-        }
+    if (!(typeof _onTrain !== 'undefined' && _onTrain)) {
+      if (_swingT <= 0) _swingT = SWING_DUR;
+      if (tryPlayerAttack()) {
         _lastBreak = nowS;
+      } else {
+        var hitB = raycast(12);
+        if (hitB) {
+          var _brokenId = getBlock(hitB.x, hitB.y, hitB.z);
+          removeSound(_brokenId);
+          if (typeof spawnBurst === 'function' && BCOL[_brokenId]) {
+            var _bc = BCOL[_brokenId];
+            spawnBurst(hitB.x + 0.5, hitB.y + 0.5, hitB.z + 0.5, {
+              count: 16,
+              color: (Math.round(_bc[0]*255) << 16) | (Math.round(_bc[1]*255) << 8) | Math.round(_bc[2]*255),
+              speed: 3, size: 0.14, life: 0.45, gravity: 16
+            });
+          }
+          setBlock(hitB.x, hitB.y, hitB.z, AIR);
+          if (typeof recordEdit === 'function') recordEdit(hitB.x, hitB.y, hitB.z, AIR);
+          if (_brokenId === TERRITORY_STONE && typeof _removeTerritory === 'function') _removeTerritory(hitB.x, hitB.y, hitB.z);
+          if (_brokenId === OBSIDIAN && typeof _enemyStrongholdPos !== 'undefined' && _enemyStrongholdPos &&
+              hitB.x === _enemyStrongholdPos.x && hitB.y === _enemyStrongholdPos.y && hitB.z === _enemyStrongholdPos.z) {
+            for (var _si = 0; _si < combatUnits.length; _si++) {
+              if (combatUnits[_si].side === 1 && combatUnits[_si].passive) combatUnits[_si].passive = false;
+            }
+            _enemyStrongholdPos = null;
+          }
+          _lastBreak = nowS;
+        }
       }
     }
   }
@@ -627,6 +630,8 @@ function tick(now) {
   // ── 放置（单次 + 长按节流）───────────────────────────────────────────────────
   if (player.placeQ || (placeHeld && nowS - _lastPlace > PLACE_CD)) {
     player.placeQ = false;
+    if (typeof _onTrain !== 'undefined' && _onTrain) { /* 车内禁止放置方块 */ }
+    else {
     if (_swingT <= 0) _swingT = SWING_DUR;
     var pv = _place.pos;
     if (pv) {
@@ -682,6 +687,7 @@ function tick(now) {
         }
       }
     }
+    }  // end else (!_onTrain)
   }
 
   if (coordEl) {

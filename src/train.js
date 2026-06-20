@@ -10,7 +10,7 @@
 //   对外全局：_onTrain（game.js 移动段读取，乘车时跳过行走物理）
 
 var RAIL_X      = 12;    // 轨道固定 X（道路 wx∈[-3,8] 右侧，与道路平行）
-var RAIL_Z0     =  40;   // 北端起点（城堡南门外约 25 格，避免穿城堡）
+var RAIL_Z0     =  65;   // 北端起点（城堡南门外约 50 格，car1 后缘 z≈23.5，安全）
 var RAIL_Z1     = 1710;  // 南端终点（铃鹿赛道中心）
 var RAIL_TOP    = SEA + 3; // 轨面站立高度（轨道床顶面 y=SEA+2，+1 为地板上方）
 var TRAIN_CRUISE = 30;   // 巡航速度 u/s（约 55 秒单程）
@@ -31,6 +31,7 @@ var _trainState = 'dwell'; // 'dwell' | 'run'
 var _trainDwellT = 30;  // 初始多等 30s，让玩家有时间走到站台
 var _trainBoardBtn = null;
 var _trainMixers  = [];   // AnimationMixer per car
+var _trainActions = [];   // AnimationAction refs（开关门动画用）
 
 // ── 车厢内行走（移动平台模型）─────────────────────────────────────────────────
 var _carCX        = RAIL_X + 0.5;  // 车厢 X 中心
@@ -44,7 +45,6 @@ function initTrain() {
   if (typeof gltfLoader === 'undefined') return;
   _buildBoardBtn();
   _buildStations();
-  _buildViaduct();
 
   // 沿 Z 轴铺轨道瓦片
   gltfLoader.load('assets/models/train/rail_straight.glb', function (g) {
@@ -116,7 +116,9 @@ function _addCar(model, isFront, clips) {
   if (clips && clips.length > 0) {
     var mixer = new THREE.AnimationMixer(model);
     for (var ci = 0; ci < clips.length; ci++) {
-      mixer.clipAction(clips[ci]).play();
+      var action = mixer.clipAction(clips[ci]);
+      action.play();
+      _trainActions.push(action);
     }
     _trainMixers.push(mixer);
   }
@@ -128,32 +130,37 @@ function _addCar(model, isFront, clips) {
 }
 
 // 车站（Three.js 几何体）：城堡站 + 道路尽头中转站 + 铃鹿终点站
+// platOff：月台板相对停车位置的 Z 偏移，使两节车厢都在月台覆盖范围内
+//   北站 _trainDir=+1 时 car1 在南（sz-36），中心偏北 -18
+//   南站 _trainDir=-1 时 car1 在北（sz+36），中心偏南 +18
 function _buildStations() {
   var stations = [
-    { z: RAIL_Z0 + TRAIN_MARGIN },   // 城堡站（北）
-    { z: 186 },                       // 道路尽头中转站（南 z=186）
-    { z: RAIL_Z1 - TRAIN_MARGIN }    // 铃鹿赛道终点站
+    { z: RAIL_Z0 + TRAIN_MARGIN, platOff: -18 },  // 城堡站（北）
+    { z: 186,                    platOff:   0 },   // 道路尽头中转站
+    { z: RAIL_Z1 - TRAIN_MARGIN, platOff: +18 }   // 铃鹿赛道终点站
   ];
   for (var s = 0; s < stations.length; s++) {
-    var sz = stations[s].z;
+    var sz   = stations[s].z;
+    var pOff = stations[s].platOff;
+    var cz   = sz + pOff;   // 月台几何体中心 Z
     var platMat = new THREE.MeshLambertMaterial({ color: 0xe8e0d0 });
     var postMat = new THREE.MeshLambertMaterial({ color: 0x888888 });
     var roofMat = new THREE.MeshLambertMaterial({ color: 0x4a7ab5 });
     var lineMat = new THREE.MeshLambertMaterial({ color: 0xf0c020 });
 
-    // 月台板（4宽 × 20长）
-    var plat = new THREE.Mesh(new THREE.BoxGeometry(4, 0.25, 20), platMat);
-    plat.position.set(RAIL_X - 2.5, RAIL_TOP + 0.125, sz);
+    // 月台板（4宽 × 75长，覆盖两节车厢）
+    var plat = new THREE.Mesh(new THREE.BoxGeometry(4, 0.25, 75), platMat);
+    plat.position.set(RAIL_X - 2.5, RAIL_TOP + 0.125, cz);
     scene.add(plat);
 
     // 安全黄线（紧靠轨道边缘）
-    var line = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.05, 20), lineMat);
-    line.position.set(RAIL_X - 0.6, RAIL_TOP + 0.28, sz);
+    var line = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.05, 75), lineMat);
+    line.position.set(RAIL_X - 0.6, RAIL_TOP + 0.28, cz);
     scene.add(line);
 
-    // 遮棚立柱（6根：Z 方向每 8 格两根）
+    // 遮棚立柱（月台两端各缩 2 格，每 12 格一组）
     var pz, px;
-    for (pz = sz - 8; pz <= sz + 8; pz += 8) {
+    for (pz = cz - 35; pz <= cz + 35; pz += 12) {
       for (px = 0; px < 2; px++) {
         var pc = new THREE.Mesh(new THREE.BoxGeometry(0.25, 3.2, 0.25), postMat);
         pc.position.set(RAIL_X - 1.2 - px * 2.4, RAIL_TOP + 1.85, pz);
@@ -162,8 +169,8 @@ function _buildStations() {
     }
 
     // 顶棚
-    var roof = new THREE.Mesh(new THREE.BoxGeometry(4, 0.25, 19.5), roofMat);
-    roof.position.set(RAIL_X - 2.5, RAIL_TOP + 3.375, sz);
+    var roof = new THREE.Mesh(new THREE.BoxGeometry(4, 0.25, 74), roofMat);
+    roof.position.set(RAIL_X - 2.5, RAIL_TOP + 3.375, cz);
     scene.add(roof);
   }
 }
@@ -176,6 +183,7 @@ function updateTrain(dt) {
   for (var mi = 0; mi < _trainMixers.length; mi++) _trainMixers[mi].update(dt);
 
   // 状态机：停靠倒计时 / 加速巡航减速进站
+  var _prevState = _trainState;
   if (_trainState === 'dwell') {
     _trainV = 0;
     // 玩家在候车范围内时保持停靠（只在未上车时生效）
@@ -202,6 +210,16 @@ function updateTrain(dt) {
       _trainDir = -_trainDir;
       _trainState = 'dwell';
       _trainDwellT = TRAIN_DWELL;
+    }
+  }
+
+  // 状态切换时控制开关门动画
+  if (_prevState !== _trainState) {
+    var _aIdx;
+    if (_trainState === 'dwell') {
+      for (_aIdx = 0; _aIdx < _trainActions.length; _aIdx++) _trainActions[_aIdx].play();
+    } else {
+      for (_aIdx = 0; _aIdx < _trainActions.length; _aIdx++) _trainActions[_aIdx].stop();
     }
   }
 
@@ -309,34 +327,19 @@ function _updateBoardBtn() {
   }
 }
 
-// ── 高架桥（轨道侧边护墙 + 桥墩帽，跳过两端站台区域）────────────────────────
-// RAIL_TOP=15 = 地面顶面高度（terrain block y=14 占 world y=14~15）
-// 护墙从 y=RAIL_TOP 向上延伸，确保在地面以上可见
-function _buildViaduct() {
-  var wallMat = new THREE.MeshLambertMaterial({ color: 0xd4d0cc }); // 混凝土灰
-  var capMat  = new THREE.MeshLambertMaterial({ color: 0xa8a4a0 }); // 深灰桥墩帽
-  var northZ  = RAIL_Z0 + TRAIN_MARGIN + 16;  // 跳过北端站台
-  var southZ  = 200;  // 赛道 z≥205 地面已平，高架桥只覆盖自然地形段
-  var midZ    = (northZ + southZ) / 2;
-  var segLen  = southZ - northZ;
-
-  // 左侧护墙（x = RAIL_X - 0.6，轨道左侧紧贴）
-  var bL = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1.4, segLen), wallMat);
-  bL.position.set(RAIL_X - 0.6, RAIL_TOP + 0.7, midZ);
-  scene.add(bL);
-
-  // 右侧护墙（x = RAIL_X + 1.6，轨道右侧紧贴）
-  var bR = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1.4, segLen), wallMat);
-  bR.position.set(RAIL_X + 1.6, RAIL_TOP + 0.7, midZ);
-  scene.add(bR);
-
-  // 桥墩帽块：每 12 格一组，突出于护墙顶部
-  for (var vz = northZ + 6; vz < southZ; vz += 12) {
-    var cL = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.45, 1.6), capMat);
-    cL.position.set(RAIL_X - 0.65, RAIL_TOP + 1.625, vz);
-    scene.add(cL);
-    var cR = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.45, 1.6), capMat);
-    cR.position.set(RAIL_X + 1.65, RAIL_TOP + 1.625, vz);
-    scene.add(cR);
+// 玩家–列车 AABB 碰撞（仅非乘车时）：将玩家推到车厢西侧（月台方向）
+function _resolveTrainCollision() {
+  if (!_trainReady || _onTrain) return;
+  var HX = _carInHX + 0.5;
+  var HZ = _carInHZ + 0.5;
+  var yLo = _TRAIN_FLOOR_Y - 0.5, yHi = _TRAIN_FLOOR_Y + 12;
+  if (player.y < yLo || player.y > yHi) return;
+  for (var i = 0; i < _trainCars.length; i++) {
+    var carZ = _trainZ - _trainDir * i * _carSpacing;
+    if (Math.abs(player.x - _carCX) < HX + PR &&
+        Math.abs(player.z - carZ)   < HZ + PR) {
+      player.x = _carCX - HX - PR;
+      if (player.vx > 0) player.vx = 0;
+    }
   }
 }
