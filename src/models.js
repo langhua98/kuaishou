@@ -82,6 +82,11 @@ function loadPlayerModel() {
     while (playerGroup.children.length) playerGroup.remove(playerGroup.children[0]);
     playerGroup.add(model);
 
+    // 材质修正：GLB 为 PBR（metalness≈0.5），缺环境贴图时金属分量渲染为黑 →
+    // 角色发暗、贴图色彩出不来。把金属度降到 0 让 albedo 在现有光照下正常显色，
+    // 再注入中性灰 IBL（与赛道模型同处理）补一点环境高光。
+    _fixPlayerMaterials(model);
+
     playerMixer = new THREE.AnimationMixer(model);
     var i;
     for (i = 0; i < gltf.animations.length; i++) {
@@ -115,6 +120,29 @@ function _lockRootMotion(clip) {
     kept.push(tr);
   }
   clip.tracks = kept;
+}
+
+// 让 PBR 玩家材质在体素场景灯光下正常显色（金属度归零 + 中性灰环境贴图）
+var _playerEnvTex = null;
+function _fixPlayerMaterials(model) {
+  if (!_playerEnvTex && typeof renderer !== 'undefined' && renderer && THREE.PMREMGenerator) {
+    var pm = new THREE.PMREMGenerator(renderer);
+    var es = new THREE.Scene();
+    es.background = new THREE.Color(0x999999);
+    _playerEnvTex = pm.fromScene(es).texture;
+    pm.dispose();
+  }
+  model.traverse(function (node) {
+    if (!node.isMesh && !node.isSkinnedMesh) return;
+    var mats = Array.isArray(node.material) ? node.material : [node.material];
+    for (var mi = 0; mi < mats.length; mi++) {
+      var m = mats[mi];
+      if (!m) continue;
+      if (m.metalness !== undefined) m.metalness = 0.0;   // 角色非金属，让漫反射 albedo 显出来
+      if (_playerEnvTex) { m.envMap = _playerEnvTex; m.envMapIntensity = 0.6; }
+      m.needsUpdate = true;
+    }
+  });
 }
 
 // 切换玩家动画状态（同状态重复调用为空操作）
