@@ -740,6 +740,7 @@ function tick(now) {
     else if (moveMag > 0.5)           playerAnim('walk');
     else                              playerAnim('idle');
     playerMixer.update(dt);
+    if (typeof updatePlayerProcAnim === 'function') updatePlayerProcAnim(dt);
   }
 
   updateNPCs(dt);

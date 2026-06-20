@@ -26,6 +26,23 @@ var playerMixer = null;   // null = 模型未就绪
 var _pActions   = {};     // 动画名(原始) → AnimationAction
 var _pCurrent   = '';
 
+// 程序化骨骼动画（模型自带 0 动画时由代码驱动 idle/walk/run）
+// D.Va 模型为 Unreal 骨骼，按名匹配四肢骨，每帧相对绑定姿势叠加旋转
+var _procBones = {};      // 逻辑名 → THREE.Object3D（骨骼节点）
+var _procBind  = {};      // 逻辑名 → 绑定姿势四元数
+var _procState = 'idle';  // 当前动作
+var _procT     = 0;       // 步态相位累加
+var _procAmp   = 0;       // 行走幅度权重（0→1 平滑过渡）
+var _procReady = false;
+var _PROC_Q    = null;    // 复用临时四元数
+var _PROC_PAT  = {
+  thighL: /^thigh_l_\d/,    thighR: /^thigh_r_\d/,
+  calfL:  /^calf_l_\d/,     calfR:  /^calf_r_\d/,
+  upperarmL: /^upperarm_l_\d/, upperarmR: /^upperarm_r_\d/,
+  lowerarmL: /^lowerarm_l_\d/, lowerarmR: /^lowerarm_r_\d/,
+  spine:  /^spine_03_\d/,   pelvis: /^pelvis_\d/
+};
+
 // 状态 → 可能的动画名（不同模型命名不同，按序取第一个存在的）
 // 已扩充常见 Overwatch / Mixamo / Sketchfab 风格命名
 var _ANIM_ALIAS = {
@@ -54,15 +71,19 @@ function loadPlayerModel() {
     playerMixer = new THREE.AnimationMixer(model);
     var i;
     for (i = 0; i < gltf.animations.length; i++) {
-      console.log('[player anim]', gltf.animations[i].name);
       _pActions[gltf.animations[i].name] = playerMixer.clipAction(gltf.animations[i]);
     }
+
+    // 无内置动画 → 捕获四肢骨用于程序化动画
+    if (gltf.animations.length === 0) _setupProcBones(model);
+
     playerAnim('idle');
   }, undefined, function () { /* 加载失败：保留盒子占位 */ });
 }
 
 // 切换玩家动画状态（同状态重复调用为空操作）
 function playerAnim(state) {
+  _procState = state;   // 程序化动画始终记录目标状态（在剪辑早退之前）
   if (!playerMixer) return;
   var names = _ANIM_ALIAS[state] || [state], name = null, i;
   for (i = 0; i < names.length; i++) {
@@ -73,6 +94,61 @@ function playerAnim(state) {
   if (prev) prev.fadeOut(0.2);
   _pActions[name].reset().fadeIn(0.2).play();
   _pCurrent = name;
+}
+
+// 遍历模型，按名匹配四肢骨并记录绑定姿势四元数
+function _setupProcBones(model) {
+  _PROC_Q = new THREE.Quaternion();
+  model.traverse(function (o) {
+    if (!o.isBone && !o.isObject3D) return;
+    var nm = o.name || '';
+    for (var key in _PROC_PAT) {
+      if (!_procBones[key] && _PROC_PAT[key].test(nm)) {
+        _procBones[key] = o;
+        _procBind[key] = o.quaternion.clone();
+      }
+    }
+  });
+  // 至少抓到双腿才启用（否则模型骨骼命名不符，跳过）
+  _procReady = !!(_procBones.thighL && _procBones.thighR);
+}
+
+// 绕指定轴在绑定姿势上叠加旋转
+function _procRot(key, ax, ay, az, ang) {
+  var b = _procBones[key]; if (!b) return;
+  _PROC_Q.setFromAxisAngle(_TMP_AXIS.set(ax, ay, az), ang);
+  b.quaternion.copy(_procBind[key]).multiply(_PROC_Q);
+}
+var _TMP_AXIS = (typeof THREE !== 'undefined') ? new THREE.Vector3() : null;
+
+// 每帧驱动程序化动画（game.js 在 playerMixer.update 后调用）
+function updatePlayerProcAnim(dt) {
+  if (!_procReady) return;
+  // 目标行走幅度：idle=0，walk≈1，run≈1.7
+  var target = (_procState === 'run') ? 1.7 : (_procState === 'walk') ? 1.0 : 0.0;
+  _procAmp += (target - _procAmp) * Math.min(1, dt * 8);   // 平滑过渡
+  // 相位推进：跑步更快
+  var freq = (_procState === 'run') ? 11 : 8;
+  _procT += dt * freq * (0.4 + 0.6 * Math.min(1, _procAmp));
+
+  var ph = _procT;
+  var amp = _procAmp;
+  var swing = 0.5 * amp;                 // 大腿前后摆幅（弧度）
+  var sL = Math.sin(ph), sR = Math.sin(ph + Math.PI);
+
+  // 腿：左右反相前后摆（绕本地 X）
+  _procRot('thighL', 1, 0, 0,  swing * sL);
+  _procRot('thighR', 1, 0, 0,  swing * sR);
+  // 小腿：腿后摆时屈膝（仅正向弯曲）
+  _procRot('calfL', 1, 0, 0, -0.6 * amp * Math.max(0,  sL));
+  _procRot('calfR', 1, 0, 0, -0.6 * amp * Math.max(0,  sR));
+  // 手臂：与同侧腿反相摆动
+  _procRot('upperarmL', 1, 0, 0, -0.4 * amp * sL);
+  _procRot('upperarmR', 1, 0, 0, -0.4 * amp * sR);
+
+  // 待机 / 整体：脊椎轻微呼吸晃动（idle 时仍有微动）
+  var breathe = 0.04 * Math.sin(_procT * 0.5 + 1.0) * (1.0 - 0.5 * amp);
+  _procRot('spine', 1, 0, 0, breathe);
 }
 
 // ── NPC ───────────────────────────────────────────────────────────────────────
