@@ -974,18 +974,48 @@ function _loadSuzukaCircuit() {
   if (typeof gltfLoader === 'undefined') return;
   gltfLoader.load('assets/models/suzuka_circuit.glb', function (g) {
     var model = g.scene;
+
+    // 1. 缩放到目标尺寸
     model.updateMatrixWorld(true);
     var bb = new THREE.Box3().setFromObject(model);
     var maxDim = Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z);
     if (maxDim > 0.1) {
-      var s = 1200 / maxDim;
+      var s = 3000 / maxDim;
       model.scale.multiplyScalar(s);
       model.updateMatrixWorld(true);
       bb.setFromObject(model);
     }
+
+    // 2. X/Z 居中放到 z=1710（道路尽头 z=210 再往南 1500）
     model.position.x = 0 - (bb.min.x + bb.max.x) / 2;
-    model.position.z = 810 - (bb.min.z + bb.max.z) / 2;
-    model.position.y = SEA + 2;   // 轨道面 Y≈0 直接对齐地面，不用 bb.min.y 补偿
+    model.position.z = 1710 - (bb.min.z + bb.max.z) / 2;
+    model.position.y = 0;
+    model.updateMatrixWorld(true);
+
+    // 3. 自动找赛道面高度：从赛道中心上方射线向下，取第一个命中点 Y
+    var floorRC = new THREE.Raycaster();
+    var cx = (bb.min.x + bb.max.x) / 2 + model.position.x;  // 世界 X 中心
+    var cz = 1710;
+    floorRC.set(new THREE.Vector3(cx, 5000, cz), new THREE.Vector3(0, -1, 0));
+    var fhits = floorRC.intersectObject(model, true);
+    var trackY = fhits.length > 0 ? fhits[0].point.y : 0;
+    // 把赛道面对齐 SEA+2（石头路面高度）
+    model.position.y = (SEA + 2) - trackY;
+
+    // 4. 材质转为 Lambert（与游戏风格统一，消除 PBR 失真）
+    model.traverse(function (node) {
+      if (!node.isMesh) return;
+      var old = Array.isArray(node.material) ? node.material[0] : node.material;
+      if (!old) return;
+      node.material = new THREE.MeshLambertMaterial({
+        map:         old.map         || null,
+        color:       old.color       || 0xffffff,
+        transparent: old.transparent || false,
+        opacity:     old.opacity     !== undefined ? old.opacity : 1,
+        side:        old.side        || THREE.FrontSide
+      });
+    });
+
     scene.add(model);
     _circuitModel = model;
     _circuitRC    = new THREE.Raycaster();
@@ -995,7 +1025,7 @@ function _loadSuzukaCircuit() {
 // 每帧：玩家在赛道区时向下射线打 GLB，站在模型表面
 function _resolveCircuitGround() {
   if (!_circuitModel || !_circuitRC) return;
-  if (player.x < -360 || player.x > 360 || player.z < 205 || player.z > 1415) return;
+  if (player.x < -900 || player.x > 900 || player.z < 205 || player.z > 3215) return;
   _circuitRCOrg.set(player.x, player.y + 10, player.z);
   _circuitRC.set(_circuitRCOrg, _circuitRCDir);
   var hits = _circuitRC.intersectObject(_circuitModel, true);

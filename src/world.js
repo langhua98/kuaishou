@@ -79,14 +79,14 @@ function genTerrain(cx, cz) {
       var _shoulder = (wx >= -8 && wx <= 19 && wz >= 8 && wz <= 205);
       if (_shoulder && h > SEA + 2) h = SEA + 2;
 
-      // 铃鹿赛道平坦区（z=205~1415，x=-360~360）
-      var _circuit = (wz >= 205 && wz <= 1415 && wx >= -360 && wx <= 360);
+      // 铃鹿赛道平坦区（z=205~3215，x=-900~900）
+      var _circuit = (wz >= 205 && wz <= 3215 && wx >= -900 && wx <= 900);
       if (_circuit) h = SEA + 2;
 
       // 赛道围墙（外圈单格，比地面高 3 格）
       var _cwall = (
-        (wz >= 204 && wz <= 1416 && (wx === -362 || wx === 362)) ||
-        (wx >= -362 && wx <= 362 && (wz === 204 || wz === 1416))
+        (wz >= 204 && wz <= 3216 && (wx === -902 || wx === 902)) ||
+        (wx >= -902 && wx <= 902 && (wz === 204 || wz === 3216))
       );
       if (_cwall) h = SEA + 5;
 
@@ -113,7 +113,7 @@ function genTerrain(cx, cz) {
       if (twR < 40) continue;
       if (twx >= -3 && twx <= 8 && twz >= 14 && twz <= 200) continue;  // 路区无树
       if (twx >= 9 && twx <= 15 && twz >= 8 && twz <= 200) continue;  // 轨道区无树
-      if (twx >= -362 && twx <= 362 && twz >= 204 && twz <= 1417) continue; // 赛道区无树
+      if (twx >= -902 && twx <= 902 && twz >= 204 && twz <= 3217) continue; // 赛道区无树
       // 确定性伪随机（sin hash，每格唯一）
       th = Math.sin(twx * 127.1 + twz * 311.7) * 43758.5453;
       th = th - Math.floor(th);
