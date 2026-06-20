@@ -36,6 +36,7 @@ function initTrain() {
   if (typeof gltfLoader === 'undefined') return;
   _buildBoardBtn();
   _buildStations();
+  _buildViaduct();
 
   // 沿 Z 轴铺轨道瓦片
   gltfLoader.load('assets/models/train/rail_straight.glb', function (g) {
@@ -148,6 +149,24 @@ function _buildStations() {
     );
     roof.position.set(RAIL_X - 2.5, RAIL_TOP + 3.1, sz);
     scene.add(roof);
+
+    // 日本车站 GLB（月台背后，X 偏更左）
+    (function(stationZ) {
+      gltfLoader.load('assets/models/train/train_station.glb', function(g) {
+        var m = g.scene;
+        m.updateMatrixWorld(true);
+        var bb = new THREE.Box3().setFromObject(m);
+        var w = bb.max.x - bb.min.x, d = bb.max.z - bb.min.z;
+        var scale = 10 / Math.max(w, d, 1);
+        m.scale.setScalar(scale);
+        m.updateMatrixWorld(true);
+        bb.setFromObject(m);
+        m.position.x = RAIL_X - 6 - (bb.min.x + bb.max.x) / 2;
+        m.position.z = stationZ - (bb.min.z + bb.max.z) / 2;
+        m.position.y = RAIL_TOP - bb.min.y;
+        scene.add(m);
+      }, undefined, function() {});
+    })(sz);
   }
 }
 
@@ -268,4 +287,33 @@ function _updateBoardBtn() {
   } else {
     _trainBoardBtn.style.display = 'none';
   }
+}
+
+// ── 高架桥（桥墩 + 桥面板，跳过两端站台区域）───────────────────────────────
+function _buildViaduct() {
+  var pillarMat = new THREE.MeshLambertMaterial({ color: 0xd0ccc8 });
+  var deckMat   = new THREE.MeshLambertMaterial({ color: 0xc8c4c0 });
+  var pillarH   = RAIL_TOP - 1;
+  var northEnd  = RAIL_Z0 + TRAIN_MARGIN + 15;
+  var southEnd  = RAIL_Z1 - TRAIN_MARGIN - 15;
+
+  for (var z = RAIL_Z0 + 4; z < RAIL_Z1; z += 8) {
+    if (z > northEnd && z < southEnd) {
+      var p1 = new THREE.Mesh(new THREE.BoxGeometry(0.8, pillarH, 0.8), pillarMat);
+      p1.position.set(RAIL_X - 0.8, pillarH / 2, z);
+      scene.add(p1);
+      var p2 = new THREE.Mesh(new THREE.BoxGeometry(0.8, pillarH, 0.8), pillarMat);
+      p2.position.set(RAIL_X + 1.8, pillarH / 2, z);
+      scene.add(p2);
+      var beam = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.5, 1.2), pillarMat);
+      beam.position.set(RAIL_X + 0.5, pillarH + 0.25, z);
+      scene.add(beam);
+    }
+  }
+  var deck = new THREE.Mesh(
+    new THREE.BoxGeometry(4, 0.4, RAIL_Z1 - RAIL_Z0),
+    deckMat
+  );
+  deck.position.set(RAIL_X + 0.5, RAIL_TOP - 0.3, (RAIL_Z0 + RAIL_Z1) / 2);
+  scene.add(deck);
 }
