@@ -7697,6 +7697,7 @@ function bootNext() {
       placeVillage(-110,  90);   // 西南村庄
       placeVillage(  70, -130);  // 北方村庄
       if (typeof initTrain === 'function') initTrain();   // 高铁轨道 + 列车
+      _loadSuzukaCircuit();                               // 铃鹿赛道（道路尽头）
       if (typeof loadGame === 'function') loadGame();
       bootStep = 10; requestAnimationFrame(bootNext);
 
@@ -7733,6 +7734,27 @@ function bootNext() {
 }
 
 requestAnimationFrame(bootNext);
+
+// 铃鹿赛道：放在道路尽头（z=260），自动缩放到 160 game units
+function _loadSuzukaCircuit() {
+  if (typeof gltfLoader === 'undefined') return;
+  gltfLoader.load('assets/models/suzuka_circuit.glb', function (g) {
+    var model = g.scene;
+    model.updateMatrixWorld(true);
+    var bb = new THREE.Box3().setFromObject(model);
+    var maxDim = Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z);
+    if (maxDim > 0.1) {
+      var s = 160 / maxDim;
+      model.scale.multiplyScalar(s);
+      model.updateMatrixWorld(true);
+      bb.setFromObject(model);
+    }
+    model.position.x = 0 - (bb.min.x + bb.max.x) / 2;
+    model.position.z = 260 - (bb.min.z + bb.max.z) / 2;
+    model.position.y = (SEA + 2) - bb.min.y;
+    scene.add(model);
+  }, undefined, function (e) { console.warn('suzuka load failed', e); });
+}
 
 </script>
 </body>
