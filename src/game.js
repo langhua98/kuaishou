@@ -572,9 +572,9 @@ function tick(now) {
         _place.pos = { x: _nx, y: _ny, z: _nz };
         if (_onLast) _idleInc = false;
       } else {
-        var _eyeX = player.x + (viewFP ? 0 : Math.cos(player.yaw) * CAM_SHOULDER);
-        var _eyeY = player.y + PH * 0.85;
-        var _eyeZ = player.z + (viewFP ? 0 : -Math.sin(player.yaw) * CAM_SHOULDER);
+        var _eyeX = viewFP ? player.x : _pivX + Math.cos(player.yaw) * CAM_SHOULDER;
+        var _eyeY = viewFP ? player.y + PH * 0.85 : _pivY;
+        var _eyeZ = viewFP ? player.z : _pivZ - Math.sin(player.yaw) * CAM_SHOULDER;
         var _tx = _nx + 0.5 - _eyeX;
         var _ty = _ny + 0.5 - _eyeY;
         var _tz = _nz + 0.5 - _eyeZ;
