@@ -1010,8 +1010,8 @@ function _loadSuzukaCircuit() {
     floorRC.set(new THREE.Vector3(cx, 5000, cz), new THREE.Vector3(0, -1, 0));
     var fhits = floorRC.intersectObject(model, true);
     var trackY = fhits.length > 0 ? fhits[0].point.y : 0;
-    // 把赛道面对齐 SEA+2（石头路面高度）
-    model.position.y = (SEA + 2) - trackY;
+    // 把赛道面对齐 SEA+3（= 体素石头地面的站立高度，避免人物下陷一格）
+    model.position.y = (SEA + 3) - trackY;
 
     // 4. 保留 PBR 材质，注入中性灰 IBL 环境贴图（仅影响赛道 MeshStandardMaterial）
     var _pmrem = new THREE.PMREMGenerator(renderer);
@@ -1047,8 +1047,9 @@ function _resolveCircuitGround() {
   var hits = _circuitRC.intersectObject(_circuitModel, true);
   if (!hits.length) return;
   var sy = hits[0].point.y;
-  // 玩家脚底在表面上方 0~3 格内：落到表面
-  if (player.y >= sy - 0.1 && player.y <= sy + 3) {
+  // 体素石地（y=SEA+3）始终承托，永不下陷；射线只在 GLB 表面高于地面时把玩家抬上去
+  if (sy <= SEA + 3) return;
+  if (player.y >= sy - 2 && player.y <= sy + 1.2) {
     player.y  = sy;
     if (player.vy < 0) player.vy = 0;
     player.onGround = true;
