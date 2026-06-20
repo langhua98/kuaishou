@@ -382,3 +382,128 @@ function placeStructures() {
   placeStructure(STRUCT_TOMB, 10, BY, 90);   // 皇陵·远南
   placeEnemyStronghold(100, 80);              // 敌人城池·东南方向约 128 格
 }
+
+// ── MC 风格村庄生成 ───────────────────────────────────────────────────────────
+// 在 (ox, oz) 处生成一个 36×36 格的 MC 风格村庄
+// 包含：4 栋建筑（小屋×2、大屋、铁匠铺）+ 中心水井 + 十字路 + 村民 NPC
+function placeVillage(ox, oz) {
+  var dirty = {};
+  function ec(cx, cz) {
+    var k = ckey(cx, cz);
+    if (!chunks[k]) chunks[k] = { data: genTerrain(cx, cz), mesh: null };
+    dirty[k] = [cx, cz];
+  }
+  function raw(wx, wy, wz, id) {
+    if (wy < 0 || wy >= CHUNK_H) return;
+    var cx = Math.floor(wx / CHUNK_W), cz = Math.floor(wz / CHUNK_D);
+    ec(cx, cz);
+    var lx = ((wx % CHUNK_W) + CHUNK_W) % CHUNK_W;
+    var lz = ((wz % CHUNK_D) + CHUNK_D) % CHUNK_D;
+    chunks[ckey(cx, cz)].data[lx + wy * CHUNK_W + lz * CHUNK_W * CHUNK_H] = id;
+  }
+
+  var baseY = SEA + 2;  // 14
+  var x, z, y;
+
+  // 1. 整平地形（36×36 范围清空地表以上，地面填 GRASS）
+  for (x = ox; x < ox + 36; x++) {
+    for (z = oz; z < oz + 36; z++) {
+      for (y = baseY + 1; y < baseY + 14; y++) raw(x, y, z, AIR);
+      raw(x, baseY, z, GRASS);
+    }
+  }
+
+  // 2. 十字形主路（2 格宽，COBBLE 铺面）
+  for (x = ox; x < ox + 36; x++) {
+    raw(x, baseY, oz + 17, COBBLE);
+    raw(x, baseY, oz + 18, COBBLE);
+  }
+  for (z = oz; z < oz + 36; z++) {
+    raw(ox + 17, baseY, z, COBBLE);
+    raw(ox + 18, baseY, z, COBBLE);
+  }
+
+  // 3. 中心水井（路口处，3×3 外环 COBBLE，2 格高，四角 WOOD 柱）
+  var wcx = ox + 17, wcz = oz + 17;
+  var wdx, wdz;
+  for (wdx = wcx - 1; wdx <= wcx + 1; wdx++) {
+    for (wdz = wcz - 1; wdz <= wcz + 1; wdz++) {
+      if (wdx === wcx && wdz === wcz) continue;  // 中心留空（井口）
+      raw(wdx, baseY + 1, wdz, COBBLE);
+      raw(wdx, baseY + 2, wdz, COBBLE);
+    }
+  }
+  // 四角 OAK_LOG 立柱
+  raw(wcx - 1, baseY + 3, wcz - 1, WOOD);
+  raw(wcx + 1, baseY + 3, wcz - 1, WOOD);
+  raw(wcx - 1, baseY + 3, wcz + 1, WOOD);
+  raw(wcx + 1, baseY + 3, wcz + 1, WOOD);
+
+  // ── 内联建筑器（避免 ES5 全局函数命名冲突）──
+  // 放置一栋房子：hx/hz 为西南角，hw×hd 为宽深（含外墙）
+  // isSmith=true 时放置铁匠铺内饰（FURNACE + CRAFTING_TABLE）
+  function _house(hx, hz, hw, hd, isSmith) {
+    var hx2 = hx + hw - 1, hz2 = hz + hd - 1;
+    var fx, fz, wy2;
+    // 地基（COBBLE）+ 地板（PLANKS）
+    for (fx = hx; fx <= hx2; fx++) {
+      for (fz = hz; fz <= hz2; fz++) {
+        raw(fx, baseY,     fz, COBBLE);
+        raw(fx, baseY + 1, fz, PLANKS);
+      }
+    }
+    // 四面墙（PLANKS，高 3 格）
+    for (wy2 = baseY + 2; wy2 <= baseY + 4; wy2++) {
+      for (fx = hx; fx <= hx2; fx++) {
+        raw(fx, wy2, hz,  PLANKS);
+        raw(fx, wy2, hz2, PLANKS);
+      }
+      for (fz = hz + 1; fz <= hz2 - 1; fz++) {
+        raw(hx,  wy2, fz, PLANKS);
+        raw(hx2, wy2, fz, PLANKS);
+      }
+    }
+    // 玻璃窗（中间高度 baseY+3，每侧 1 格）
+    raw(hx,  baseY + 3, hz + Math.floor(hd * 0.5), GLASS);
+    raw(hx2, baseY + 3, hz + Math.floor(hd * 0.5), GLASS);
+    raw(hx  + Math.floor(hw * 0.5), baseY + 3, hz,  GLASS);
+    // 南面门洞（2 格高，中间位置）
+    var doorX = hx + Math.floor(hw * 0.5);
+    raw(doorX, baseY + 2, hz2, AIR);
+    raw(doorX, baseY + 3, hz2, AIR);
+    // 屋顶：外框 OAK_LOG，内部 PLANKS
+    for (fx = hx; fx <= hx2; fx++) {
+      for (fz = hz; fz <= hz2; fz++) {
+        var isEdge = (fx === hx || fx === hx2 || fz === hz || fz === hz2);
+        raw(fx, baseY + 5, fz, isEdge ? WOOD : PLANKS);
+      }
+    }
+    // 铁匠铺内饰
+    if (isSmith) {
+      raw(hx + 1, baseY + 2, hz + 1, FURNACE);
+      raw(hx + 2, baseY + 2, hz + 1, CRAFTING_TABLE);
+    }
+  }
+
+  // 4. 四栋建筑（各象限）
+  _house(ox + 3,  oz + 3,  10, 9,  false);   // 西北小屋
+  _house(ox + 22, oz + 3,  10, 9,  false);   // 东北小屋
+  _house(ox + 3,  oz + 22, 11, 11, true);    // 西南铁匠铺
+  _house(ox + 22, oz + 22, 11, 11, false);   // 东南大屋（多放 BOOKSHELF）
+
+  // 东南大屋书架
+  raw(ox + 23, baseY + 2, oz + 23, BOOKSHELF);
+  raw(ox + 24, baseY + 2, oz + 23, BOOKSHELF);
+
+  // 5. 重建所有脏区块
+  var k, cd;
+  for (k in dirty) { cd = dirty[k]; rebuildChunk(cd[0], cd[1]); }
+
+  // 6. 生成村民 NPC（建筑放置完才能保证地形正确）
+  if (typeof spawnVillager === 'function') {
+    spawnVillager('farmer',   ox + 8,  oz + 8);
+    spawnVillager('merchant', ox + 27, oz + 8);
+    spawnVillager('guard',    ox + 18, oz + 18);
+    spawnVillager('farmer',   ox + 8,  oz + 27);
+  }
+}

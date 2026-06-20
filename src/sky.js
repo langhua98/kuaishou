@@ -169,10 +169,12 @@ function updateSky(dt) {
   _domeGeo.attributes.color.needsUpdate = true;
   _dome.position.copy(camera.position);
 
-  // 雾：颜色=地平线色，距离随天气
-  scene.fog.color.setRGB(hz[0], hz[1], hz[2]);
-  scene.fog.near = _wCur[4];
-  scene.fog.far  = _wCur[5];
+  // 雾：颜色=地平线色，距离随天气（关闭时 scene.fog 为 null，跳过）
+  if (scene.fog) {
+    scene.fog.color.setRGB(hz[0], hz[1], hz[2]);
+    scene.fog.near = _wCur[4];
+    scene.fog.far  = _wCur[5];
+  }
 
   // 太阳/月亮方位（东升西落，路径略向南倾斜）
   var sx = Math.cos(ang), sy = elev, sz = Math.cos(ang) * 0.25 + 0.18;

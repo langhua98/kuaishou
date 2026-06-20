@@ -44,6 +44,7 @@ const SRC_FILES = [
   'src/furniture.js',  // 家具系统：KayKit GLTF 模型放置（需在 game.js 之前）
   'src/crops.js',      // 农场种植系统：种子/生长/收获（需在 game.js 之前）
   'src/vehicles.js',  // 载具系统：汽车/越野车/皮卡（需在 game.js 之前）
+  'src/train.js',     // 高铁系统：固定轨道 + 自动往返列车（需在 game.js 之前）
   'src/save.js',        // 本地存档：玩家改动/位置/塔（需在 game.js 之前：loadGame/recordEdit 被 game 调用）
   'src/game.js',
 ]

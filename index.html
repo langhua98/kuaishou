@@ -641,8 +641,13 @@ function genTerrain(cx, cz) {
       var _road = (wx >= -3 && wx <= 8 && wz >= 14 && wz <= 200);
       if (_road) h = SEA + 2;
 
+      // 高铁轨道床：沿 Z 轴（城堡南门旁 → 道路尽头），5 格宽，与道路平行
+      // wx∈[10,14]（道路右侧紧邻），wz∈[8,200]
+      var _rail = (wx >= 10 && wx <= 14 && wz >= 8 && wz <= 200);
+      if (_rail) h = SEA + 2;
+
       for (y = 0; y <= h && y < CHUNK_H; y++) {
-        id = (y === h)    ? (_road ? STONE : (h <= SEA + 1) ? SAND : GRASS)
+        id = (y === h)    ? ((_road || _rail) ? STONE : (h <= SEA + 1) ? SAND : GRASS)
            : (y >= h - 3) ? DIRT
            :                STONE;
         data[lx + y * CHUNK_W + lz * CHUNK_W * CHUNK_H] = id;
@@ -663,6 +668,7 @@ function genTerrain(cx, cz) {
       twR = Math.max(Math.abs(twx), Math.abs(twz));
       if (twR < 40) continue;
       if (twx >= -3 && twx <= 8 && twz >= 14 && twz <= 200) continue;  // 路区无树
+      if (twx >= 9 && twx <= 15 && twz >= 8 && twz <= 200) continue;  // 轨道区无树
       // 确定性伪随机（sin hash，每格唯一）
       th = Math.sin(twx * 127.1 + twz * 311.7) * 43758.5453;
       th = th - Math.floor(th);
@@ -739,7 +745,7 @@ document.body.appendChild(renderer.domElement);
 
 var scene = new THREE.Scene();
 scene.background = null;                             // 由天空穹顶接管
-scene.fog = new THREE.Fog(0x8ec5f5, 55, 105);       // 颜色/距离每帧由 sky.js 更新
+scene.fog = null;                                   // 迷雾已关闭（sky.js 中有空值保护）
 
 var camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 200);
 // FPS/TPS 摄像机必须用 YXZ 欧拉顺序：先偏航（世界 Y）再俯仰（本地 X）再横滚，
@@ -936,10 +942,12 @@ function updateSky(dt) {
   _domeGeo.attributes.color.needsUpdate = true;
   _dome.position.copy(camera.position);
 
-  // 雾：颜色=地平线色，距离随天气
-  scene.fog.color.setRGB(hz[0], hz[1], hz[2]);
-  scene.fog.near = _wCur[4];
-  scene.fog.far  = _wCur[5];
+  // 雾：颜色=地平线色，距离随天气（关闭时 scene.fog 为 null，跳过）
+  if (scene.fog) {
+    scene.fog.color.setRGB(hz[0], hz[1], hz[2]);
+    scene.fog.near = _wCur[4];
+    scene.fog.far  = _wCur[5];
+  }
 
   // 太阳/月亮方位（东升西落，路径略向南倾斜）
   var sx = Math.cos(ang), sy = elev, sz = Math.cos(ang) * 0.25 + 0.18;
@@ -1163,6 +1171,7 @@ function _drawTile(ctx, img, spec, dx, dy) {
 
   if (!spec.tint) {
     // 按图片真实尺寸裁切后缩放填满 TILE×TILE（兼容 16×16 和 128×128 贴图）
+    ctx.imageSmoothingEnabled = false;
     ctx.drawImage(img, 0, 0, img.width, img.height, dx, dy, TILE, TILE);
     return;
   }
@@ -1171,6 +1180,7 @@ function _drawTile(ctx, img, spec, dx, dy) {
   var oc = document.createElement('canvas');
   oc.width = oc.height = TILE;
   var octx = oc.getContext('2d');
+  octx.imageSmoothingEnabled = false;
   octx.drawImage(img, 0, 0, img.width, img.height, 0, 0, TILE, TILE);
   octx.globalCompositeOperation = 'multiply';
   octx.fillStyle = spec.tint;
@@ -1203,8 +1213,8 @@ function loadTextures(onReady, onProgress) {
     // 贴图集禁用 mipmap：缩小级别会把相邻贴图格颜色混入（atlas bleeding），
     // 远景方块串色。Kenney 贴图为低频平滑风格，Linear 缩小的闪烁可忽略。
     atlasTexture = new THREE.CanvasTexture(cv);
-    atlasTexture.magFilter = THREE.LinearFilter;
-    atlasTexture.minFilter = THREE.LinearFilter;
+    atlasTexture.magFilter = THREE.NearestFilter;
+    atlasTexture.minFilter = THREE.NearestFilter;
     atlasTexture.generateMipmaps = false;
     atlasTexture.needsUpdate = true;
     onReady();
@@ -2466,6 +2476,10 @@ var UNIT_TYPES = {
                wpnR: 'Skeleton_Blade', wpnL: null,          name: '骷髅杂兵' },
   skel_rog:  { model: 'Skeleton_Rogue',   h: 1.70, hp: 18, dmg: 2, range: 12,  spd: 3.6, atkCd: 2.5, ranged: true,
                wpnR: 'Skeleton_Crossbow', wpnL: null,       name: '骷髅弩手' },
+  // 村民（平民，无战斗 AI）
+  farmer:   { model: 'Barbarian', h: 1.75, hp: 20, isCivilian: true, spd: 2.5, name: '农民' },
+  merchant: { model: 'Rogue',     h: 1.75, hp: 18, isCivilian: true, spd: 2.2, name: '商人' },
+  guard:    { model: 'Knight',    h: 1.80, hp: 30, isCivilian: true, spd: 3.0, name: '守卫' },
 };
 
 // 骑兵调参（需求文档关键数值）
@@ -2658,12 +2672,61 @@ function spawnUnit(kind, side, x, z) {
     chargeFrom: null, breakDir: null, regroupT: 0,
     group: group, model: model, mixer: mixer, anims: anims, curAnim: '',
     horseMixer: horseMixer, hpBar: null, blobShadow: blobShadow,
+    // 平民字段（战斗单位忽略这些字段）
+    isCivilian: t.isCivilian || false,
+    homeX: x, homeZ: z,
+    wanderT: Math.random() * 3,
+    wanderYaw: Math.random() * Math.PI * 2,
+    wanderStop: false,
   };
   if (typeof initMorale === 'function') initMorale(u);   // 注入士气/恐惧/纪律
   playAnim(u, ANIM.idle, 0);
   makeHpBar(u);
   combatUnits.push(u);
   return u;
+}
+
+// 生成村民（side=1 友方，不参与战斗 AI）
+function spawnVillager(kind, x, z) {
+  return spawnUnit(kind, 1, x, z);
+}
+
+// 每帧更新村民漫游（在 game.js 主循环调用）
+function updateVillagers(dt) {
+  var i, u, nx, nz, dx, dz, ang;
+  for (i = 0; i < combatUnits.length; i++) {
+    u = combatUnits[i];
+    if (!u.isCivilian || u.dead) continue;
+
+    u.wanderT -= dt;
+    if (u.wanderT <= 0) {
+      u.wanderT = 2 + Math.random() * 3;
+      u.wanderStop = Math.random() < 0.25;
+      if (!u.wanderStop) {
+        // 朝家方向加随机偏角漫游
+        ang = Math.atan2(u.homeX - u.x, u.homeZ - u.z);
+        u.wanderYaw = ang + (Math.random() - 0.5) * Math.PI * 1.2;
+      }
+    }
+
+    if (!u.wanderStop) {
+      nx = u.x - Math.sin(u.wanderYaw) * u.t.spd * dt;
+      nz = u.z - Math.cos(u.wanderYaw) * u.t.spd * dt;
+      dx = nx - u.homeX; dz = nz - u.homeZ;
+      if (dx * dx + dz * dz < 144) {
+        u.x = nx; u.z = nz;
+      } else {
+        u.wanderYaw = Math.atan2(u.homeX - u.x, u.homeZ - u.z);
+      }
+      u.group.rotation.y = u.wanderYaw;
+      playAnim(u, ANIM.walk);
+    } else {
+      playAnim(u, ANIM.idle);
+    }
+    u.group.position.set(u.x, _groundY(u.x, u.z), u.z);
+    // 更新动画混合器
+    if (u.mixer) u.mixer.update(dt);
+  }
 }
 
 // ── 动画切换（同名去重 + crossFade；once=true 播完即停留末帧）──────────────────
@@ -5098,6 +5161,131 @@ function placeStructures() {
   placeEnemyStronghold(100, 80);              // 敌人城池·东南方向约 128 格
 }
 
+// ── MC 风格村庄生成 ───────────────────────────────────────────────────────────
+// 在 (ox, oz) 处生成一个 36×36 格的 MC 风格村庄
+// 包含：4 栋建筑（小屋×2、大屋、铁匠铺）+ 中心水井 + 十字路 + 村民 NPC
+function placeVillage(ox, oz) {
+  var dirty = {};
+  function ec(cx, cz) {
+    var k = ckey(cx, cz);
+    if (!chunks[k]) chunks[k] = { data: genTerrain(cx, cz), mesh: null };
+    dirty[k] = [cx, cz];
+  }
+  function raw(wx, wy, wz, id) {
+    if (wy < 0 || wy >= CHUNK_H) return;
+    var cx = Math.floor(wx / CHUNK_W), cz = Math.floor(wz / CHUNK_D);
+    ec(cx, cz);
+    var lx = ((wx % CHUNK_W) + CHUNK_W) % CHUNK_W;
+    var lz = ((wz % CHUNK_D) + CHUNK_D) % CHUNK_D;
+    chunks[ckey(cx, cz)].data[lx + wy * CHUNK_W + lz * CHUNK_W * CHUNK_H] = id;
+  }
+
+  var baseY = SEA + 2;  // 14
+  var x, z, y;
+
+  // 1. 整平地形（36×36 范围清空地表以上，地面填 GRASS）
+  for (x = ox; x < ox + 36; x++) {
+    for (z = oz; z < oz + 36; z++) {
+      for (y = baseY + 1; y < baseY + 14; y++) raw(x, y, z, AIR);
+      raw(x, baseY, z, GRASS);
+    }
+  }
+
+  // 2. 十字形主路（2 格宽，COBBLE 铺面）
+  for (x = ox; x < ox + 36; x++) {
+    raw(x, baseY, oz + 17, COBBLE);
+    raw(x, baseY, oz + 18, COBBLE);
+  }
+  for (z = oz; z < oz + 36; z++) {
+    raw(ox + 17, baseY, z, COBBLE);
+    raw(ox + 18, baseY, z, COBBLE);
+  }
+
+  // 3. 中心水井（路口处，3×3 外环 COBBLE，2 格高，四角 WOOD 柱）
+  var wcx = ox + 17, wcz = oz + 17;
+  var wdx, wdz;
+  for (wdx = wcx - 1; wdx <= wcx + 1; wdx++) {
+    for (wdz = wcz - 1; wdz <= wcz + 1; wdz++) {
+      if (wdx === wcx && wdz === wcz) continue;  // 中心留空（井口）
+      raw(wdx, baseY + 1, wdz, COBBLE);
+      raw(wdx, baseY + 2, wdz, COBBLE);
+    }
+  }
+  // 四角 OAK_LOG 立柱
+  raw(wcx - 1, baseY + 3, wcz - 1, WOOD);
+  raw(wcx + 1, baseY + 3, wcz - 1, WOOD);
+  raw(wcx - 1, baseY + 3, wcz + 1, WOOD);
+  raw(wcx + 1, baseY + 3, wcz + 1, WOOD);
+
+  // ── 内联建筑器（避免 ES5 全局函数命名冲突）──
+  // 放置一栋房子：hx/hz 为西南角，hw×hd 为宽深（含外墙）
+  // isSmith=true 时放置铁匠铺内饰（FURNACE + CRAFTING_TABLE）
+  function _house(hx, hz, hw, hd, isSmith) {
+    var hx2 = hx + hw - 1, hz2 = hz + hd - 1;
+    var fx, fz, wy2;
+    // 地基（COBBLE）+ 地板（PLANKS）
+    for (fx = hx; fx <= hx2; fx++) {
+      for (fz = hz; fz <= hz2; fz++) {
+        raw(fx, baseY,     fz, COBBLE);
+        raw(fx, baseY + 1, fz, PLANKS);
+      }
+    }
+    // 四面墙（PLANKS，高 3 格）
+    for (wy2 = baseY + 2; wy2 <= baseY + 4; wy2++) {
+      for (fx = hx; fx <= hx2; fx++) {
+        raw(fx, wy2, hz,  PLANKS);
+        raw(fx, wy2, hz2, PLANKS);
+      }
+      for (fz = hz + 1; fz <= hz2 - 1; fz++) {
+        raw(hx,  wy2, fz, PLANKS);
+        raw(hx2, wy2, fz, PLANKS);
+      }
+    }
+    // 玻璃窗（中间高度 baseY+3，每侧 1 格）
+    raw(hx,  baseY + 3, hz + Math.floor(hd * 0.5), GLASS);
+    raw(hx2, baseY + 3, hz + Math.floor(hd * 0.5), GLASS);
+    raw(hx  + Math.floor(hw * 0.5), baseY + 3, hz,  GLASS);
+    // 南面门洞（2 格高，中间位置）
+    var doorX = hx + Math.floor(hw * 0.5);
+    raw(doorX, baseY + 2, hz2, AIR);
+    raw(doorX, baseY + 3, hz2, AIR);
+    // 屋顶：外框 OAK_LOG，内部 PLANKS
+    for (fx = hx; fx <= hx2; fx++) {
+      for (fz = hz; fz <= hz2; fz++) {
+        var isEdge = (fx === hx || fx === hx2 || fz === hz || fz === hz2);
+        raw(fx, baseY + 5, fz, isEdge ? WOOD : PLANKS);
+      }
+    }
+    // 铁匠铺内饰
+    if (isSmith) {
+      raw(hx + 1, baseY + 2, hz + 1, FURNACE);
+      raw(hx + 2, baseY + 2, hz + 1, CRAFTING_TABLE);
+    }
+  }
+
+  // 4. 四栋建筑（各象限）
+  _house(ox + 3,  oz + 3,  10, 9,  false);   // 西北小屋
+  _house(ox + 22, oz + 3,  10, 9,  false);   // 东北小屋
+  _house(ox + 3,  oz + 22, 11, 11, true);    // 西南铁匠铺
+  _house(ox + 22, oz + 22, 11, 11, false);   // 东南大屋（多放 BOOKSHELF）
+
+  // 东南大屋书架
+  raw(ox + 23, baseY + 2, oz + 23, BOOKSHELF);
+  raw(ox + 24, baseY + 2, oz + 23, BOOKSHELF);
+
+  // 5. 重建所有脏区块
+  var k, cd;
+  for (k in dirty) { cd = dirty[k]; rebuildChunk(cd[0], cd[1]); }
+
+  // 6. 生成村民 NPC（建筑放置完才能保证地形正确）
+  if (typeof spawnVillager === 'function') {
+    spawnVillager('farmer',   ox + 8,  oz + 8);
+    spawnVillager('merchant', ox + 27, oz + 8);
+    spawnVillager('guard',    ox + 18, oz + 18);
+    spawnVillager('farmer',   ox + 8,  oz + 27);
+  }
+}
+
 
 // ═══ src/furniture.js ═══
 // ─── furniture.js ─────────────────────────────────────────────────────────────
@@ -6126,6 +6314,256 @@ function syncMountedVehicle(dt) {
 }
 
 
+// ═══ src/train.js ═══
+// ─── train.js ─────────────────────────────────────────────────────────────────
+// 高铁系统：固定纵向轨道（城堡南门旁 → 道路尽头）+ 自动往返列车 + 上/下车
+//
+//   轨道沿 Z 轴，固定 X=RAIL_X，从 Z=RAIL_Z0（城堡站）到 Z=RAIL_Z1（南站）。
+//   轨道床（STONE）由 world.js genTerrain 的 _rail 条件永久烤入地图。
+//   列车（车头 + 2 节车厢）自动在两端车站之间往返，到站停靠 TRAIN_DWELL 秒。
+//   玩家靠近停靠的列车时出现「🚄 上车」按钮，乘坐时跟随列车移动。
+//
+//   模型：Quaternius Modular Train Pack（CC0），assets/models/train/
+//   对外全局：_onTrain（game.js 移动段读取，乘车时跳过行走物理）
+
+var RAIL_X      = 12;    // 轨道固定 X（道路 wx∈[-3,8] 右侧，与道路平行）
+var RAIL_Z0     =  10;   // 北端起点（城堡侧车站中心 Z）
+var RAIL_Z1     = 196;   // 南端终点（道路尽头车站中心 Z）
+var RAIL_TOP    = SEA + 3; // 轨面站立高度（轨道床顶面 y=SEA+2，+1 为地板上方）
+var TRAIN_CRUISE = 20;   // 巡航速度 u/s
+var TRAIN_ACCEL  =  6;   // 加速度 u/s²
+var TRAIN_DECEL  =  8;   // 减速度 u/s²
+var TRAIN_DWELL  =  5;   // 到站停靠秒数
+var TRAIN_MARGIN = 10;   // 端点留白（站台范围内停车）
+
+// ── 运行状态 ───────────────────────────────────────────────────────────────────
+var _onTrain    = false;   // 玩家是否在车上（game.js 读取）
+var _trainReady = false;   // 模型是否就绪
+var _trainCars  = [];      // [{ group }]，index 0 = 车头
+var _carSpacing = 7;       // 车厢中心间距（模型载入后按实际长度更新）
+var _trainZ     = RAIL_Z0 + TRAIN_MARGIN;  // 车头当前 Z
+var _trainV     = 0;       // 当前速度 u/s（正值=朝 +Z）
+var _trainDir   = 1;       // +1 朝南（+Z），-1 朝北（-Z）
+var _trainState = 'dwell'; // 'dwell' | 'run'
+var _trainDwellT = TRAIN_DWELL;
+var _trainBoardBtn = null;
+
+// ── 初始化（game.js boot step 9 调用）────────────────────────────────────────
+function initTrain() {
+  if (typeof gltfLoader === 'undefined') return;
+  _buildBoardBtn();
+  _buildStations();
+
+  // 沿 Z 轴铺轨道瓦片
+  gltfLoader.load('assets/models/train/rail_straight.glb', function (g) {
+    var proto = g.scene;
+    proto.updateMatrixWorld(true);
+    var bb = new THREE.Box3().setFromObject(proto);
+    var dx = bb.max.x - bb.min.x, dz = bb.max.z - bb.min.z;
+    // 轨道需要长轴沿 Z；若模型长轴是 X 则旋转 90°
+    var rotY = (dx > dz) ? Math.PI / 2 : 0;
+    var segLen = Math.max(dx, dz);
+    if (!(segLen > 0.3)) segLen = 2;
+    var yOff = RAIL_TOP - bb.min.y;
+    var n = Math.ceil((RAIL_Z1 - RAIL_Z0) / segLen) + 2;
+    for (var i = 0; i < n; i++) {
+      var tile = proto.clone(true);
+      tile.rotation.y = rotY;
+      tile.position.set(RAIL_X + 0.5, yOff, RAIL_Z0 + i * segLen + segLen / 2);
+      scene.add(tile);
+    }
+  }, undefined, function () {});
+
+  // 车头 + 2 节车厢
+  gltfLoader.load('assets/models/train/highspeed_front.glb', function (gf) {
+    _addCar(gf.scene, true);
+    gltfLoader.load('assets/models/train/highspeed_wagon.glb', function (gw) {
+      _addCar(gw.scene.clone(true), false);
+      _addCar(gw.scene.clone(true), false);
+      _trainReady = true;
+    }, undefined, function () { _trainReady = true; });
+  }, undefined, function () {});
+}
+
+// 单节车厢：让长轴对齐 Z 轴，脚底落到轨面
+function _addCar(model, isFront) {
+  model.updateMatrixWorld(true);
+  var bb = new THREE.Box3().setFromObject(model);
+  var dx = bb.max.x - bb.min.x, dz = bb.max.z - bb.min.z;
+  // 长轴若是 X 则旋转 90° 使长轴变 Z
+  model.rotation.y = (dx > dz) ? Math.PI / 2 : 0;
+  model.updateMatrixWorld(true);
+  bb.setFromObject(model);
+  // 横向/纵向居中到 group 原点，脚底归零
+  model.position.x -= (bb.min.x + bb.max.x) / 2;
+  model.position.z -= (bb.min.z + bb.max.z) / 2;
+  model.position.y  = RAIL_TOP - bb.min.y;
+
+  var carLen = Math.max(bb.max.z - bb.min.z, bb.max.x - bb.min.x);
+  if (carLen + 0.8 > _carSpacing) _carSpacing = carLen + 0.8;
+
+  var grp = new THREE.Group();
+  grp.add(model);
+  scene.add(grp);
+  _trainCars.push({ group: grp });
+}
+
+// 两端车站（Three.js 几何体，不依赖区块）
+function _buildStations() {
+  var stations = [
+    { z: RAIL_Z0 + TRAIN_MARGIN, label: '城堡站' },
+    { z: RAIL_Z1 - TRAIN_MARGIN, label: '南端站' }
+  ];
+  for (var s = 0; s < stations.length; s++) {
+    var sz = stations[s].z;
+    // 月台板（靠道路一侧，X 偏左）
+    var plat = new THREE.Mesh(
+      new THREE.BoxGeometry(3, 0.2, 14),
+      new THREE.MeshLambertMaterial({ color: 0xbfb39a })
+    );
+    plat.position.set(RAIL_X - 2.5, RAIL_TOP + 0.1, sz);
+    scene.add(plat);
+    // 遮棚立柱
+    var postMat = new THREE.MeshLambertMaterial({ color: 0x6b4f33 });
+    var posts = [
+      [RAIL_X - 1.5, sz - 6], [RAIL_X - 3.5, sz - 6],
+      [RAIL_X - 1.5, sz + 6], [RAIL_X - 3.5, sz + 6]
+    ];
+    for (var i = 0; i < posts.length; i++) {
+      var p = new THREE.Mesh(new THREE.BoxGeometry(0.3, 3, 0.3), postMat);
+      p.position.set(posts[i][0], RAIL_TOP + 1.5, posts[i][1]);
+      scene.add(p);
+    }
+    // 顶棚
+    var roof = new THREE.Mesh(
+      new THREE.BoxGeometry(2.5, 0.3, 13.5),
+      new THREE.MeshLambertMaterial({ color: 0x3b6ea5 })
+    );
+    roof.position.set(RAIL_X - 2.5, RAIL_TOP + 3.1, sz);
+    scene.add(roof);
+  }
+}
+
+// ── 每帧主循环（game.js 每帧无条件调用）─────────────────────────────────────
+function updateTrain(dt) {
+  if (!_trainReady) { _updateBoardBtn(); return; }
+
+  // 状态机：停靠倒计时 / 加速巡航减速进站
+  if (_trainState === 'dwell') {
+    _trainV = 0;
+    _trainDwellT -= dt;
+    if (_trainDwellT <= 0) _trainState = 'run';
+  } else {
+    var endZ   = (_trainDir > 0) ? (RAIL_Z1 - TRAIN_MARGIN) : (RAIL_Z0 + TRAIN_MARGIN);
+    var remain = (endZ - _trainZ) * _trainDir;
+    var stopD  = (_trainV * _trainV) / (2 * TRAIN_DECEL);
+    if (remain <= stopD) {
+      _trainV -= TRAIN_DECEL * dt;
+      if (_trainV < 0) _trainV = 0;
+    } else {
+      _trainV += TRAIN_ACCEL * dt;
+      if (_trainV > TRAIN_CRUISE) _trainV = TRAIN_CRUISE;
+    }
+    _trainZ += _trainDir * _trainV * dt;
+    if (remain <= 0.4 && _trainV < 0.6) {
+      _trainZ = endZ;
+      _trainV = 0;
+      _trainDir = -_trainDir;
+      _trainState = 'dwell';
+      _trainDwellT = TRAIN_DWELL;
+    }
+  }
+
+  // 同步车身：车头在 _trainZ，车厢向后拖
+  for (var i = 0; i < _trainCars.length; i++) {
+    var carZ = _trainZ - _trainDir * i * _carSpacing;
+    _trainCars[i].group.position.set(RAIL_X + 0.5, 0, carZ);
+    // 朝向：+Z 行驶时车头面朝 +Z（yaw=0），-Z 行驶时翻转 180°
+    _trainCars[i].group.rotation.y = (_trainDir > 0) ? Math.PI : 0;
+  }
+
+  // 乘车：把玩家锁定在车头位置
+  if (_onTrain) {
+    player.x = RAIL_X + 0.5;
+    player.z = _trainZ;
+    player.y = RAIL_TOP + 0.5;
+    player.yaw = (_trainDir > 0) ? Math.PI : 0;  // 朝向行进方向
+    player.vx = 0; player.vy = 0; player.vz = 0;
+    // 速度表
+    var spv = document.getElementById('speedo-val');
+    if (spv) spv.textContent = Math.round(_trainV * 3.6);
+  }
+
+  _updateBoardBtn();
+}
+
+// ── 上/下车逻辑 ───────────────────────────────────────────────────────────────
+function _canBoard() {
+  if (!_trainReady || _trainState !== 'dwell') return false;
+  var dx = player.x - (RAIL_X + 0.5);
+  var dz = player.z - _trainZ;
+  return Math.abs(dx) < 6 && Math.abs(dz) < 6;
+}
+
+function boardTrain() {
+  if (_onTrain || !_canBoard()) return;
+  _onTrain = true;
+  if (typeof viewFP !== 'undefined' && viewFP && typeof toggleView === 'function') toggleView();
+  if (typeof _setWalkUI === 'function') _setWalkUI(false);
+  if (typeof _pivInit !== 'undefined') _pivInit = false;
+  if (typeof _camDcur !== 'undefined') _camDcur = CAM_DIST;
+  var sp = document.getElementById('speedo'); if (sp) sp.classList.add('on');
+  _updateBoardBtn();
+}
+
+function exitTrain() {
+  if (!_onTrain) return;
+  _onTrain = false;
+  // 下到月台（X 偏左，道路侧）
+  player.x = RAIL_X - 3;
+  player.z = _trainZ;
+  player.y = RAIL_TOP;
+  player.vx = 0; player.vy = 0; player.vz = 0;
+  if (typeof _setWalkUI === 'function') _setWalkUI(true);
+  if (typeof _pivInit !== 'undefined') _pivInit = false;
+  if (typeof _camDcur !== 'undefined') _camDcur = CAM_DIST;
+  var sp = document.getElementById('speedo'); if (sp) sp.classList.remove('on');
+  _updateBoardBtn();
+}
+
+// ── 上/下车按钮（自管 DOM，内联样式）────────────────────────────────────────
+function _buildBoardBtn() {
+  if (_trainBoardBtn) return;
+  var b = document.createElement('div');
+  b.id = 'train-board';
+  b.style.cssText = [
+    'position:fixed;left:50%;bottom:170px;transform:translateX(-50%);z-index:60',
+    'padding:10px 22px;border-radius:24px;background:rgba(20,120,200,0.92)',
+    'color:#fff;font-size:18px;font-weight:bold',
+    'box-shadow:0 3px 10px rgba(0,0,0,0.4);display:none',
+    'border:2px solid #fff;touch-action:none;-webkit-user-select:none;user-select:none'
+  ].join(';');
+  function onTap(e) { e.preventDefault(); if (_onTrain) exitTrain(); else boardTrain(); }
+  b.addEventListener('touchstart', onTap, { passive: false });
+  b.addEventListener('click', onTap);
+  document.body.appendChild(b);
+  _trainBoardBtn = b;
+}
+
+function _updateBoardBtn() {
+  if (!_trainBoardBtn) return;
+  if (_onTrain) {
+    _trainBoardBtn.textContent = '🚄 下车';
+    _trainBoardBtn.style.display = 'block';
+  } else if (_canBoard()) {
+    _trainBoardBtn.textContent = '🚄 上车';
+    _trainBoardBtn.style.display = 'block';
+  } else {
+    _trainBoardBtn.style.display = 'none';
+  }
+}
+
+
 // ═══ src/save.js ═══
 // ─── save.js ──────────────────────────────────────────────────────────────────
 // 本地存档：玩家方块改动 + 位置/朝向/物品栏 + 防御塔，存 localStorage。
@@ -6663,7 +7101,12 @@ function tick(now) {
     if (typeof _markFurnitureSolid === 'function') _markFurnitureSolid(_sitting, true);
     _sitting = null;
   }
-  if (typeof _mountedVehicle !== 'undefined' && _mountedVehicle) {
+  if (typeof _onTrain !== 'undefined' && _onTrain) {
+    // 乘坐高铁：位置由 updateTrain 直接锁定，跳过行走物理
+    player.vx = 0; player.vy = 0; player.vz = 0;
+    player.jumpQ = false;
+    player.onGround = false;
+  } else if (typeof _mountedVehicle !== 'undefined' && _mountedVehicle) {
     if (typeof updateVehicles === 'function') updateVehicles(dt);
     player.vy -= GRAVITY * dt;
     player.jumpQ = false;
@@ -6692,26 +7135,31 @@ function tick(now) {
     player.onGround = false;
   }
 
-  var preVy = player.vy;
-  player.x += player.vx * dt;
-  player.y += player.vy * dt;
-  player.z += player.vz * dt;
-  resolveAABB();
+  if (!(typeof _onTrain !== 'undefined' && _onTrain)) {
+    var preVy = player.vy;
+    player.x += player.vx * dt;
+    player.y += player.vy * dt;
+    player.z += player.vz * dt;
+    resolveAABB();
 
-  if (!_wasGround && player.onGround && preVy < -12) {
-    _dipV = Math.max(-1.5, preVy * 0.05);
-  }
-  if (!_wasGround && player.onGround && preVy < -4) {
-    landSound();
-    stepSound(getBlock(Math.floor(player.x), Math.floor(player.y) - 1, Math.floor(player.z)));
-  }
-  _wasGround = player.onGround;
+    if (!_wasGround && player.onGround && preVy < -12) {
+      _dipV = Math.max(-1.5, preVy * 0.05);
+    }
+    if (!_wasGround && player.onGround && preVy < -4) {
+      landSound();
+      stepSound(getBlock(Math.floor(player.x), Math.floor(player.y) - 1, Math.floor(player.z)));
+    }
+    _wasGround = player.onGround;
 
-  var feetWater = getBlock(
-    Math.floor(player.x), Math.floor(player.y + 0.2), Math.floor(player.z)
-  ) === WATER;
-  if (feetWater && !_inWater) splashSound();
-  _inWater = feetWater;
+    var feetWater = getBlock(
+      Math.floor(player.x), Math.floor(player.y + 0.2), Math.floor(player.z)
+    ) === WATER;
+    if (feetWater && !_inWater) splashSound();
+    _inWater = feetWater;
+  }
+
+  // 高铁每帧推进（无人时列车照常往返；乘车时锁定玩家位置）
+  if (typeof updateTrain === 'function') updateTrain(dt);
 
   // ── 破坏（单次 + 长按节流）───────────────────────────────────────────────────
   var nowS = now * 0.001;
@@ -6970,8 +7418,9 @@ function tick(now) {
   playerGroup.position.set(player.x, player.y, player.z);
   playerGroup.rotation.y = player.yaw;
 
-  var _mounted = (typeof _mountedVehicle !== 'undefined' && _mountedVehicle);
-  if (!viewFP) playerGroup.visible = !_mounted;  // 驾驶时隐藏玩家模型，避免穿出车顶
+  var _mounted = (typeof _mountedVehicle !== 'undefined' && _mountedVehicle) ||
+                 (typeof _onTrain !== 'undefined' && _onTrain);
+  if (!viewFP) playerGroup.visible = !_mounted;  // 驾驶/乘车时隐藏玩家模型，避免穿模
   if (_mounted && typeof syncMountedVehicle === 'function') syncMountedVehicle(dt);
 
   var moveMag = Math.sqrt(player.vx * player.vx + player.vz * player.vz);
@@ -7059,9 +7508,10 @@ function tick(now) {
   if (isNaN(_rollCur)) _rollCur = 0;
   var tgtRoll = -_rollIn * 0.007;
   _rollCur += (tgtRoll - _rollCur) * Math.min(1, 8 * dt);
-  if (_mounted) {
-    camera.rotation.set(-0.35, _driveCamYaw, 0);  // 固定俯角，朝向平滑跟随车头
+  if (typeof _mountedVehicle !== 'undefined' && _mountedVehicle) {
+    camera.rotation.set(-0.35, _driveCamYaw, 0);  // 驾驶：固定俯角，朝向平滑跟随车头
   } else {
+    // 行走 / 乘高铁：常规第三人称，朝向跟随 player.yaw（高铁里锁定为行进方向）
     camera.rotation.set(player.pitch, player.yaw, _rollCur);
   }
 
@@ -7086,6 +7536,7 @@ function tick(now) {
   updateSky(dt);
   if (typeof updateCrops === 'function') updateCrops(dt);
   combatUpdate(dt, nowS);
+  if (typeof updateVillagers === 'function') updateVillagers(dt);
 
   renderer.render(scene, camera);
 }
@@ -7177,6 +7628,10 @@ function bootNext() {
       addProgressLog('生成城堡与建筑...');
       placeStructures();
       placeSimpleCastle(-8, -8);
+      placeVillage( 110,  70);   // 东南村庄
+      placeVillage(-110,  90);   // 西南村庄
+      placeVillage(  70, -130);  // 北方村庄
+      if (typeof initTrain === 'function') initTrain();   // 高铁轨道 + 列车
       if (typeof loadGame === 'function') loadGame();
       bootStep = 10; requestAnimationFrame(bootNext);
 

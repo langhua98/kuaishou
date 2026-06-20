@@ -1,0 +1,9 @@
+Modular Train Pack by Quaternius (https://quaternius.com / https://poly.pizza/u/Quaternius)
+License: CC0 1.0 Universal (Public Domain Dedication)
+
+Files (downloaded from poly.pizza CDN):
+  highspeed_front.glb  — High Speed Front   (UUID 18e950a2-e71a-4479-8865-31de94e5b3d0)
+  highspeed_wagon.glb  — High Speed Wagon   (UUID a413c84d-91df-4ad2-8848-2c627814b59f)
+  rail_straight.glb    — Railway Track Straight (UUID 768d54da-8423-44fe-8ebd-1c6e7f234370)
+
+No attribution required (CC0), included for provenance.

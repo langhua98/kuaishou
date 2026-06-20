@@ -394,7 +394,12 @@ function tick(now) {
     if (typeof _markFurnitureSolid === 'function') _markFurnitureSolid(_sitting, true);
     _sitting = null;
   }
-  if (typeof _mountedVehicle !== 'undefined' && _mountedVehicle) {
+  if (typeof _onTrain !== 'undefined' && _onTrain) {
+    // 乘坐高铁：位置由 updateTrain 直接锁定，跳过行走物理
+    player.vx = 0; player.vy = 0; player.vz = 0;
+    player.jumpQ = false;
+    player.onGround = false;
+  } else if (typeof _mountedVehicle !== 'undefined' && _mountedVehicle) {
     if (typeof updateVehicles === 'function') updateVehicles(dt);
     player.vy -= GRAVITY * dt;
     player.jumpQ = false;
@@ -423,26 +428,31 @@ function tick(now) {
     player.onGround = false;
   }
 
-  var preVy = player.vy;
-  player.x += player.vx * dt;
-  player.y += player.vy * dt;
-  player.z += player.vz * dt;
-  resolveAABB();
+  if (!(typeof _onTrain !== 'undefined' && _onTrain)) {
+    var preVy = player.vy;
+    player.x += player.vx * dt;
+    player.y += player.vy * dt;
+    player.z += player.vz * dt;
+    resolveAABB();
 
-  if (!_wasGround && player.onGround && preVy < -12) {
-    _dipV = Math.max(-1.5, preVy * 0.05);
-  }
-  if (!_wasGround && player.onGround && preVy < -4) {
-    landSound();
-    stepSound(getBlock(Math.floor(player.x), Math.floor(player.y) - 1, Math.floor(player.z)));
-  }
-  _wasGround = player.onGround;
+    if (!_wasGround && player.onGround && preVy < -12) {
+      _dipV = Math.max(-1.5, preVy * 0.05);
+    }
+    if (!_wasGround && player.onGround && preVy < -4) {
+      landSound();
+      stepSound(getBlock(Math.floor(player.x), Math.floor(player.y) - 1, Math.floor(player.z)));
+    }
+    _wasGround = player.onGround;
 
-  var feetWater = getBlock(
-    Math.floor(player.x), Math.floor(player.y + 0.2), Math.floor(player.z)
-  ) === WATER;
-  if (feetWater && !_inWater) splashSound();
-  _inWater = feetWater;
+    var feetWater = getBlock(
+      Math.floor(player.x), Math.floor(player.y + 0.2), Math.floor(player.z)
+    ) === WATER;
+    if (feetWater && !_inWater) splashSound();
+    _inWater = feetWater;
+  }
+
+  // 高铁每帧推进（无人时列车照常往返；乘车时锁定玩家位置）
+  if (typeof updateTrain === 'function') updateTrain(dt);
 
   // ── 破坏（单次 + 长按节流）───────────────────────────────────────────────────
   var nowS = now * 0.001;
@@ -701,8 +711,9 @@ function tick(now) {
   playerGroup.position.set(player.x, player.y, player.z);
   playerGroup.rotation.y = player.yaw;
 
-  var _mounted = (typeof _mountedVehicle !== 'undefined' && _mountedVehicle);
-  if (!viewFP) playerGroup.visible = !_mounted;  // 驾驶时隐藏玩家模型，避免穿出车顶
+  var _mounted = (typeof _mountedVehicle !== 'undefined' && _mountedVehicle) ||
+                 (typeof _onTrain !== 'undefined' && _onTrain);
+  if (!viewFP) playerGroup.visible = !_mounted;  // 驾驶/乘车时隐藏玩家模型，避免穿模
   if (_mounted && typeof syncMountedVehicle === 'function') syncMountedVehicle(dt);
 
   var moveMag = Math.sqrt(player.vx * player.vx + player.vz * player.vz);
@@ -790,9 +801,10 @@ function tick(now) {
   if (isNaN(_rollCur)) _rollCur = 0;
   var tgtRoll = -_rollIn * 0.007;
   _rollCur += (tgtRoll - _rollCur) * Math.min(1, 8 * dt);
-  if (_mounted) {
-    camera.rotation.set(-0.35, _driveCamYaw, 0);  // 固定俯角，朝向平滑跟随车头
+  if (typeof _mountedVehicle !== 'undefined' && _mountedVehicle) {
+    camera.rotation.set(-0.35, _driveCamYaw, 0);  // 驾驶：固定俯角，朝向平滑跟随车头
   } else {
+    // 行走 / 乘高铁：常规第三人称，朝向跟随 player.yaw（高铁里锁定为行进方向）
     camera.rotation.set(player.pitch, player.yaw, _rollCur);
   }
 
@@ -817,6 +829,7 @@ function tick(now) {
   updateSky(dt);
   if (typeof updateCrops === 'function') updateCrops(dt);
   combatUpdate(dt, nowS);
+  if (typeof updateVillagers === 'function') updateVillagers(dt);
 
   renderer.render(scene, camera);
 }
@@ -908,6 +921,10 @@ function bootNext() {
       addProgressLog('生成城堡与建筑...');
       placeStructures();
       placeSimpleCastle(-8, -8);
+      placeVillage( 110,  70);   // 东南村庄
+      placeVillage(-110,  90);   // 西南村庄
+      placeVillage(  70, -130);  // 北方村庄
+      if (typeof initTrain === 'function') initTrain();   // 高铁轨道 + 列车
       if (typeof loadGame === 'function') loadGame();
       bootStep = 10; requestAnimationFrame(bootNext);
 
