@@ -1002,18 +1002,23 @@ function _loadSuzukaCircuit() {
     // 把赛道面对齐 SEA+2（石头路面高度）
     model.position.y = (SEA + 2) - trackY;
 
-    // 4. 材质转为 Lambert（与游戏风格统一，消除 PBR 失真）
+    // 4. 保留 PBR 材质，注入中性灰 IBL 环境贴图（仅影响赛道 MeshStandardMaterial）
+    var _pmrem = new THREE.PMREMGenerator(renderer);
+    var _envScene = new THREE.Scene();
+    _envScene.background = new THREE.Color(0x999999);
+    var _envTex = _pmrem.fromScene(_envScene).texture;
+    _pmrem.dispose();
+
     model.traverse(function (node) {
       if (!node.isMesh) return;
-      var old = Array.isArray(node.material) ? node.material[0] : node.material;
-      if (!old) return;
-      node.material = new THREE.MeshLambertMaterial({
-        map:         old.map         || null,
-        color:       old.color       || 0xffffff,
-        transparent: old.transparent || false,
-        opacity:     old.opacity     !== undefined ? old.opacity : 1,
-        side:        old.side        || THREE.FrontSide
-      });
+      var mats = Array.isArray(node.material) ? node.material : [node.material];
+      for (var mi2 = 0; mi2 < mats.length; mi2++) {
+        var m = mats[mi2];
+        if (!m) continue;
+        m.envMap = _envTex;
+        m.envMapIntensity = 1.0;
+        m.needsUpdate = true;
+      }
     });
 
     scene.add(model);
