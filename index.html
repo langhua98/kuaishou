@@ -296,6 +296,7 @@ var RUN_SPD  = 7.5;  // 奔跑速度（摇杆推到底）
 var FLY_SPD  = 8;    // 飞行速度
 var RUN_T    = 0.78; // 摇杆推程超过此值 → 奔跑
 var MOVE_DZ  = 0.18; // 摇杆死区（推程低于此值视为不动）
+var PLAYER_MODEL_H = 2.5; // 玩家模型渲染身高（方块），独立于碰撞箱 PH
 
 // 方块类型 ID
 var AIR         = 0;
@@ -2289,7 +2290,7 @@ function loadPlayerModel() {
     });
     var bh = bbox.max.y - bbox.min.y;
     if (!(bh > 0.01)) bh = PH;   // 极端保底
-    var s = (PH * 0.98) / bh;
+    var s = PLAYER_MODEL_H / bh;
     model.scale.set(s, s, s);
     model.position.y = -bbox.min.y * s;
     // 模型默认朝 +Z，游戏前进方向为 -Z → 转 180°
@@ -2319,17 +2320,18 @@ function loadPlayerModel() {
   }, undefined, function () { /* 加载失败：保留盒子占位 */ });
 }
 
-// 去除剪辑的根运动（Mixamo 跑/走带 Hips 前移，原地播放会滑出去再瞬移回原点）。
-// 把 Hips.position 轨道的 x/z 固定为首帧值，仅保留 y（垂直起伏），实现原地循环。
+// 去除剪辑的根运动。合并自 Mixamo 的 GLB 经 Blender 轴转换后，Hips 平移轨道数值
+// 异常且方向错位（前后位移落在局部 Y 而非 Z），原地播放会从 A 点滑到 B 点。
+// 直接整条删除 Hips 平移轨道：角色只靠关节旋转原地循环，Hips 回退到节点静止平移
+// 定位（=正确身高）；竖直位移本就由物理 player.vy 驱动 playerGroup，不受影响。
 function _lockRootMotion(clip) {
-  var t, tr, v, n, i, x0, z0;
+  var kept = [], t, tr;
   for (t = 0; t < clip.tracks.length; t++) {
     tr = clip.tracks[t];
-    if (!/Hips\.position$/i.test(tr.name)) continue;
-    v = tr.values; n = v.length;
-    x0 = v[0]; z0 = v[2];
-    for (i = 0; i < n; i += 3) { v[i] = x0; v[i + 2] = z0; }
+    if (/Hips\.position$/i.test(tr.name)) continue;  // 丢弃 Hips 平移轨道
+    kept.push(tr);
   }
+  clip.tracks = kept;
 }
 
 // 切换玩家动画状态（同状态重复调用为空操作）

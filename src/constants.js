@@ -20,6 +20,7 @@ var RUN_SPD  = 7.5;  // 奔跑速度（摇杆推到底）
 var FLY_SPD  = 8;    // 飞行速度
 var RUN_T    = 0.78; // 摇杆推程超过此值 → 奔跑
 var MOVE_DZ  = 0.18; // 摇杆死区（推程低于此值视为不动）
+var PLAYER_MODEL_H = 2.5; // 玩家模型渲染身高（方块），独立于碰撞箱 PH
 
 // 方块类型 ID
 var AIR         = 0;
