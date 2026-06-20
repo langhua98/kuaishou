@@ -434,6 +434,7 @@ function tick(now) {
     player.y += player.vy * dt;
     player.z += player.vz * dt;
     resolveAABB();
+    _resolveCircuitGround();
 
     if (!_wasGround && player.onGround && preVy < -12) {
       _dipV = Math.max(-1.5, preVy * 0.05);
@@ -963,7 +964,12 @@ function bootNext() {
 
 requestAnimationFrame(bootNext);
 
-// 铃鹿赛道：放在道路尽头（z=260），自动缩放到 160 game units
+// 铃鹿赛道 GLB —— 全局引用供 Raycaster 碰撞使用
+var _circuitModel = null;
+var _circuitRC    = null;
+var _circuitRCDir = new THREE.Vector3(0, -1, 0);
+var _circuitRCOrg = new THREE.Vector3();
+
 function _loadSuzukaCircuit() {
   if (typeof gltfLoader === 'undefined') return;
   gltfLoader.load('assets/models/suzuka_circuit.glb', function (g) {
@@ -972,14 +978,33 @@ function _loadSuzukaCircuit() {
     var bb = new THREE.Box3().setFromObject(model);
     var maxDim = Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z);
     if (maxDim > 0.1) {
-      var s = 600 / maxDim;
+      var s = 1200 / maxDim;
       model.scale.multiplyScalar(s);
       model.updateMatrixWorld(true);
       bb.setFromObject(model);
     }
     model.position.x = 0 - (bb.min.x + bb.max.x) / 2;
-    model.position.z = 510 - (bb.min.z + bb.max.z) / 2;
-    model.position.y = (SEA + 2) - bb.min.y;
+    model.position.z = 810 - (bb.min.z + bb.max.z) / 2;
+    model.position.y = SEA + 2;   // 轨道面 Y≈0 直接对齐地面，不用 bb.min.y 补偿
     scene.add(model);
+    _circuitModel = model;
+    _circuitRC    = new THREE.Raycaster();
   }, undefined, function (e) { console.warn('suzuka load failed', e); });
+}
+
+// 每帧：玩家在赛道区时向下射线打 GLB，站在模型表面
+function _resolveCircuitGround() {
+  if (!_circuitModel || !_circuitRC) return;
+  if (player.x < -360 || player.x > 360 || player.z < 205 || player.z > 1415) return;
+  _circuitRCOrg.set(player.x, player.y + 10, player.z);
+  _circuitRC.set(_circuitRCOrg, _circuitRCDir);
+  var hits = _circuitRC.intersectObject(_circuitModel, true);
+  if (!hits.length) return;
+  var sy = hits[0].point.y;
+  // 玩家脚底在表面上方 0~3 格内：落到表面
+  if (player.y >= sy - 0.1 && player.y <= sy + 3) {
+    player.y  = sy;
+    if (player.vy < 0) player.vy = 0;
+    player.onGround = true;
+  }
 }
