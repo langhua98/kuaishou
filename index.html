@@ -2238,12 +2238,13 @@ var _pActions   = {};     // 动画名(原始) → AnimationAction
 var _pCurrent   = '';
 
 // 状态 → 可能的动画名（不同模型命名不同，按序取第一个存在的）
+// 已扩充常见 Overwatch / Mixamo / Sketchfab 风格命名
 var _ANIM_ALIAS = {
-  idle: ['idle', 'Idle'],
-  walk: ['forward', 'walk', 'Walking', 'Walk'],
-  run:  ['running_forward', 'run', 'Running', 'forward', 'walk'],
-  jump: ['jump', 'Jump'],
-  fall: ['falling', 'jump', 'Jump']
+  idle: ['idle', 'Idle', 'IDLE', 'stand', 'Stand', 'standing', 'TPose', 'T-Pose', 'tpose'],
+  walk: ['forward', 'walk', 'Walking', 'Walk', 'WALK', 'walking', 'move', 'Move', 'run'],
+  run:  ['running_forward', 'run', 'Running', 'Run', 'RUN', 'sprint', 'Sprint', 'forward', 'walk', 'Walk'],
+  jump: ['jump', 'Jump', 'JUMP', 'jumping', 'Jumping', 'leap', 'Leap'],
+  fall: ['falling', 'Falling', 'fall', 'Fall', 'jump', 'Jump']
 };
 
 function loadPlayerModel() {
@@ -2264,6 +2265,7 @@ function loadPlayerModel() {
     playerMixer = new THREE.AnimationMixer(model);
     var i;
     for (i = 0; i < gltf.animations.length; i++) {
+      console.log('[player anim]', gltf.animations[i].name);
       _pActions[gltf.animations[i].name] = playerMixer.clipAction(gltf.animations[i]);
     }
     playerAnim('idle');
