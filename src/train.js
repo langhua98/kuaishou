@@ -11,13 +11,13 @@
 
 var RAIL_X      = 12;    // 轨道固定 X（道路 wx∈[-3,8] 右侧，与道路平行）
 var RAIL_Z0     =  40;   // 北端起点（城堡南门外约 25 格，避免穿城堡）
-var RAIL_Z1     = 196;   // 南端终点（道路尽头车站中心 Z）
+var RAIL_Z1     = 1710;  // 南端终点（铃鹿赛道中心）
 var RAIL_TOP    = SEA + 3; // 轨面站立高度（轨道床顶面 y=SEA+2，+1 为地板上方）
-var TRAIN_CRUISE = 20;   // 巡航速度 u/s
-var TRAIN_ACCEL  =  6;   // 加速度 u/s²
-var TRAIN_DECEL  =  8;   // 减速度 u/s²
-var TRAIN_DWELL  =  5;   // 到站停靠秒数
-var TRAIN_MARGIN = 10;   // 端点留白（站台范围内停车）
+var TRAIN_CRUISE = 80;   // 巡航速度 u/s（高速，约 25 秒单程）
+var TRAIN_ACCEL  = 20;   // 加速度 u/s²
+var TRAIN_DECEL  = 25;   // 减速度 u/s²
+var TRAIN_DWELL  =  8;   // 到站停靠秒数
+var TRAIN_MARGIN = 12;   // 端点留白（站台范围内停车）
 
 // ── 运行状态 ───────────────────────────────────────────────────────────────────
 var _onTrain    = false;   // 玩家是否在车上（game.js 读取）
@@ -114,11 +114,12 @@ function _addCar(model, isFront, clips) {
   _trainCars.push({ group: grp });
 }
 
-// 两端车站（Three.js 几何体）
+// 车站（Three.js 几何体）：城堡站 + 道路尽头中转站 + 铃鹿终点站
 function _buildStations() {
   var stations = [
-    { z: RAIL_Z0 + TRAIN_MARGIN },
-    { z: RAIL_Z1 - TRAIN_MARGIN }
+    { z: RAIL_Z0 + TRAIN_MARGIN },   // 城堡站（北）
+    { z: 186 },                       // 道路尽头中转站（南 z=186）
+    { z: RAIL_Z1 - TRAIN_MARGIN }    // 铃鹿赛道终点站
   ];
   for (var s = 0; s < stations.length; s++) {
     var sz = stations[s].z;
@@ -215,7 +216,7 @@ function _canBoard() {
   if (!_trainReady || _trainState !== 'dwell') return false;
   var dx = player.x - (RAIL_X + 0.5);
   var dz = player.z - _trainZ;
-  return Math.abs(dx) < 6 && Math.abs(dz) < 6;
+  return Math.abs(dx) < 10 && Math.abs(dz) < 15;
 }
 
 function boardTrain() {
@@ -283,7 +284,7 @@ function _buildViaduct() {
   var wallMat = new THREE.MeshLambertMaterial({ color: 0xd4d0cc }); // 混凝土灰
   var capMat  = new THREE.MeshLambertMaterial({ color: 0xa8a4a0 }); // 深灰桥墩帽
   var northZ  = RAIL_Z0 + TRAIN_MARGIN + 16;  // 跳过北端站台
-  var southZ  = RAIL_Z1 - TRAIN_MARGIN - 16;  // 跳过南端站台
+  var southZ  = 200;  // 赛道 z≥205 地面已平，高架桥只覆盖自然地形段
   var midZ    = (northZ + southZ) / 2;
   var segLen  = southZ - northZ;
 
