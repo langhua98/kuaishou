@@ -59,8 +59,17 @@ function loadPlayerModel() {
     var model = gltf.scene;
 
     // 归一化身高，脚底对齐 y=0
-    var bbox = new THREE.Box3().setFromObject(model);
-    var s = (PH * 0.95) / (bbox.max.y - bbox.min.y);
+    // SkinnedMesh 在首帧前 setFromObject 返回空盒 → 改用几何体 boundingBox
+    var bbox = new THREE.Box3();
+    model.traverse(function (o) {
+      if (o.isSkinnedMesh || o.isMesh) {
+        o.geometry.computeBoundingBox();
+        if (o.geometry.boundingBox) bbox.union(o.geometry.boundingBox);
+      }
+    });
+    var bh = bbox.max.y - bbox.min.y;
+    if (!(bh > 0.01)) bh = PH;   // 极端保底
+    var s = (PH * 0.95) / bh;
     model.scale.set(s, s, s);
     model.position.y = -bbox.min.y * s;
     // 模型默认朝 +Z，游戏前进方向为 -Z → 转 180°
