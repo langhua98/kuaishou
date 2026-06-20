@@ -2246,12 +2246,13 @@ var _procT     = 0;       // 步态相位累加
 var _procAmp   = 0;       // 行走幅度权重（0→1 平滑过渡）
 var _procReady = false;
 var _PROC_Q    = null;    // 复用临时四元数
+// 同时兼容 Unreal（thigh_l）与 3ds Max Biped（Bip001_L_Thigh）命名
 var _PROC_PAT  = {
-  thighL: /^thigh_l_\d/,    thighR: /^thigh_r_\d/,
-  calfL:  /^calf_l_\d/,     calfR:  /^calf_r_\d/,
-  upperarmL: /^upperarm_l_\d/, upperarmR: /^upperarm_r_\d/,
-  lowerarmL: /^lowerarm_l_\d/, lowerarmR: /^lowerarm_r_\d/,
-  spine:  /^spine_03_\d/,   pelvis: /^pelvis_\d/
+  thighL: /^thigh_l_\d|Bip\d*_L_Thigh/i,    thighR: /^thigh_r_\d|Bip\d*_R_Thigh/i,
+  calfL:  /^calf_l_\d|Bip\d*_L_Calf/i,      calfR:  /^calf_r_\d|Bip\d*_R_Calf/i,
+  upperarmL: /^upperarm_l_\d|Bip\d*_L_UpperArm/i, upperarmR: /^upperarm_r_\d|Bip\d*_R_UpperArm/i,
+  lowerarmL: /^lowerarm_l_\d|Bip\d*_L_Forearm/i,  lowerarmR: /^lowerarm_r_\d|Bip\d*_R_Forearm/i,
+  spine:  /^spine_03_\d|Bip\d*_Spine1/i,    pelvis: /^pelvis_\d|Bip\d*_Pelvis/i
 };
 
 // 状态 → 可能的动画名（不同模型命名不同，按序取第一个存在的）
@@ -2285,8 +2286,15 @@ function loadPlayerModel() {
       _pActions[gltf.animations[i].name] = playerMixer.clipAction(gltf.animations[i]);
     }
 
-    // 无内置动画 → 捕获四肢骨用于程序化动画
-    if (gltf.animations.length === 0) _setupProcBones(model);
+    // 检测是否存在可用的位移动画（idle/walk/run 别名命中）
+    var hasLoco = false, ls, alias, k;
+    var locoStates = ['idle', 'walk', 'run'];
+    for (ls = 0; ls < locoStates.length && !hasLoco; ls++) {
+      alias = _ANIM_ALIAS[locoStates[ls]];
+      for (k = 0; k < alias.length; k++) { if (_pActions[alias[k]]) { hasLoco = true; break; } }
+    }
+    // 无可用位移动画（0 动画 或 仅有一段非标准片段）→ 程序化驱动四肢
+    if (!hasLoco) _setupProcBones(model);
 
     playerAnim('idle');
   }, undefined, function () { /* 加载失败：保留盒子占位 */ });
