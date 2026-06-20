@@ -67,14 +67,17 @@ function genTerrain(cx, cz) {
       noiseH = Math.floor(SEA + noise2D(wx * SCALE, wz * SCALE) * AMP);
       h      = Math.round(_FLAT_H * (1 - blend) + noiseH * blend);
 
-      // 石头路：城堡南门前 12 格宽，向南延伸 200 格（随地形生成永久烤入地图）
+      // 石头路：城堡南门前 12 格宽，向南延伸 200 格
       var _road = (wx >= -3 && wx <= 8 && wz >= 14 && wz <= 200);
       if (_road) h = SEA + 2;
 
-      // 高铁轨道床：沿 Z 轴（城堡南门旁 → 道路尽头），5 格宽，与道路平行
-      // wx∈[10,14]（道路右侧紧邻），wz∈[8,200]
+      // 高铁轨道床：沿 Z 轴，5 格宽，与道路平行
       var _rail = (wx >= 10 && wx <= 14 && wz >= 8 && wz <= 200);
       if (_rail) h = SEA + 2;
+
+      // 公路/轨道两侧缓冲带（各 5 格），削平高出路面的地形
+      var _shoulder = (wx >= -8 && wx <= 19 && wz >= 8 && wz <= 202);
+      if (_shoulder && h > SEA + 2) h = SEA + 2;
 
       for (y = 0; y <= h && y < CHUNK_H; y++) {
         id = (y === h)    ? ((_road || _rail) ? STONE : (h <= SEA + 1) ? SAND : GRASS)

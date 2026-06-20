@@ -69,7 +69,7 @@ function initTrain() {
   }, undefined, function () { _trainReady = true; });
 }
 
-var _TARGET_CAR_LEN = 10; // 每节车厢缩放目标长度（game units）
+var _TARGET_CAR_LEN = 35; // 每节车厢缩放目标长度（game units）
 
 // 单节车厢：长轴对齐 Z，缩放到目标长度，脚底落轨面，播放内置动画
 function _addCar(model, isFront, clips) {
