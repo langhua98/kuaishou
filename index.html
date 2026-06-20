@@ -6433,64 +6433,43 @@ function _addCar(model, isFront) {
   _trainCars.push({ group: grp });
 }
 
-// 两端车站（Three.js 几何体，不依赖区块）
+// 两端车站（Three.js 几何体）
 function _buildStations() {
   var stations = [
-    { z: RAIL_Z0 + TRAIN_MARGIN, label: '城堡站' },
-    { z: RAIL_Z1 - TRAIN_MARGIN, label: '南端站' }
+    { z: RAIL_Z0 + TRAIN_MARGIN },
+    { z: RAIL_Z1 - TRAIN_MARGIN }
   ];
   for (var s = 0; s < stations.length; s++) {
     var sz = stations[s].z;
-    // 月台板（靠道路一侧，X 偏左）
-    var plat = new THREE.Mesh(
-      new THREE.BoxGeometry(3, 0.2, 14),
-      new THREE.MeshLambertMaterial({ color: 0xbfb39a })
-    );
-    plat.position.set(RAIL_X - 2.5, RAIL_TOP + 0.1, sz);
-    scene.add(plat);
-    // 遮棚立柱
-    var postMat = new THREE.MeshLambertMaterial({ color: 0x6b4f33 });
-    var posts = [
-      [RAIL_X - 1.5, sz - 6], [RAIL_X - 3.5, sz - 6],
-      [RAIL_X - 1.5, sz + 6], [RAIL_X - 3.5, sz + 6]
-    ];
-    for (var i = 0; i < posts.length; i++) {
-      var p = new THREE.Mesh(new THREE.BoxGeometry(0.3, 3, 0.3), postMat);
-      p.position.set(posts[i][0], RAIL_TOP + 1.5, posts[i][1]);
-      scene.add(p);
-    }
-    // 顶棚
-    var roof = new THREE.Mesh(
-      new THREE.BoxGeometry(2.5, 0.3, 13.5),
-      new THREE.MeshLambertMaterial({ color: 0x3b6ea5 })
-    );
-    roof.position.set(RAIL_X - 2.5, RAIL_TOP + 3.1, sz);
-    scene.add(roof);
+    var platMat = new THREE.MeshLambertMaterial({ color: 0xe8e0d0 });
+    var postMat = new THREE.MeshLambertMaterial({ color: 0x888888 });
+    var roofMat = new THREE.MeshLambertMaterial({ color: 0x4a7ab5 });
+    var lineMat = new THREE.MeshLambertMaterial({ color: 0xf0c020 });
 
-    // 日本车站 GLB（月台背后，X 偏更左）
-    (function(stationZ) {
-      gltfLoader.load('assets/models/train/train_station.glb', function(g) {
-        var m = g.scene;
-        m.updateMatrixWorld(true);
-        var bb = new THREE.Box3().setFromObject(m);
-        var w = bb.max.x - bb.min.x, d = bb.max.z - bb.min.z;
-        var scale = 10 / Math.max(w, d, 1);
-        m.scale.setScalar(scale);
-        m.updateMatrixWorld(true);
-        bb.setFromObject(m);
-        m.position.x = RAIL_X - 6 - (bb.min.x + bb.max.x) / 2;
-        m.position.z = stationZ - (bb.min.z + bb.max.z) / 2;
-        m.position.y = RAIL_TOP - bb.min.y;
-        // PBR→Lambert（与游戏风格一致，避免 PBR 在低光照下变黑）
-        m.traverse(function(node) {
-          if (!node.isMesh || !node.material) return;
-          var src = Array.isArray(node.material) ? node.material[0] : node.material;
-          var hex = (src && src.color) ? src.color.getHex() : 0xcccccc;
-          node.material = new THREE.MeshLambertMaterial({ color: hex });
-        });
-        scene.add(m);
-      }, undefined, function(err) { console.error('train_station load err', err); });
-    })(sz);
+    // 月台板（4宽 × 20长）
+    var plat = new THREE.Mesh(new THREE.BoxGeometry(4, 0.25, 20), platMat);
+    plat.position.set(RAIL_X - 2.5, RAIL_TOP + 0.125, sz);
+    scene.add(plat);
+
+    // 安全黄线（紧靠轨道边缘）
+    var line = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.05, 20), lineMat);
+    line.position.set(RAIL_X - 0.6, RAIL_TOP + 0.28, sz);
+    scene.add(line);
+
+    // 遮棚立柱（6根：Z 方向每 8 格两根）
+    var pz, px;
+    for (pz = sz - 8; pz <= sz + 8; pz += 8) {
+      for (px = 0; px < 2; px++) {
+        var pc = new THREE.Mesh(new THREE.BoxGeometry(0.25, 3.2, 0.25), postMat);
+        pc.position.set(RAIL_X - 1.2 - px * 2.4, RAIL_TOP + 1.85, pz);
+        scene.add(pc);
+      }
+    }
+
+    // 顶棚
+    var roof = new THREE.Mesh(new THREE.BoxGeometry(4, 0.25, 19.5), roofMat);
+    roof.position.set(RAIL_X - 2.5, RAIL_TOP + 3.375, sz);
+    scene.add(roof);
   }
 }
 
