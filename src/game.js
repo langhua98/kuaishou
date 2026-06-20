@@ -972,13 +972,13 @@ function _loadSuzukaCircuit() {
     var bb = new THREE.Box3().setFromObject(model);
     var maxDim = Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z);
     if (maxDim > 0.1) {
-      var s = 160 / maxDim;
+      var s = 600 / maxDim;
       model.scale.multiplyScalar(s);
       model.updateMatrixWorld(true);
       bb.setFromObject(model);
     }
     model.position.x = 0 - (bb.min.x + bb.max.x) / 2;
-    model.position.z = 260 - (bb.min.z + bb.max.z) / 2;
+    model.position.z = 510 - (bb.min.z + bb.max.z) / 2;
     model.position.y = (SEA + 2) - bb.min.y;
     scene.add(model);
   }, undefined, function (e) { console.warn('suzuka load failed', e); });
