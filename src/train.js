@@ -13,10 +13,10 @@ var RAIL_X      = 12;    // 轨道固定 X（道路 wx∈[-3,8] 右侧，与道�
 var RAIL_Z0     =  40;   // 北端起点（城堡南门外约 25 格，避免穿城堡）
 var RAIL_Z1     = 1710;  // 南端终点（铃鹿赛道中心）
 var RAIL_TOP    = SEA + 3; // 轨面站立高度（轨道床顶面 y=SEA+2，+1 为地板上方）
-var TRAIN_CRUISE = 80;   // 巡航速度 u/s（高速，约 25 秒单程）
-var TRAIN_ACCEL  = 20;   // 加速度 u/s²
-var TRAIN_DECEL  = 25;   // 减速度 u/s²
-var TRAIN_DWELL  =  8;   // 到站停靠秒数
+var TRAIN_CRUISE = 30;   // 巡航速度 u/s（约 55 秒单程）
+var TRAIN_ACCEL  =  8;   // 加速度 u/s²
+var TRAIN_DECEL  = 10;   // 减速度 u/s²
+var TRAIN_DWELL  = 20;   // 到站停靠秒数（给玩家充足时间上车）
 var TRAIN_MARGIN = 12;   // 端点留白（站台范围内停车）
 
 // ── 运行状态 ───────────────────────────────────────────────────────────────────
@@ -28,7 +28,7 @@ var _trainZ     = RAIL_Z0 + TRAIN_MARGIN;  // 车头当前 Z
 var _trainV     = 0;       // 当前速度 u/s（正值=朝 +Z）
 var _trainDir   = 1;       // +1 朝南（+Z），-1 朝北（-Z）
 var _trainState = 'dwell'; // 'dwell' | 'run'
-var _trainDwellT = TRAIN_DWELL;
+var _trainDwellT = 30;  // 初始多等 30s，让玩家有时间走到站台
 var _trainBoardBtn = null;
 var _trainMixers  = [];   // AnimationMixer per car
 
@@ -165,6 +165,10 @@ function updateTrain(dt) {
   // 状态机：停靠倒计时 / 加速巡航减速进站
   if (_trainState === 'dwell') {
     _trainV = 0;
+    // 玩家在候车范围内时保持停靠，不发车
+    if (_canBoard() || _onTrain) {
+      _trainDwellT = Math.max(_trainDwellT, 5);
+    }
     _trainDwellT -= dt;
     if (_trainDwellT <= 0) _trainState = 'run';
   } else {
@@ -196,12 +200,12 @@ function updateTrain(dt) {
     _trainCars[i].group.rotation.y = (_trainDir > 0) ? Math.PI : 0;
   }
 
-  // 乘车：把玩家锁定在车头位置
+  // 乘车：把玩家锁定在车内（轨面 +1.5 高度，朝行进方向）
   if (_onTrain) {
     player.x = RAIL_X + 0.5;
     player.z = _trainZ;
-    player.y = RAIL_TOP + 0.5;
-    player.yaw = (_trainDir > 0) ? Math.PI : 0;  // 朝向行进方向
+    player.y = RAIL_TOP + 1.5;
+    player.yaw = (_trainDir > 0) ? Math.PI : 0;
     player.vx = 0; player.vy = 0; player.vz = 0;
     // 速度表
     var spv = document.getElementById('speedo-val');
@@ -222,8 +226,6 @@ function _canBoard() {
 function boardTrain() {
   if (_onTrain || !_canBoard()) return;
   _onTrain = true;
-  if (typeof viewFP !== 'undefined' && viewFP && typeof toggleView === 'function') toggleView();
-  if (typeof _setWalkUI === 'function') _setWalkUI(false);
   if (typeof _pivInit !== 'undefined') _pivInit = false;
   if (typeof _camDcur !== 'undefined') _camDcur = CAM_DIST;
   var sp = document.getElementById('speedo'); if (sp) sp.classList.add('on');
@@ -238,10 +240,10 @@ function exitTrain() {
   player.z = _trainZ;
   player.y = RAIL_TOP;
   player.vx = 0; player.vy = 0; player.vz = 0;
-  if (typeof _setWalkUI === 'function') _setWalkUI(true);
   if (typeof _pivInit !== 'undefined') _pivInit = false;
   if (typeof _camDcur !== 'undefined') _camDcur = CAM_DIST;
   var sp = document.getElementById('speedo'); if (sp) sp.classList.remove('on');
+  _trainDwellT = Math.max(_trainDwellT, 5);  // 下车后至少再等 5s
   _updateBoardBtn();
 }
 
@@ -251,11 +253,12 @@ function _buildBoardBtn() {
   var b = document.createElement('div');
   b.id = 'train-board';
   b.style.cssText = [
-    'position:fixed;left:50%;bottom:170px;transform:translateX(-50%);z-index:60',
-    'padding:10px 22px;border-radius:24px;background:rgba(20,120,200,0.92)',
-    'color:#fff;font-size:18px;font-weight:bold',
-    'box-shadow:0 3px 10px rgba(0,0,0,0.4);display:none',
-    'border:2px solid #fff;touch-action:none;-webkit-user-select:none;user-select:none'
+    'position:fixed;left:50%;bottom:220px;transform:translateX(-50%);z-index:200',
+    'padding:14px 32px;border-radius:28px;background:rgba(20,120,200,0.95)',
+    'color:#fff;font-size:20px;font-weight:bold',
+    'box-shadow:0 4px 14px rgba(0,0,0,0.5);display:none',
+    'border:2px solid #fff;touch-action:none;-webkit-user-select:none;user-select:none',
+    'pointer-events:auto'
   ].join(';');
   function onTap(e) { e.preventDefault(); if (_onTrain) exitTrain(); else boardTrain(); }
   b.addEventListener('touchstart', onTap, { passive: false });
