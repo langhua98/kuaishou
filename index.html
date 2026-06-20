@@ -6347,6 +6347,7 @@ var _trainDir   = 1;       // +1 朝南（+Z），-1 朝北（-Z）
 var _trainState = 'dwell'; // 'dwell' | 'run'
 var _trainDwellT = TRAIN_DWELL;
 var _trainBoardBtn = null;
+var _trainMixers  = [];   // AnimationMixer per car
 
 // ── 初始化（game.js boot step 9 调用）────────────────────────────────────────
 function initTrain() {
@@ -6375,60 +6376,57 @@ function initTrain() {
     }
   }, undefined, function () {});
 
-  // 车头 + 2 节车厢
-  gltfLoader.load('assets/models/train/highspeed_front.glb', function (gf) {
-    _addCar(gf.scene, true);
-    gltfLoader.load('assets/models/train/highspeed_wagon.glb', function (gw) {
-      _addCar(gw.scene.clone(true), false);
-      _addCar(gw.scene.clone(true), false);
+  // 高雄轻轨：两节独立 load 确保 animations 绑定正确
+  gltfLoader.load('assets/models/train/kaohsiung_lightrail.glb', function (gf) {
+    _addCar(gf.scene, true, gf.animations);
+    gltfLoader.load('assets/models/train/kaohsiung_lightrail.glb', function (gw) {
+      _addCar(gw.scene, false, gw.animations);
       _trainReady = true;
     }, undefined, function () { _trainReady = true; });
-  }, undefined, function () {});
+  }, undefined, function () { _trainReady = true; });
 }
 
-// 单节车厢：让长轴对齐 Z 轴，脚底落到轨面
-function _addCar(model, isFront) {
+var _TARGET_CAR_LEN = 10; // 每节车厢缩放目标长度（game units）
+
+// 单节车厢：长轴对齐 Z，缩放到目标长度，脚底落轨面，播放内置动画
+function _addCar(model, isFront, clips) {
   model.updateMatrixWorld(true);
   var bb = new THREE.Box3().setFromObject(model);
   var dx = bb.max.x - bb.min.x, dz = bb.max.z - bb.min.z;
+
   // 长轴若是 X 则旋转 90° 使长轴变 Z
   model.rotation.y = (dx > dz) ? Math.PI / 2 : 0;
   model.updateMatrixWorld(true);
   bb.setFromObject(model);
-  // 横向/纵向居中到 group 原点，脚底归零
+
+  // 缩放到目标长度
+  var rawLen = bb.max.z - bb.min.z;
+  if (rawLen > 0.1) {
+    var s = _TARGET_CAR_LEN / rawLen;
+    model.scale.multiplyScalar(s);
+    model.updateMatrixWorld(true);
+    bb.setFromObject(model);
+  }
+
+  // 横向/纵向居中，脚底归零
   model.position.x -= (bb.min.x + bb.max.x) / 2;
   model.position.z -= (bb.min.z + bb.max.z) / 2;
   model.position.y  = RAIL_TOP - bb.min.y;
 
-  var carLen = Math.max(bb.max.z - bb.min.z, bb.max.x - bb.min.x);
-  var carW   = bb.max.x - bb.min.x;
-  if (carLen + 0.8 > _carSpacing) _carSpacing = carLen + 0.8;
+  var carLen = bb.max.z - bb.min.z;
+  if (carLen + 1 > _carSpacing) _carSpacing = carLen + 1;
 
-  // 白色高铁涂装；跳过透明材质（保留原模型玻璃/窗户）
-  model.traverse(function(node) {
-    if (!node.isMesh) return;
-    var mat = Array.isArray(node.material) ? node.material[0] : node.material;
-    if (mat && (mat.transparent || (mat.opacity !== undefined && mat.opacity < 0.9))) return;
-    node.material = new THREE.MeshLambertMaterial({ color: 0xf5f5f5 });
-  });
+  // 播放所有内置动画（保留原速度循环）
+  if (clips && clips.length > 0) {
+    var mixer = new THREE.AnimationMixer(model);
+    for (var ci = 0; ci < clips.length; ci++) {
+      mixer.clipAction(clips[ci]).play();
+    }
+    _trainMixers.push(mixer);
+  }
 
   var grp = new THREE.Group();
   grp.add(model);
-
-  // 蓝色半透明车窗（DoubleSide：从外可见蓝色玻璃，从内可看窗外）
-  var winMat = new THREE.MeshLambertMaterial({ color: 0x88bbdd, transparent: true, opacity: 0.45, side: THREE.DoubleSide });
-  var nWin = Math.max(2, Math.floor(carLen / 2));
-  var halfW = Math.max(carW / 2, 0.8);
-  var wi, wz, wSide;
-  for (wi = 0; wi < nWin; wi++) {
-    wz = -carLen / 2 + 1.5 + wi * (carLen - 2.0) / nWin;
-    for (wSide = -1; wSide <= 1; wSide += 2) {
-      var winMesh = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.7, 1.0), winMat);
-      winMesh.position.set(wSide * halfW, RAIL_TOP + 1.1, wz);
-      grp.add(winMesh);
-    }
-  }
-
   scene.add(grp);
   _trainCars.push({ group: grp });
 }
@@ -6476,6 +6474,9 @@ function _buildStations() {
 // ── 每帧主循环（game.js 每帧无条件调用）─────────────────────────────────────
 function updateTrain(dt) {
   if (!_trainReady) { _updateBoardBtn(); return; }
+
+  // 推进动画
+  for (var mi = 0; mi < _trainMixers.length; mi++) _trainMixers[mi].update(dt);
 
   // 状态机：停靠倒计时 / 加速巡航减速进站
   if (_trainState === 'dwell') {
