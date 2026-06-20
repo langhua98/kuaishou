@@ -26,6 +26,11 @@ var playerMixer = null;   // null = 模型未就绪
 var _pActions   = {};     // 动画名(原始) → AnimationAction
 var _pCurrent   = '';
 
+// ── 第一人称 GLB 手臂 ─────────────────────────────────────────────────────────
+var _fpArmScene = null;   // camera 子节点，仅第一人称可见
+var _fpArmMixer = null;
+var _fpArmAnims = {};     // 动画名 → AnimationAction（与 _pActions 键同步）
+
 // 程序化骨骼动画（模型自带 0 动画时由代码驱动 idle/walk/run）
 // D.Va 模型为 Unreal 骨骼，按名匹配四肢骨，每帧相对绑定姿势叠加旋转
 var _procBones = {};      // 逻辑名 → THREE.Object3D（骨骼节点）
@@ -105,6 +110,54 @@ function loadPlayerModel() {
     if (!hasLoco) _setupProcBones(model);
 
     playerAnim('idle');
+
+    // ── 第一人称手臂：clone 同一 GLB 场景，移入 camera 空间 ──────────────────
+    // SkinnedMesh clone 后骨架仍指向原始节点，须手动重绑定到 clone 内对应骨骼。
+    _fpArmScene = gltf.scene.clone(true);
+    var _fpBoneMap = {};
+    _fpArmScene.traverse(function (n) { if (n.name) _fpBoneMap[n.name] = n; });
+    _fpArmScene.traverse(function (n) {
+      if (!n.isSkinnedMesh) return;
+      var nb = [], invs = [], bi;
+      for (bi = 0; bi < n.skeleton.bones.length; bi++) {
+        nb.push(_fpBoneMap[n.skeleton.bones[bi].name] || n.skeleton.bones[bi]);
+        invs.push(n.skeleton.boneInverses[bi].clone());
+      }
+      n.skeleton = new THREE.Skeleton(nb, invs);
+      n.bind(n.skeleton, n.bindMatrix);
+    });
+
+    // 仅显示手臂相关网格节点（含 arm/hand 关键词），隐藏头/身体/腿
+    var _fpArmRe = /arm|hand/i;
+    var _fpMeshCount = 0;
+    _fpArmScene.traverse(function (n) {
+      if (!n.isMesh && !n.isSkinnedMesh) return;
+      _fpMeshCount++;
+    });
+    // 只有当模型有多个独立网格时才按名字过滤（单一合并网格则全显）
+    if (_fpMeshCount > 1) {
+      _fpArmScene.traverse(function (n) {
+        if ((n.isMesh || n.isSkinnedMesh) && !_fpArmRe.test(n.name)) n.visible = false;
+      });
+    }
+
+    _fixPlayerMaterials(_fpArmScene);
+
+    // 定位到 camera 空间：肩部在屏幕上方外，前臂自然垂入画面下方
+    _fpArmScene.scale.set(0.4, 0.4, 0.4);
+    _fpArmScene.position.set(0, -0.55, -0.45);
+    _fpArmScene.rotation.y = Math.PI;
+    _fpArmScene.visible = false;
+    camera.add(_fpArmScene);
+
+    // 独立 Mixer（复用已处理过的 gltf.animations，动画数据无状态可共享）
+    _fpArmMixer = new THREE.AnimationMixer(_fpArmScene);
+    var fai;
+    for (fai = 0; fai < gltf.animations.length; fai++) {
+      _fpArmAnims[gltf.animations[fai].name] = _fpArmMixer.clipAction(gltf.animations[fai]);
+    }
+    if (_pCurrent && _fpArmAnims[_pCurrent]) _fpArmAnims[_pCurrent].reset().play();
+
   }, undefined, function () { /* 加载失败：保留盒子占位 */ });
 }
 
@@ -158,6 +211,12 @@ function playerAnim(state) {
   if (prev) prev.fadeOut(0.2);
   _pActions[name].reset().fadeIn(0.2).play();
   _pCurrent = name;
+  // 同步 FP 手臂动画
+  if (_fpArmMixer && _fpArmAnims[name]) {
+    var fn;
+    for (fn in _fpArmAnims) { if (_fpArmAnims[fn].isRunning()) _fpArmAnims[fn].fadeOut(0.2); }
+    _fpArmAnims[name].reset().fadeIn(0.2).play();
+  }
 }
 
 // 遍历模型，按名匹配四肢骨并记录绑定姿势四元数

@@ -18,15 +18,20 @@ function raycast(maxD) {
   var dy = sp;
   var dz = -Math.cos(player.yaw) * cp;
 
-  // 射线起点：玩家眼睛位置（+ 第三人称时的右肩偏移）。
-  // 第三人称相机右偏 CAM_SHOULDER 且朝向平行 → 屏幕中心射线 = 眼睛射线右移同量，
-  // 起点同步右移后准星点与破坏/放置目标严格一致；第一人称相机即眼睛，无偏移。
-  var sh = viewFP ? 0 : CAM_SHOULDER;
-  var ox = player.x + Math.cos(player.yaw) * sh;
-  // 起点高度须与相机屏幕中心所穿过的点一致：第一人称=眼睛(PH*0.85)，
-  // 第三人称=相机枢轴(player.y+PH*0.8，见 game.js)。两者不一致会导致准星与目标错位。
-  var oy = player.y + PH * (viewFP ? 0.85 : 0.8);
-  var oz = player.z - Math.sin(player.yaw) * sh;
+  // 射线起点：
+  //   第一人称 = 玩家眼睛 (player.x/z, player.y+PH*0.85)
+  //   第三人称 = 平滑相机枢轴 (_pivX/_pivY/_pivZ) + 右肩偏移 CAM_SHOULDER
+  //   须用平滑枢轴而非 player.x/y/z，否则移动时枢轴滞后导致准星偏移。
+  var ox, oy, oz;
+  if (viewFP) {
+    ox = player.x;
+    oy = player.y + PH * 0.85;
+    oz = player.z;
+  } else {
+    ox = _pivX + Math.cos(player.yaw) * CAM_SHOULDER;
+    oy = _pivY;
+    oz = _pivZ - Math.sin(player.yaw) * CAM_SHOULDER;
+  }
 
   var prev = null, d, bx, by, bz, id;
   for (d = 0; d < maxD; d += 0.05) {
