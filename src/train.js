@@ -10,7 +10,7 @@
 //   对外全局：_onTrain（game.js 移动段读取，乘车时跳过行走物理）
 
 var RAIL_X      = 12;    // 轨道固定 X（道路 wx∈[-3,8] 右侧，与道路平行）
-var RAIL_Z0     =  10;   // 北端起点（城堡侧车站中心 Z）
+var RAIL_Z0     =  40;   // 北端起点（城堡南门外约 25 格，避免穿城堡）
 var RAIL_Z1     = 196;   // 南端终点（道路尽头车站中心 Z）
 var RAIL_TOP    = SEA + 3; // 轨面站立高度（轨道床顶面 y=SEA+2，+1 为地板上方）
 var TRAIN_CRUISE = 20;   // 巡航速度 u/s
@@ -83,40 +83,32 @@ function _addCar(model, isFront) {
   model.position.y  = RAIL_TOP - bb.min.y;
 
   var carLen = Math.max(bb.max.z - bb.min.z, bb.max.x - bb.min.x);
+  var carW   = bb.max.x - bb.min.x;
   if (carLen + 0.8 > _carSpacing) _carSpacing = carLen + 0.8;
 
-  // 强制白色高铁涂装
+  // 白色高铁涂装，保留原模型的透明材质（玻璃/窗户）不覆盖
   model.traverse(function(node) {
-    if (node.isMesh) {
-      node.material = new THREE.MeshLambertMaterial({ color: 0xf5f5f5 });
-    }
+    if (!node.isMesh) return;
+    var mat = Array.isArray(node.material) ? node.material[0] : node.material;
+    if (mat && (mat.transparent || (mat.opacity !== undefined && mat.opacity < 0.9))) return;
+    node.material = new THREE.MeshLambertMaterial({ color: 0xf5f5f5 });
   });
 
   var grp = new THREE.Group();
   grp.add(model);
 
-  // ── 车厢内部（座椅 + 白色内壁，供乘车时第三人称视角欣赏）──
-  var iLen = Math.max(carLen - 1.2, 3);
-  var iW = 2.2, iH = 2.5;
-  // 内壁用 BackSide：从车厢外部不可见，从内部可见
-  var wallMat = new THREE.MeshLambertMaterial({ color: 0xf0eeea, side: THREE.BackSide });
-  var interior = new THREE.Mesh(new THREE.BoxGeometry(iW, iH, iLen), wallMat);
-  interior.position.set(0, RAIL_TOP + iH / 2, 0);
-  grp.add(interior);
-  // 蓝色座椅（两侧各一排，每 1.6 格一组）
-  var seatMat = new THREE.MeshLambertMaterial({ color: 0x1a4a8a });
-  var backMat = new THREE.MeshLambertMaterial({ color: 0x122f6a });
-  var sxArr = [-0.75, 0.75];
-  var isz, isi, isx;
-  for (isz = -iLen / 2 + 0.9; isz < iLen / 2 - 0.4; isz += 1.6) {
-    for (isi = 0; isi < 2; isi++) {
-      isx = sxArr[isi];
-      var seatM = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.08, 0.48), seatMat);
-      seatM.position.set(isx, RAIL_TOP + 0.46, isz);
-      grp.add(seatM);
-      var backM = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.55, 0.08), backMat);
-      backM.position.set(isx, RAIL_TOP + 0.74, isz + 0.20);
-      grp.add(backM);
+  // 车窗：两侧蓝色透明玻璃板，从外侧可见也可从内往外看
+  var winMat = new THREE.MeshLambertMaterial({ color: 0x88bbdd, transparent: true, opacity: 0.45, side: THREE.DoubleSide });
+  var nWin = Math.max(2, Math.floor(carLen / 2));
+  var winW = 1.0, winH = 0.7;
+  var halfW = carW / 2;
+  var wi, wz, wSide;
+  for (wi = 0; wi < nWin; wi++) {
+    wz = -carLen / 2 + 1.5 + wi * (carLen - 2.0) / nWin;
+    for (wSide = -1; wSide <= 1; wSide += 2) {
+      var winMesh = new THREE.Mesh(new THREE.BoxGeometry(0.04, winH, winW), winMat);
+      winMesh.position.set(wSide * halfW, RAIL_TOP + 1.1, wz);
+      grp.add(winMesh);
     }
   }
 
