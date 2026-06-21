@@ -2391,13 +2391,13 @@ function loadPlayerArms() {
     //   透视投影使前臂从屏幕边缘向准心方向收敛，形成 CF 第一人称视角手臂。
     //   注：rotation.x = π/2（90°）会使手臂轴线完全垂直于屏幕，前臂变成一个点，不可取。
     // · scale = 0.30：缩小使左右手臂向屏幕中心靠拢（避免手臂贴近屏幕边缘）
-    // · position = (0, -0.15, -0.35)：前臂出现在屏幕下方 60% 处，手部位于可见区
+    // · position = (0, -0.15, -0.22)：前臂出现在屏幕下方，往摄像头方向收回避免伸太远
     var fpScale = 0.30;
     _fpArmScene = new THREE.Group();
     _fpArmScene.add(model);
     _fpArmScene.scale.set(fpScale, fpScale, fpScale);
     _fpArmScene.rotation.x = 1.3;
-    _fpArmScene.position.set(0, -0.15, -0.35);
+    _fpArmScene.position.set(0, -0.15, -0.22);
     _fpArmScene.visible = false;
     camera.add(_fpArmScene);
 
