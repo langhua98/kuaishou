@@ -1488,7 +1488,8 @@ function resolveAABB() {
 //   forward = (-sin(yaw)*cos(pitch),  sin(pitch),  -cos(yaw)*cos(pitch))
 
 function raycast(maxD) {
-  var cp = Math.cos(player.pitch), sp = Math.sin(player.pitch);
+  var _rp = player.pitch + (viewFP ? 0 : 0.15);
+  var cp = Math.cos(_rp), sp = Math.sin(_rp);
   var dx = -Math.sin(player.yaw) * cp;
   var dy = sp;
   var dz = -Math.cos(player.yaw) * cp;
@@ -8176,7 +8177,7 @@ function tick(now) {
   } else if (typeof _mountedVehicle !== 'undefined' && _mountedVehicle) {
     camera.rotation.set(-0.35, _driveCamYaw, 0);  // 驾驶：固定俯角，朝向平滑跟随车头
   } else {
-    camera.rotation.set(player.pitch, player.yaw + _camYawOff, _rollCur);
+    camera.rotation.set(player.pitch + (viewFP ? 0 : 0.15), player.yaw + _camYawOff, _rollCur);
   }
 
   if (_swingT > 0) _swingT -= dt;

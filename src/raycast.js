@@ -13,7 +13,8 @@
 //   forward = (-sin(yaw)*cos(pitch),  sin(pitch),  -cos(yaw)*cos(pitch))
 
 function raycast(maxD) {
-  var cp = Math.cos(player.pitch), sp = Math.sin(player.pitch);
+  var _rp = player.pitch + (viewFP ? 0 : 0.15);
+  var cp = Math.cos(_rp), sp = Math.sin(_rp);
   var dx = -Math.sin(player.yaw) * cp;
   var dy = sp;
   var dz = -Math.cos(player.yaw) * cp;

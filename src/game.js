@@ -918,7 +918,7 @@ function tick(now) {
   } else if (typeof _mountedVehicle !== 'undefined' && _mountedVehicle) {
     camera.rotation.set(-0.35, _driveCamYaw, 0);  // 驾驶：固定俯角，朝向平滑跟随车头
   } else {
-    camera.rotation.set(player.pitch, player.yaw + _camYawOff, _rollCur);
+    camera.rotation.set(player.pitch + (viewFP ? 0 : 0.15), player.yaw + _camYawOff, _rollCur);
   }
 
   if (_swingT > 0) _swingT -= dt;
