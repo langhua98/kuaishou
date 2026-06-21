@@ -358,25 +358,26 @@ var _GUN_SCALE  = 0.006;   // 枪模型约 87.5 单位 → 世界空间约 0.5 �
 
 // 3P 骨骼跟踪用缓存（首帧懒初始化，避免 Three.js 未就绪时报错）
 var _rhBone3P = null;   // loadPlayerModel 完成后写入
-var _G3PV = null, _G3PQ = null, _G3PR = null;
+var _G3PV = null;
 
 function loadGunModel() {
   gltfLoader.load('assets/models/gun.glb', function (gltf) {
     _gunGltf = gltf;
     _fixPlayerMaterials(gltf.scene);
 
-    // 3P gun：加入场景世界空间
+    // 3P gun：加入场景世界空间（比 FP 稍大使其在 4 格距相机处清晰可见）
     _gunNode3P = gltf.scene.clone(true);
-    _gunNode3P.scale.set(_GUN_SCALE, _GUN_SCALE, _GUN_SCALE);
+    _gunNode3P.scale.set(0.010, 0.010, 0.010);
     _gunNode3P.visible = false;
     _gunNode3P.traverse(function (n) { if (n.isMesh) n.frustumCulled = false; });
     scene.add(_gunNode3P);
 
     // FP gun：挂在 camera 相机空间，固定位置
+    // Sketchfab 根节点已将枪管轴映射到 -Z（相机前向），无需额外旋转
     _gunNodeFP = gltf.scene.clone(true);
     _gunNodeFP.scale.set(_GUN_SCALE, _GUN_SCALE, _GUN_SCALE);
-    _gunNodeFP.position.set(0.12, -0.20, -0.42);
-    _gunNodeFP.rotation.set(0, Math.PI, 0);
+    _gunNodeFP.position.set(0.18, -0.25, -0.40);
+    _gunNodeFP.rotation.set(0, 0, 0);
     _gunNodeFP.visible = false;
     _gunNodeFP.traverse(function (n) { if (n.isMesh) n.frustumCulled = false; });
     camera.add(_gunNodeFP);
@@ -393,17 +394,11 @@ function updateGunTransform() {
   _gunNode3P.visible = _gunVisible && !vfp && !!_rhBone3P;
   if (_gunNodeFP) _gunNodeFP.visible = _gunVisible && vfp;
   if (!_gunVisible || vfp || !_rhBone3P) return;
-  // 懒初始化跟踪缓存
-  if (!_G3PV) {
-    _G3PV = new THREE.Vector3();
-    _G3PQ = new THREE.Quaternion();
-    // 枪管沿模型 +Z，骨骼世界四元数已指向正确方向，不需额外旋转
-    _G3PR = new THREE.Quaternion();
-  }
+  if (!_G3PV) _G3PV = new THREE.Vector3();
+  // 位置跟踪右手骨骼世界坐标；朝向基于玩家 yaw 使枪管朝前
   _rhBone3P.getWorldPosition(_G3PV);
-  _rhBone3P.getWorldQuaternion(_G3PQ);
   _gunNode3P.position.copy(_G3PV);
-  _gunNode3P.quaternion.copy(_G3PQ).multiply(_G3PR);
+  _gunNode3P.rotation.set(0, player.yaw, 0);
 }
 
 function setGunVisible(v) {
