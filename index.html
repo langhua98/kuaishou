@@ -2649,9 +2649,15 @@ function updateGunTransform() {
   if (!_gunVisible || vfp) return;
   if (!_G3PV) _G3PV = new THREE.Vector3();
   if (_rhBone3P) {
-    // 骨骼就绪：精确跟踪右手骨骼世界坐标
+    // 骨骼就绪：跟踪右手骨骼世界坐标，再沿角色前向偏移使枪体从手中伸出
+    // （枪模型 pivot 在中心而非握把，直接贴手会埋进身体，需向前推）
     _rhBone3P.getWorldPosition(_G3PV);
-    _gunNode3P.position.copy(_G3PV);
+    var _fwxb = -Math.sin(player.yaw), _fwzb = -Math.cos(player.yaw);
+    _gunNode3P.position.set(
+      _G3PV.x + _fwxb * 0.35,
+      _G3PV.y,
+      _G3PV.z + _fwzb * 0.35
+    );
   } else {
     // 骨骼未就绪兜底：右侧前方，肩部高度（持枪手大约在 1.7 格）
     var _fwx3 = -Math.sin(player.yaw), _fwz3 = -Math.cos(player.yaw);
