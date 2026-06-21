@@ -2252,6 +2252,12 @@ var _pCurrent   = '';
 var _fpArmScene = null;   // camera 子节点，仅第一人称可见
 var _fpArmMixer = null;
 var _fpArmAnims = {};     // 动画名 → AnimationAction（与 _pActions 键同步）
+// 裁剪平面：material.clippingPlanes 在【世界空间】定义，渲染器再乘 camera.matrixWorldInverse
+// 转到视图空间裁剪。手臂挂在 camera 下（世界 y≈玩家身高 60+），固定世界平面会整条裁掉。
+// 故保留「视图空间目标平面」_fpClip*V，每帧乘 camera.matrixWorld 写入 _fpClip*（世界平面），
+// 渲染器再乘 matrixWorldInverse 抵消 → 实际在视图空间裁剪，跟随相机。
+var _fpClipTopV = null, _fpClipBotV = null;   // 视图空间目标
+var _fpClipTop  = null, _fpClipBot  = null;   // 世界空间（材质引用，每帧更新）
 
 // 程序化骨骼动画（模型自带 0 动画时由代码驱动 idle/walk/run）
 // D.Va 模型为 Unreal 骨骼，按名匹配四肢骨，每帧相对绑定姿势叠加旋转
@@ -2356,18 +2362,20 @@ function loadPlayerModel() {
       if (n.name === 'Soldier_head') n.visible = false;
     });
 
-    // 裁剪平面在相机空间（camera space）中定义：
-    //   当前布局 scale=0.4, pos_y=-0.52 时：
-    //     肩高(1.3m) → camera_y = -0.52 + 1.3×0.4 = 0
-    //     手部(0.7m) → camera_y = -0.52 + 0.7×0.4 = -0.24
-    //     脚踝(0.1m) → camera_y = -0.52 + 0.1×0.4 = -0.48
-    //   上平面 clip y > 0.05：截去头/上肩（已由 Soldier_head hide 补充）
-    //   下平面 clip y < -0.35：截去小腿/脚踝
-    //   可见区间 camera_y ∈ [-0.35, 0.05] ≈ 前臂到上臂（含躯干侧面）
+    // 裁剪平面在【视图空间】定义（每帧由 _updateFpClip 转到世界空间）：
+    //   当前布局 scale=0.4, pos_y=-0.52 时（视图空间 = camera 局部空间）：
+    //     肩高(1.3m) → view_y = -0.52 + 1.3×0.4 = 0
+    //     手部(0.7m) → view_y = -0.52 + 0.7×0.4 = -0.24
+    //     脚踝(0.1m) → view_y = -0.52 + 0.1×0.4 = -0.48
+    //   上平面 clip view_y > 0.05：截去头/上肩（已由 Soldier_head hide 补充）
+    //   下平面 clip view_y < -0.35：截去小腿/脚踝
+    //   可见区间 view_y ∈ [-0.35, 0.05] ≈ 前臂到上臂（含躯干侧面）
     // · frustumCulled=false — 相机空间 SkinnedMesh 包围盒在世界空间被错误剔除导致不可见
     renderer.localClippingEnabled = true;
-    var _fpClipTop = new THREE.Plane(new THREE.Vector3(0, -1, 0),  0.05);
-    var _fpClipBot = new THREE.Plane(new THREE.Vector3(0,  1, 0),  0.35);
+    _fpClipTopV = new THREE.Plane(new THREE.Vector3(0, -1, 0),  0.05);
+    _fpClipBotV = new THREE.Plane(new THREE.Vector3(0,  1, 0),  0.35);
+    _fpClipTop  = new THREE.Plane();
+    _fpClipBot  = new THREE.Plane();
     _fpArmScene.traverse(function (n) {
       if (!n.isMesh && !n.isSkinnedMesh) return;
       n.frustumCulled = false;
@@ -2467,6 +2475,17 @@ function playerAnim(state) {
     for (fn in _fpArmAnims) { if (_fpArmAnims[fn].isRunning()) _fpArmAnims[fn].fadeOut(0.2); }
     _fpArmAnims[name].reset().fadeIn(0.2).play();
   }
+}
+
+// 每帧把视图空间目标裁剪平面转成世界空间（material.clippingPlanes 要求世界空间）。
+// 渲染器内部会再乘 camera.matrixWorldInverse，与此处的 matrixWorld 抵消，
+// 净效果 = 裁剪平面固定在视图空间，跟随相机移动/旋转，手臂始终被正确截取。
+// 须在 renderer.render 之前调用，且 camera.matrixWorld 已是当前帧值。
+function _updateFpClip() {
+  if (!_fpClipTop || !_fpArmScene || !_fpArmScene.visible) return;
+  camera.updateMatrixWorld();
+  _fpClipTop.copy(_fpClipTopV).applyMatrix4(camera.matrixWorld);
+  _fpClipBot.copy(_fpClipBotV).applyMatrix4(camera.matrixWorld);
 }
 
 // 遍历模型，按名匹配四肢骨并记录绑定姿势四元数
@@ -7940,6 +7959,7 @@ function tick(now) {
   combatUpdate(dt, nowS);
   if (typeof updateVillagers === 'function') updateVillagers(dt);
 
+  if (typeof _updateFpClip === 'function') _updateFpClip();
   renderer.render(scene, camera);
 }
 

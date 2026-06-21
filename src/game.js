@@ -880,6 +880,7 @@ function tick(now) {
   combatUpdate(dt, nowS);
   if (typeof updateVillagers === 'function') updateVillagers(dt);
 
+  if (typeof _updateFpClip === 'function') _updateFpClip();
   renderer.render(scene, camera);
 }
 
