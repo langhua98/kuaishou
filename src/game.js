@@ -615,7 +615,7 @@ function tick(now) {
         if (_onLast) _idleInc = false;
       } else {
         var _eyeX = viewFP ? player.x : _pivX + Math.cos(player.yaw) * CAM_SHOULDER;
-        var _eyeY = viewFP ? player.y + PH * 0.85 : _pivY;
+        var _eyeY = viewFP ? player.y + PH * 0.92 : _pivY;
         var _eyeZ = viewFP ? player.z : _pivZ - Math.sin(player.yaw) * CAM_SHOULDER;
         var _tx = _nx + 0.5 - _eyeX;
         var _ty = _ny + 0.5 - _eyeY;
@@ -850,7 +850,7 @@ function tick(now) {
   if (viewFP) {
     camera.position.set(
       player.x + rwx * bobL * 0.5,
-      player.y + PH * 0.85 - _sitDip + bobY * 0.6 + _dipY,
+      player.y + PH * 0.92 - _sitDip + bobY * 0.6 + _dipY,
       player.z + rwz * bobL * 0.5
     );
   } else if (typeof _onTrain !== 'undefined' && _onTrain) {
