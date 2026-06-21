@@ -804,11 +804,13 @@ function tick(now) {
     if (!_sitting) {
       if      (!player.onGround && !player.flying && player.vy >  2) playerAnim('jump');
       else if (!player.onGround && !player.flying && player.vy < -4) playerAnim('fall');
+      else if (typeof GUN !== 'undefined' && player.inv[player.slot] === GUN) playerAnim('firing_rifle');
       else if (_playerRunning && moveMag > 0.5) playerAnim('run');
       else if (moveMag > 0.5)                   playerAnim('walk');
       else                                      playerAnim('idle');
     }
     playerMixer.update(dt);
+    if (typeof updateGunTransform === 'function') updateGunTransform();
     if (typeof updatePlayerProcAnim === 'function') updatePlayerProcAnim(dt);
   }
 

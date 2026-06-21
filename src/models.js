@@ -67,7 +67,7 @@ var _ANIM_ALIAS = {
 };
 
 // 播放一次就停（不循环）的动画状态集合
-var _ANIM_ONCE = { sit_down: true, jump: true, fall: true, firing_rifle: true };
+var _ANIM_ONCE = { sit_down: true, jump: true };
 
 function loadPlayerModel() {
   gltfLoader.load('assets/models/player.glb', function (gltf) {
@@ -120,9 +120,12 @@ function loadPlayerModel() {
     // 无可用位移动画（0 动画 或 仅有一段非标准片段）→ 程序化驱动四肢
     if (!hasLoco) _setupProcBones(model);
 
+    // 记录右手骨骼引用（供 updateGunTransform 每帧跟踪）
+    _rhBone3P = null;
+    model.traverse(function (n) { if (n.name === 'mixamorig:RightHand') _rhBone3P = n; });
+
     playerAnim('idle');
     _registerSitTransition();
-    _tryAttachGun3P();   // 若枪模型已先加载，立即挂载
     // 模型就绪后同步手持物（slot 未变时不重新触发，需在此主动补充）
     if (typeof _updateHeldItem === 'function') _updateHeldItem(player.slot);
 
@@ -188,7 +191,7 @@ function loadPlayerArms() {
       if (typeof armGroupL !== 'undefined') armGroupL.visible = false;
     }
 
-    _tryAttachGunFP();   // 若枪模型已先加载，立即挂载到 FP 手臂
+    // FP 枪已直接挂在 camera 空间，无需骨骼附着
   });
 }
 
@@ -281,10 +284,7 @@ function _registerSitTransition() {
       return;
     }
 
-    // firing_rifle → idle（射击动画播完后回到待机）
-    if (animName === 'firing_rifle') {
-      playerAnim('idle');
-    }
+    // firing_rifle 已改为 LoopRepeat，不再需要此处理
   });
 }
 
@@ -347,63 +347,72 @@ function updatePlayerProcAnim(dt) {
 // 地面 NPC（狐狸/马）：漫游 AI（直走 + 随机转向 + 贴地 + 遇水/悬崖掉头）
 // 飞行 NPC（鹦鹉）：绕出生点圆周飞行 + 上下浮动
 // ── 枪模型（gun.glb）─────────────────────────────────────────────────────────
-// 附在玩家右手骨骼上（第三人称 + 第一人称手臂骨骼均挂载）。
-// 当 GUN 道具格被选中时可见，切换到其他格时隐藏。
-var _gunNode3P  = null;   // 第三人称：挂在 playerGroup 骨骼上
-var _gunNodeFP  = null;   // 第一人称：挂在 _fpArmScene 骨骼上
-var _gunGltf    = null;   // 缓存 gltf 对象（clone 后复用）
+// ── 枪模型（gun.glb）─────────────────────────────────────────────────────────
+// 3P：加入世界空间，每帧由 updateGunTransform() 跟踪右手骨骼世界矩阵。
+// FP：挂在 camera 相机空间，固定位置（FP 手臂静止，无需骨骼追踪）。
+var _gunNode3P  = null;
+var _gunNodeFP  = null;
+var _gunGltf    = null;
 var _gunVisible = false;
+var _GUN_SCALE  = 0.006;   // 枪模型约 87.5 单位 → 世界空间约 0.5 格
 
-// 枪在右手骨骼坐标系下的变换（Mixamo RightHand 局部空间）
-// 枪模型原始尺寸约 87.5 单位（Y 轴），缩放后约为 0.5 游戏单位长（握持合适）
-var _GUN_SCALE = 0.006;
-var _GUN_POS   = [0.0,  0.08, 0.06];   // x/y/z 相对于右手骨骼
-var _GUN_ROT   = [Math.PI / 2, 0, 0];  // 旋转对齐枪管方向
-
-function _makeGunNode() {
-  var scene = _gunGltf.scene.clone(true);
-  scene.scale.set(_GUN_SCALE, _GUN_SCALE, _GUN_SCALE);
-  scene.position.set(_GUN_POS[0], _GUN_POS[1], _GUN_POS[2]);
-  scene.rotation.set(_GUN_ROT[0], _GUN_ROT[1], _GUN_ROT[2]);
-  scene.visible = _gunVisible;
-  return scene;
-}
-
-function _tryAttachGun3P() {
-  if (!_gunGltf || !playerGroup) return;
-  // 移除旧节点
-  if (_gunNode3P && _gunNode3P.parent) { _gunNode3P.parent.remove(_gunNode3P); _gunNode3P = null; }
-  var rh = null;
-  playerGroup.traverse(function (n) { if (n.name === 'mixamorig:RightHand') rh = n; });
-  if (!rh) return;
-  _gunNode3P = _makeGunNode();
-  rh.add(_gunNode3P);
-}
-
-function _tryAttachGunFP() {
-  if (!_gunGltf || !_fpArmScene) return;
-  if (_gunNodeFP && _gunNodeFP.parent) { _gunNodeFP.parent.remove(_gunNodeFP); _gunNodeFP = null; }
-  var rh = null;
-  _fpArmScene.traverse(function (n) { if (n.name === 'mixamorig:RightHand') rh = n; });
-  if (!rh) return;
-  _gunNodeFP = _makeGunNode();
-  rh.add(_gunNodeFP);
-}
+// 3P 骨骼跟踪用缓存（首帧懒初始化，避免 Three.js 未就绪时报错）
+var _rhBone3P = null;   // loadPlayerModel 完成后写入
+var _G3PV = null, _G3PQ = null, _G3PR = null;
 
 function loadGunModel() {
   gltfLoader.load('assets/models/gun.glb', function (gltf) {
     _gunGltf = gltf;
     _fixPlayerMaterials(gltf.scene);
-    _tryAttachGun3P();
-    _tryAttachGunFP();
+
+    // 3P gun：加入场景世界空间
+    _gunNode3P = gltf.scene.clone(true);
+    _gunNode3P.scale.set(_GUN_SCALE, _GUN_SCALE, _GUN_SCALE);
+    _gunNode3P.visible = false;
+    _gunNode3P.traverse(function (n) { if (n.isMesh) n.frustumCulled = false; });
+    scene.add(_gunNode3P);
+
+    // FP gun：挂在 camera 相机空间，固定位置
+    _gunNodeFP = gltf.scene.clone(true);
+    _gunNodeFP.scale.set(_GUN_SCALE, _GUN_SCALE, _GUN_SCALE);
+    _gunNodeFP.position.set(0.10, -0.18, -0.45);
+    _gunNodeFP.rotation.set(-Math.PI / 2, 0, 0);
+    _gunNodeFP.visible = false;
+    _gunNodeFP.traverse(function (n) { if (n.isMesh) n.frustumCulled = false; });
+    camera.add(_gunNodeFP);
+
+  }, undefined, function (e) {
+    console.error('gun.glb load error:', e);
   });
+}
+
+// 每帧更新 3P 枪位置（跟踪右手骨骼）+ 同步 FP/3P 可见性
+function updateGunTransform() {
+  if (!_gunNode3P) return;
+  var vfp = (typeof viewFP !== 'undefined') && viewFP;
+  _gunNode3P.visible = _gunVisible && !vfp && !!_rhBone3P;
+  if (_gunNodeFP) _gunNodeFP.visible = _gunVisible && vfp;
+  if (!_gunVisible || vfp || !_rhBone3P) return;
+  // 懒初始化跟踪缓存
+  if (!_G3PV) {
+    _G3PV = new THREE.Vector3();
+    _G3PQ = new THREE.Quaternion();
+    // 枪管沿模型 Y 轴 → 骨骼 Z（指向手指方向）需绕 X 旋转 90°
+    _G3PR = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0));
+  }
+  _rhBone3P.getWorldPosition(_G3PV);
+  _rhBone3P.getWorldQuaternion(_G3PQ);
+  _gunNode3P.position.copy(_G3PV);
+  _gunNode3P.quaternion.copy(_G3PQ).multiply(_G3PR);
 }
 
 function setGunVisible(v) {
   _gunVisible = v;
-  if (_gunNode3P) _gunNode3P.visible = v;
-  if (_gunNodeFP) _gunNodeFP.visible = v;
+  // 实际 visible 属性由 updateGunTransform() 每帧更新
 }
+
+var npcs     = [];  // 地面：{ group, mixer, x, y, z, yaw, speed, timer }
+var flyNpcs  = [];  // 飞行：{ group, mixer, cx, cz, radius, baseY, angSpd, ang, phase }
 
 var npcs     = [];  // 地面：{ group, mixer, x, y, z, yaw, speed, timer }
 var flyNpcs  = [];  // 飞行：{ group, mixer, cx, cz, radius, baseY, angSpd, ang, phase }
