@@ -172,7 +172,7 @@ function loadPlayerArms() {
     _fpArmScene.add(model);
     _fpArmScene.scale.set(fpScale, fpScale, fpScale);
     _fpArmScene.rotation.x = 1.65;
-    _fpArmScene.position.set(0, 0.0, -0.18);
+    _fpArmScene.position.set(0, 0.0, -0.15);
     _fpArmScene.visible = false;
     camera.add(_fpArmScene);
 
