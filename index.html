@@ -2624,13 +2624,22 @@ function loadGunModel() {
 function updateGunTransform() {
   if (!_gunNode3P) return;
   var vfp = (typeof viewFP !== 'undefined') && viewFP;
-  _gunNode3P.visible = _gunVisible && !vfp && !!_rhBone3P;
+  // 3P 可见性不依赖骨骼（骨骼未就绪时退到兜底坐标）
+  _gunNode3P.visible = _gunVisible && !vfp;
   if (_gunNodeFP) _gunNodeFP.visible = _gunVisible && vfp;
-  if (!_gunVisible || vfp || !_rhBone3P) return;
+  if (!_gunVisible || vfp) return;
   if (!_G3PV) _G3PV = new THREE.Vector3();
-  // 位置跟踪右手骨骼世界坐标；朝向基于玩家 yaw 使枪管朝前
-  _rhBone3P.getWorldPosition(_G3PV);
-  _gunNode3P.position.copy(_G3PV);
+  if (_rhBone3P) {
+    // 骨骼就绪：精确跟踪右手骨骼世界坐标
+    _rhBone3P.getWorldPosition(_G3PV);
+    _gunNode3P.position.copy(_G3PV);
+  } else {
+    // 骨骼未就绪兜底：玩家右侧 + 肩部高度
+    var _ryx = Math.cos(player.yaw) * 0.35;
+    var _ryz = -Math.sin(player.yaw) * 0.35;
+    _gunNode3P.position.set(player.x + _ryx, player.y + 1.4, player.z + _ryz);
+  }
+  // 朝向基于玩家 yaw，枪管已指向 -Z 方向，旋转后朝向角色前方
   _gunNode3P.rotation.set(0, player.yaw, 0);
 }
 
