@@ -7869,7 +7869,8 @@ function tick(now) {
     _place.idleT = 0;
   }
 
-  if (_place.pos) {
+  var _heldForPlace = player.inv[player.slot];
+  if (_place.pos && !(typeof GUN !== 'undefined' && _heldForPlace === GUN)) {
     var _ppx0 = Math.floor(player.x - PR), _ppx1 = Math.floor(player.x + PR);
     var _ppz0 = Math.floor(player.z - PR), _ppz1 = Math.floor(player.z + PR);
     var _ppy0 = Math.floor(player.y),      _ppy1 = Math.floor(player.y + PH - 0.01);
@@ -7925,7 +7926,9 @@ function tick(now) {
       var py0 = Math.floor(player.y),      py1 = Math.floor(player.y + PH - 0.01);
       if (pv.x < px0 || pv.x > px1 || pv.y < py0 || pv.y > py1 || pv.z < pz0 || pv.z > pz1) {
         var _placedId = player.inv[player.slot];
-        if (_placedId === TOWER_ITEM) {
+        if (typeof GUN !== 'undefined' && _placedId === GUN) {
+          /* 持枪不放块 */
+        } else if (_placedId === TOWER_ITEM) {
           if (typeof placeTower === 'function') placeTower(pv.x + 0.5, pv.z + 0.5);
           _lastPlace = nowS;
         } else if (typeof isCropSeed === 'function' && isCropSeed(_placedId)) {
