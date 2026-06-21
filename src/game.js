@@ -306,6 +306,7 @@ function doSit(e) {
   if (_sitting) {
     if (typeof _markFurnitureSolid === 'function') _markFurnitureSolid(_sitting, true);
     _sitting = null;
+    playerAnim('idle');
     return;
   }
   player.x = e.x + 0.5; player.z = e.z + 0.5;
@@ -313,6 +314,7 @@ function doSit(e) {
   player.vx = 0; player.vz = 0;
   if (typeof _markFurnitureSolid === 'function') _markFurnitureSolid(e, false);
   _sitting = e;
+  playerAnim('sit_down');   // 播站立→坐下过渡；结束后由 _registerSitTransition 自动切 sitting
 }
 
 function doRest(e) {
@@ -753,11 +755,14 @@ function tick(now) {
 
   var moveMag = Math.sqrt(player.vx * player.vx + player.vz * player.vz);
   if (playerMixer) {
-    if      (!player.onGround && !player.flying && player.vy >  2) playerAnim('jump');
-    else if (!player.onGround && !player.flying && player.vy < -4) playerAnim('fall');
-    else if (_playerRunning && moveMag > 0.5) playerAnim('run');
-    else if (moveMag > 0.5)                   playerAnim('walk');
-    else                                      playerAnim('idle');
+    // 坐下时不覆盖坐椅动画（sit_down / sitting 由 doSit 和 _registerSitTransition 驱动）
+    if (!_sitting) {
+      if      (!player.onGround && !player.flying && player.vy >  2) playerAnim('jump');
+      else if (!player.onGround && !player.flying && player.vy < -4) playerAnim('fall');
+      else if (_playerRunning && moveMag > 0.5) playerAnim('run');
+      else if (moveMag > 0.5)                   playerAnim('walk');
+      else                                      playerAnim('idle');
+    }
     playerMixer.update(dt);
     if (_fpArmMixer) _fpArmMixer.update(dt);
     if (typeof updatePlayerProcAnim === 'function') updatePlayerProcAnim(dt);

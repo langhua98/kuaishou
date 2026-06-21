@@ -52,12 +52,17 @@ var _PROC_PAT  = {
 // 状态 → 可能的动画名（不同模型命名不同，按序取第一个存在的）
 // 已扩充常见 Overwatch / Mixamo / Sketchfab 风格命名
 var _ANIM_ALIAS = {
-  idle: ['idle', 'Idle', 'IDLE', 'stand', 'Stand', 'standing', 'TPose', 'T-Pose', 'tpose'],
-  walk: ['forward', 'walk', 'Walking', 'Walk', 'WALK', 'walking', 'move', 'Move', 'run'],
-  run:  ['running_forward', 'run', 'Running', 'Run', 'RUN', 'sprint', 'Sprint', 'forward', 'walk', 'Walk'],
-  jump: ['jump', 'Jump', 'JUMP', 'jumping', 'Jumping', 'leap', 'Leap'],
-  fall: ['falling', 'Falling', 'fall', 'Fall', 'jump', 'Jump']
+  idle:     ['idle', 'Idle', 'IDLE', 'stand', 'Stand', 'standing', 'TPose', 'T-Pose', 'tpose'],
+  walk:     ['forward', 'walk', 'Walking', 'Walk', 'WALK', 'walking', 'move', 'Move', 'run'],
+  run:      ['running_forward', 'run', 'Running', 'Run', 'RUN', 'sprint', 'Sprint', 'forward', 'walk', 'Walk'],
+  jump:     ['jump', 'Jump', 'JUMP', 'jumping', 'Jumping', 'leap', 'Leap'],
+  fall:     ['falling', 'Falling', 'fall', 'Fall', 'jump', 'Jump'],
+  sit_down: ['sit_down', 'Stand_To_Sit', 'sit'],
+  sitting:  ['sitting', 'Sitting', 'sit_idle'],
 };
+
+// 播放一次就停（不循环）的动画状态集合
+var _ANIM_ONCE = { sit_down: true, jump: true, fall: true };
 
 function loadPlayerModel() {
   gltfLoader.load('assets/models/player.glb', function (gltf) {
@@ -110,6 +115,7 @@ function loadPlayerModel() {
     if (!hasLoco) _setupProcBones(model);
 
     playerAnim('idle');
+    _registerSitTransition();
 
   }, undefined, function () { /* 加载失败：保留盒子占位 */ });
 }
@@ -226,7 +232,7 @@ function _fixPlayerMaterials(model) {
 
 // 切换玩家动画状态（同状态重复调用为空操作）
 function playerAnim(state) {
-  _procState = state;   // 程序化动画始终记录目标状态（在剪辑早退之前）
+  _procState = state;
   if (!playerMixer) return;
   var names = _ANIM_ALIAS[state] || [state], name = null, i;
   for (i = 0; i < names.length; i++) {
@@ -235,14 +241,48 @@ function playerAnim(state) {
   if (!name || _pCurrent === name) return;
   var prev = _pActions[_pCurrent];
   if (prev) prev.fadeOut(0.2);
-  _pActions[name].reset().fadeIn(0.2).play();
+  var action = _pActions[name];
+  if (_ANIM_ONCE[state]) {
+    // 一次性动画：播完后自动切到对应后续状态
+    action.setLoop(THREE.LoopOnce, 1);
+    action.clampWhenFinished = true;
+  } else {
+    action.setLoop(THREE.LoopRepeat, Infinity);
+  }
+  action.reset().fadeIn(0.2).play();
   _pCurrent = name;
-  // 同步 FP 手臂动画
+  // FP 手臂同步
   if (_fpArmMixer && _fpArmAnims[name]) {
     var fn;
     for (fn in _fpArmAnims) { if (_fpArmAnims[fn].isRunning()) _fpArmAnims[fn].fadeOut(0.2); }
-    _fpArmAnims[name].reset().fadeIn(0.2).play();
+    var fpAction = _fpArmAnims[name];
+    if (_ANIM_ONCE[state]) {
+      fpAction.setLoop(THREE.LoopOnce, 1);
+      fpAction.clampWhenFinished = true;
+    } else {
+      fpAction.setLoop(THREE.LoopRepeat, Infinity);
+    }
+    fpAction.reset().fadeIn(0.2).play();
   }
+}
+
+// sit_down 播完后自动切 sitting；由 game.js 在 mixer 初始化后调用一次注册
+function _registerSitTransition() {
+  if (!playerMixer) return;
+  playerMixer.addEventListener('finished', function (e) {
+    var action = e.action;
+    // 找到 sit_down 对应 action 名
+    var sdName = null, k;
+    for (k in _pActions) { if (_pActions[k] === action) { sdName = k; break; } }
+    if (!sdName) return;
+    // 检查是否是 sit_down 系列
+    var alias = _ANIM_ALIAS.sit_down || [];
+    var isSitDown = false;
+    for (var ai = 0; ai < alias.length; ai++) { if (alias[ai] === sdName) { isSitDown = true; break; } }
+    if (!isSitDown) return;
+    // 若玩家仍在坐着状态，切换到 sitting 循环
+    if (typeof _sitting !== 'undefined' && _sitting) playerAnim('sitting');
+  });
 }
 
 // 遍历模型，按名匹配四肢骨并记录绑定姿势四元数
