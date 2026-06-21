@@ -2354,15 +2354,24 @@ function loadPlayerModel() {
     if (!hasLoco) _setupProcBones(model);
 
     // 记录右手骨骼引用（供 updateGunTransform 每帧跟踪）
-    // 先遍历场景图，找不到时从 SkinnedMesh.skeleton.bones 直接搜索
+    // Three.js 可能修改骨骼名（冒号/大小写），用宽松匹配：含 RightHand 且不含手指关键词
     _rhBone3P = null;
-    model.traverse(function (n) { if (n.name === 'mixamorig:RightHand') _rhBone3P = n; });
+    var _rhExclude = /Index|Ring|Middle|Pinky|Thumb/i;
+    model.traverse(function (n) {
+      if (!_rhBone3P && n.name && n.name.indexOf('RightHand') !== -1 && !_rhExclude.test(n.name)) {
+        _rhBone3P = n;
+      }
+    });
+    // 兜底：从 SkinnedMesh.skeleton.bones 搜索（某些 GLB 骨骼不挂到场景图）
     if (!_rhBone3P) {
       model.traverse(function (n) {
         if (!n.isSkinnedMesh || !n.skeleton) return;
         var bones = n.skeleton.bones;
         for (var bi = 0; bi < bones.length; bi++) {
-          if (bones[bi].name === 'mixamorig:RightHand') { _rhBone3P = bones[bi]; break; }
+          var bn = bones[bi].name;
+          if (bn && bn.indexOf('RightHand') !== -1 && !_rhExclude.test(bn)) {
+            _rhBone3P = bones[bi]; break;
+          }
         }
       });
     }
@@ -2644,12 +2653,12 @@ function updateGunTransform() {
     _rhBone3P.getWorldPosition(_G3PV);
     _gunNode3P.position.copy(_G3PV);
   } else {
-    // 骨骼未就绪兜底：右手伸前方，高度约 1.3 格
+    // 骨骼未就绪兜底：右侧前方，肩部高度（持枪手大约在 1.7 格）
     var _fwx3 = -Math.sin(player.yaw), _fwz3 = -Math.cos(player.yaw);
     var _ryx3 =  Math.cos(player.yaw), _ryz3 =  Math.sin(player.yaw);
     _gunNode3P.position.set(
       player.x + _ryx3 * 0.3 + _fwx3 * 0.5,
-      player.y + 1.3,
+      player.y + 1.7,
       player.z + _ryz3 * 0.3 + _fwz3 * 0.5
     );
   }
