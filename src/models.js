@@ -129,11 +129,23 @@ function loadPlayerModel() {
       n.bind(n.skeleton, n.bindMatrix);
     });
 
-    // 启用裁剪平面并对所有网格应用：
-    //   · frustumCulled=false — 相机空间 SkinnedMesh 包围盒在世界空间可能被错误剔除
-    //   · clippingPlanes      — 截去 y>1.3m 的几何（头部）；几何坐标以米为单位，1.3≈肩高
+    // Soldier_head 是独立网格节点（mesh[1]），直接隐藏；Soldier_body 含手臂+躯干+腿（单一网格）
+    _fpArmScene.traverse(function (n) {
+      if (n.name === 'Soldier_head') n.visible = false;
+    });
+
+    // 裁剪平面在相机空间（camera space）中定义：
+    //   当前布局 scale=0.4, pos_y=-0.52 时：
+    //     肩高(1.3m) → camera_y = -0.52 + 1.3×0.4 = 0
+    //     手部(0.7m) → camera_y = -0.52 + 0.7×0.4 = -0.24
+    //     脚踝(0.1m) → camera_y = -0.52 + 0.1×0.4 = -0.48
+    //   上平面 clip y > 0.05：截去头/上肩（已由 Soldier_head hide 补充）
+    //   下平面 clip y < -0.35：截去小腿/脚踝
+    //   可见区间 camera_y ∈ [-0.35, 0.05] ≈ 前臂到上臂（含躯干侧面）
+    // · frustumCulled=false — 相机空间 SkinnedMesh 包围盒在世界空间被错误剔除导致不可见
     renderer.localClippingEnabled = true;
-    var _fpClip = new THREE.Plane(new THREE.Vector3(0, -1, 0), 1.3);
+    var _fpClipTop = new THREE.Plane(new THREE.Vector3(0, -1, 0),  0.05);
+    var _fpClipBot = new THREE.Plane(new THREE.Vector3(0,  1, 0),  0.35);
     _fpArmScene.traverse(function (n) {
       if (!n.isMesh && !n.isSkinnedMesh) return;
       n.frustumCulled = false;
@@ -142,7 +154,7 @@ function loadPlayerModel() {
       var mi, m;
       for (mi = 0; mi < mats.length; mi++) {
         m = mats[mi].clone();
-        m.clippingPlanes = [_fpClip];
+        m.clippingPlanes = [_fpClipTop, _fpClipBot];
         m.clipIntersection = false;
         m.needsUpdate = true;
         mats[mi] = m;
@@ -152,9 +164,7 @@ function loadPlayerModel() {
 
     _fixPlayerMaterials(_fpArmScene);
 
-    // scale=0.4：模型在 camera 空间高 0.4×1.78≈0.71 单位
-    // pos_y=-0.52：肩高（1.3m×0.4=0.52）正好在屏幕中心（clip 截面 camera_y≈0）
-    //              手部（~0.7m×0.4=0.28）位于 camera_y≈-0.24（画面下方 1/3）
+    // scale=0.4: 模型总高 0.71 camera 单位；pos_y=-0.52 使肩部正好在屏幕中心高度（camera_y=0）
     _fpArmScene.scale.set(0.4, 0.4, 0.4);
     _fpArmScene.position.set(0, -0.52, -0.5);
     _fpArmScene.rotation.y = Math.PI;
