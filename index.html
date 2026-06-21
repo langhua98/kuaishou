@@ -2354,8 +2354,18 @@ function loadPlayerModel() {
     if (!hasLoco) _setupProcBones(model);
 
     // 记录右手骨骼引用（供 updateGunTransform 每帧跟踪）
+    // 先遍历场景图，找不到时从 SkinnedMesh.skeleton.bones 直接搜索
     _rhBone3P = null;
     model.traverse(function (n) { if (n.name === 'mixamorig:RightHand') _rhBone3P = n; });
+    if (!_rhBone3P) {
+      model.traverse(function (n) {
+        if (!n.isSkinnedMesh || !n.skeleton) return;
+        var bones = n.skeleton.bones;
+        for (var bi = 0; bi < bones.length; bi++) {
+          if (bones[bi].name === 'mixamorig:RightHand') { _rhBone3P = bones[bi]; break; }
+        }
+      });
+    }
 
     playerAnim('idle');
     _registerSitTransition();
@@ -2606,11 +2616,11 @@ function loadGunModel() {
     scene.add(_gunNode3P);
 
     // FP gun：挂在 camera 相机空间，固定位置
-    // Sketchfab 根节点已将枪管轴映射到 -Z（相机前向），无需额外旋转
+    // 枪口在 Sketchfab 本地 -Y 端 → 世界 +Z（朝向玩家），绕 Y 转 PI 使枪口朝前（-Z）
     _gunNodeFP = gltf.scene.clone(true);
     _gunNodeFP.scale.set(_GUN_SCALE, _GUN_SCALE, _GUN_SCALE);
     _gunNodeFP.position.set(0.18, -0.25, -0.40);
-    _gunNodeFP.rotation.set(0, 0, 0);
+    _gunNodeFP.rotation.set(0, Math.PI, 0);
     _gunNodeFP.visible = false;
     _gunNodeFP.traverse(function (n) { if (n.isMesh) n.frustumCulled = false; });
     camera.add(_gunNodeFP);
@@ -2634,13 +2644,17 @@ function updateGunTransform() {
     _rhBone3P.getWorldPosition(_G3PV);
     _gunNode3P.position.copy(_G3PV);
   } else {
-    // 骨骼未就绪兜底：玩家右侧 + 肩部高度
-    var _ryx = Math.cos(player.yaw) * 0.35;
-    var _ryz = -Math.sin(player.yaw) * 0.35;
-    _gunNode3P.position.set(player.x + _ryx, player.y + 1.4, player.z + _ryz);
+    // 骨骼未就绪兜底：右手伸前方，高度约 1.3 格
+    var _fwx3 = -Math.sin(player.yaw), _fwz3 = -Math.cos(player.yaw);
+    var _ryx3 =  Math.cos(player.yaw), _ryz3 =  Math.sin(player.yaw);
+    _gunNode3P.position.set(
+      player.x + _ryx3 * 0.3 + _fwx3 * 0.5,
+      player.y + 1.3,
+      player.z + _ryz3 * 0.3 + _fwz3 * 0.5
+    );
   }
-  // 朝向基于玩家 yaw，枪管已指向 -Z 方向，旋转后朝向角色前方
-  _gunNode3P.rotation.set(0, player.yaw, 0);
+  // 枪口在 +Z 方向（朝后），加 PI 使枪口翻转朝向角色前方
+  _gunNode3P.rotation.set(0, player.yaw + Math.PI, 0);
 }
 
 function setGunVisible(v) {
