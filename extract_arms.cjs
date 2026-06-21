@@ -12,19 +12,21 @@ const { NodeIO }   = require('@gltf-transform/core');
 const { prune }    = require('@gltf-transform/functions');
 const path         = require('path');
 
-// ── 手臂骨骼索引（对应 skin.listJoints() 顺序）────────────────────────────
-// 包含肩关节（11/35），手臂、前臂、手掌及所有手指
+// ── 手臂骨骼索引（只保留前臂+手，去掉肩/上臂，防躯干漏入）────────────────
+// LeftArm(12) LeftForeArm(13) LeftHand(14) + 左手指(15-34)
+// RightArm(36) RightForeArm(37) RightHand(38) + 右手指(39-58)
+// 不含 Shoulder(11/35)，避免肩部权重渗入躯干几何体
 const ARM_BONES = new Set([
-  11, 12, 13, 14,                          // LeftShoulder … LeftHand
+  12, 13, 14,
   15,16,17,18,19,20,21,22,23,24,
-  25,26,27,28,29,30,31,32,33,34,           // Left fingers
-  35, 36, 37, 38,                          // RightShoulder … RightHand
+  25,26,27,28,29,30,31,32,33,34,
+  36, 37, 38,
   39,40,41,42,43,44,45,46,47,48,
-  49,50,51,52,53,54,55,56,57,58            // Right fingers
+  49,50,51,52,53,54,55,56,57,58
 ]);
 
-// 顶点被判定为"手臂顶点"所需的最低手臂权重总和（0~1）
-const WEIGHT_THRESHOLD = 0.3;
+// 阈值 0.5：顶点手臂权重总和 > 50% 才保留，严格排除躯干过渡区
+const WEIGHT_THRESHOLD = 0.5;
 
 async function main() {
   const io  = new NodeIO();

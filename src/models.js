@@ -132,7 +132,7 @@ function loadPlayerArms() {
     var s = PLAYER_MODEL_H / bh;
     model.scale.set(s, s, s);
     model.position.y = -bbox.min.y * s;
-    model.rotation.y = Math.PI;   // 同主模型：前方对齐 -Z
+    model.rotation.y = 0;   // FP：rotation=0 使左右臂与屏幕左右一致
 
     _fixPlayerMaterials(model);
 
@@ -155,14 +155,16 @@ function loadPlayerArms() {
       n.bind(n.skeleton, n.bindMatrix);
     });
 
-    // 定位到相机空间右下角（Minecraft 风格）
-    // scale 由上面归一化决定；在 camera 空间直接再缩一级让手臂占屏幕比例合适
-    var fpScale = 0.38;
+    // 定位到相机空间：仅前臂+手部出现在屏幕下方（吃鸡风格）
+    // · rotation.y = 0 → 看到模型背面，但左右手位置与屏幕左右一致（rotation.y=PI 会左右镜像）
+    // · scale = 0.40：前臂在 camera 空间约 0.2 单位高，处于屏幕下 1/3
+    // · position.y = -0.66：把手腕/手掌推到屏幕底部（FOV70, Z=-0.55 时底部约 -0.385 camera 单位）
+    // · position.z = -0.55：足够近使手臂占合适比例，但不覆盖中央视野
+    var fpScale = 0.40;
     _fpArmScene = new THREE.Group();
     _fpArmScene.add(model);
     _fpArmScene.scale.set(fpScale, fpScale, fpScale);
-    // x 正数 = 向右偏；y 负数 = 压低（手臂在屏幕下方）；z 负数 = 向前（近处）
-    _fpArmScene.position.set(0.35, -0.55, -0.55);
+    _fpArmScene.position.set(0, -0.66, -0.55);
     _fpArmScene.visible = false;
     camera.add(_fpArmScene);
 
