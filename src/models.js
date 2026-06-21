@@ -58,12 +58,13 @@ var _ANIM_ALIAS = {
   run:      ['running_forward', 'run', 'Running', 'Run', 'RUN', 'sprint', 'Sprint', 'forward', 'walk', 'Walk'],
   jump:     ['jump', 'Jump', 'JUMP', 'jumping', 'Jumping', 'leap', 'Leap'],
   fall:     ['falling', 'Falling', 'fall', 'Fall', 'jump', 'Jump'],
-  sit_down: ['sit_down', 'Stand_To_Sit', 'sit'],
-  sitting:  ['sitting', 'Sitting', 'sit_idle'],
+  sit_down:     ['sit_down', 'Stand_To_Sit', 'sit'],
+  sitting:      ['sitting', 'Sitting', 'sit_idle'],
+  firing_rifle: ['firing_rifle'],
 };
 
 // 播放一次就停（不循环）的动画状态集合
-var _ANIM_ONCE = { sit_down: true, jump: true, fall: true };
+var _ANIM_ONCE = { sit_down: true, jump: true, fall: true, firing_rifle: true };
 
 function loadPlayerModel() {
   gltfLoader.load('assets/models/player.glb', function (gltf) {
@@ -118,6 +119,7 @@ function loadPlayerModel() {
 
     playerAnim('idle');
     _registerSitTransition();
+    _tryAttachGun3P();   // 若枪模型已先加载，立即挂载
 
   }, undefined, function () { /* 加载失败：保留盒子占位 */ });
 }
@@ -189,6 +191,8 @@ function loadPlayerArms() {
       if (typeof armGroup  !== 'undefined') armGroup.visible  = false;
       if (typeof armGroupL !== 'undefined') armGroupL.visible = false;
     }
+
+    _tryAttachGunFP();   // 若枪模型已先加载，立即挂载到 FP 手臂
   });
 }
 
@@ -265,32 +269,35 @@ function playerAnim(state) {
   }
 }
 
-// sit_down 播完后锁定玩家到座位并切 sitting 循环
-// 由 loadPlayerModel 在 mixer 初始化后调用一次注册
+// LoopOnce 动画完成后的状态转移
 function _registerSitTransition() {
   if (!playerMixer) return;
   playerMixer.addEventListener('finished', function (ev) {
     var action = ev.action;
-    // 找到 sit_down 对应 action 名
-    var sdName = null, k;
-    for (k in _pActions) { if (_pActions[k] === action) { sdName = k; break; } }
-    if (!sdName) return;
-    // 检查是否属于 sit_down 别名
-    var alias = _ANIM_ALIAS.sit_down || [];
+    var animName = null, k;
+    for (k in _pActions) { if (_pActions[k] === action) { animName = k; break; } }
+    if (!animName) return;
+
+    // sit_down → sitting
+    var sitAlias = _ANIM_ALIAS.sit_down || [];
     var isSitDown = false;
-    for (var ai = 0; ai < alias.length; ai++) {
-      if (alias[ai] === sdName) { isSitDown = true; break; }
+    for (var ai = 0; ai < sitAlias.length; ai++) {
+      if (sitAlias[ai] === animName) { isSitDown = true; break; }
     }
-    if (!isSitDown) return;
-    // 若玩家仍在坐着状态，锁定到座位坐标并切 sitting 循环
-    if (typeof _sitting !== 'undefined' && _sitting &&
-        typeof _sitTarget !== 'undefined' && _sitTarget) {
-      player.x = _sitTarget.x;
-      player.z = _sitTarget.z;
-      // y: 保持当前物理高度（动画已让角色看起来坐下了）；
-      //    _sitDip=0.45 会自动压低相机，不需要手动改 player.y
-      player.vx = 0; player.vz = 0; player.vy = 0;
-      playerAnim('sitting');
+    if (isSitDown) {
+      if (typeof _sitting !== 'undefined' && _sitting &&
+          typeof _sitTarget !== 'undefined' && _sitTarget) {
+        player.x = _sitTarget.x;
+        player.z = _sitTarget.z;
+        player.vx = 0; player.vz = 0; player.vy = 0;
+        playerAnim('sitting');
+      }
+      return;
+    }
+
+    // firing_rifle → idle（射击动画播完后回到待机）
+    if (animName === 'firing_rifle') {
+      playerAnim('idle');
     }
   });
 }
@@ -353,6 +360,65 @@ function updatePlayerProcAnim(dt) {
 // ── NPC ───────────────────────────────────────────────────────────────────────
 // 地面 NPC（狐狸/马）：漫游 AI（直走 + 随机转向 + 贴地 + 遇水/悬崖掉头）
 // 飞行 NPC（鹦鹉）：绕出生点圆周飞行 + 上下浮动
+// ── 枪模型（gun.glb）─────────────────────────────────────────────────────────
+// 附在玩家右手骨骼上（第三人称 + 第一人称手臂骨骼均挂载）。
+// 当 GUN 道具格被选中时可见，切换到其他格时隐藏。
+var _gunNode3P  = null;   // 第三人称：挂在 playerGroup 骨骼上
+var _gunNodeFP  = null;   // 第一人称：挂在 _fpArmScene 骨骼上
+var _gunGltf    = null;   // 缓存 gltf 对象（clone 后复用）
+var _gunVisible = false;
+
+// 枪在右手骨骼坐标系下的变换（Mixamo RightHand 局部空间）
+// 枪模型原始尺寸约 87.5 单位（Y 轴），缩放后约为 0.5 游戏单位长（握持合适）
+var _GUN_SCALE = 0.006;
+var _GUN_POS   = [0.0,  0.08, 0.06];   // x/y/z 相对于右手骨骼
+var _GUN_ROT   = [Math.PI / 2, 0, 0];  // 旋转对齐枪管方向
+
+function _makeGunNode() {
+  var scene = _gunGltf.scene.clone(true);
+  scene.scale.set(_GUN_SCALE, _GUN_SCALE, _GUN_SCALE);
+  scene.position.set(_GUN_POS[0], _GUN_POS[1], _GUN_POS[2]);
+  scene.rotation.set(_GUN_ROT[0], _GUN_ROT[1], _GUN_ROT[2]);
+  scene.visible = _gunVisible;
+  return scene;
+}
+
+function _tryAttachGun3P() {
+  if (!_gunGltf || !playerGroup) return;
+  // 移除旧节点
+  if (_gunNode3P && _gunNode3P.parent) { _gunNode3P.parent.remove(_gunNode3P); _gunNode3P = null; }
+  var rh = null;
+  playerGroup.traverse(function (n) { if (n.name === 'mixamorig:RightHand') rh = n; });
+  if (!rh) return;
+  _gunNode3P = _makeGunNode();
+  rh.add(_gunNode3P);
+}
+
+function _tryAttachGunFP() {
+  if (!_gunGltf || !_fpArmScene) return;
+  if (_gunNodeFP && _gunNodeFP.parent) { _gunNodeFP.parent.remove(_gunNodeFP); _gunNodeFP = null; }
+  var rh = null;
+  _fpArmScene.traverse(function (n) { if (n.name === 'mixamorig:RightHand') rh = n; });
+  if (!rh) return;
+  _gunNodeFP = _makeGunNode();
+  rh.add(_gunNodeFP);
+}
+
+function loadGunModel() {
+  gltfLoader.load('assets/models/gun.glb', function (gltf) {
+    _gunGltf = gltf;
+    _fixPlayerMaterials(gltf.scene);
+    _tryAttachGun3P();
+    _tryAttachGunFP();
+  });
+}
+
+function setGunVisible(v) {
+  _gunVisible = v;
+  if (_gunNode3P) _gunNode3P.visible = v;
+  if (_gunNodeFP) _gunNodeFP.visible = v;
+}
+
 var npcs     = [];  // 地面：{ group, mixer, x, y, z, yaw, speed, timer }
 var flyNpcs  = [];  // 飞行：{ group, mixer, cx, cz, radius, baseY, angSpd, ang, phase }
 

@@ -23,7 +23,7 @@ var player = {
   onGround: false, flying: false,
   jumpQ: false, breakQ: false, placeQ: false,
   slot: 0,
-  inv: [GRASS, DIRT, STONE, SAND, WOOD, LEAVES, RED_WALL, GOLD_ROOF, WHITE_STONE, GRAY_BRICK, GRAY_ROOF, RED_PILLAR, PLANKS, COBBLE, MUD_BRICK, TERRITORY_STONE, ICE, SNOW, IRON_ORE, GLASS, OBSIDIAN, GRAVEL, RED_SAND, TNT, COAL_ORE, TOWER_ITEM,
+  inv: [GUN, GRASS, DIRT, STONE, SAND, WOOD, LEAVES, RED_WALL, GOLD_ROOF, WHITE_STONE, GRAY_BRICK, GRAY_ROOF, RED_PILLAR, PLANKS, COBBLE, MUD_BRICK, TERRITORY_STONE, ICE, SNOW, IRON_ORE, GLASS, OBSIDIAN, GRAVEL, RED_SAND, TNT, COAL_ORE, TOWER_ITEM,
         BIRCH_LOG, BIRCH_LEAVES, SPRUCE_LOG, SPRUCE_LEAVES, BEDROCK, BLUE_WOOL, GREEN_WOOL, RED_WOOL, WHITE_WOOL, YELLOW_WOOL, BOOKSHELF, CARVED_PUMPKIN, CRAFTING_TABLE, DIAMOND_ORE, EMERALD_ORE, GOLD_ORE, REDSTONE_ORE, FURNACE, LAVA, MOSSY_COBBLE, DANDELION, POPPY, OAK_SAPLING, GRASS_PLANT, PACKED_ICE, SANDSTONE,
         FURNITURE_CHAIR, FURNITURE_TABLE, FURNITURE_BED, FURNITURE_COUCH, FURNITURE_SHELF, FURNITURE_CABINET, FURNITURE_LAMP, FURNITURE_RUG, FURNITURE_ARMCHAIR, FURNITURE_TABLE_LONG,
         FURNITURE_ARMCHAIR_P, FURNITURE_BED_DOUBLE, FURNITURE_BED_B, FURNITURE_CAB_SMALL,
@@ -102,9 +102,16 @@ function _makeHandCube(blockId) {
 // 切换手持物（slot 变化或贴图加载完成时调用）
 function _updateHeldItem(slot) {
   if (_handItemMesh) { armGroup.remove(_handItemMesh); _handItemMesh = null; }
-  var cube = _makeHandCube(player.inv[slot]);
+  var itemId = player.inv[slot];
+  if (itemId === GUN) {
+    // 枪支：显示 GLB 枪模型，隐藏方块
+    if (typeof setGunVisible === 'function') setGunVisible(true);
+    return;
+  }
+  // 切走枪格时隐藏枪
+  if (typeof setGunVisible === 'function') setGunVisible(false);
+  var cube = _makeHandCube(itemId);
   if (cube) {
-    // MC 经典握法：方块在手端前方，轻微旋转露出三个面
     cube.position.set(0.04, -0.14, -0.52);
     cube.rotation.set(0.35, 0.75, 0.18);
     armGroup.add(cube);
@@ -517,6 +524,11 @@ function tick(now) {
   if (player.breakQ || (breakHeld && nowS - _lastBreak > BREAK_CD)) {
     player.breakQ = false;
     if (!(typeof _onTrain !== 'undefined' && _onTrain)) {
+      // 持枪时：播射击动画，不破坏方块
+      if (player.inv[player.slot] === GUN) {
+        if (typeof playerAnim === 'function') playerAnim('firing_rifle');
+        _lastBreak = nowS;
+      } else {
       if (_swingT <= 0) _swingT = SWING_DUR;
       if (tryPlayerAttack()) {
         _lastBreak = nowS;
@@ -546,6 +558,7 @@ function tick(now) {
           _lastBreak = nowS;
         }
       }
+      }  // end else (not GUN)
     }
   }
 
@@ -1025,6 +1038,7 @@ function bootNext() {
       if (menuEl) menuEl.style.display = 'flex';
       loadPlayerModel();
       loadPlayerArms();
+      loadGunModel();
       spawnNPCs();
       loadArmyModels(function () {
         if (!_enemyStrongholdPos || !_enemyStrongholdPos.posts) return;

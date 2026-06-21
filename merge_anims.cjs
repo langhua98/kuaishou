@@ -8,8 +8,9 @@ const { NodeIO, Document } = require('@gltf-transform/core');
 const path = require('path');
 
 const CLIPS = [
-  { file: 'assets/models/sit_down.glb', name: 'sit_down' },
-  { file: 'assets/models/sitting.glb',  name: 'sitting'  },
+  { file: 'assets/models/sit_down.glb',     name: 'sit_down'     },
+  { file: 'assets/models/sitting.glb',       name: 'sitting'      },
+  { file: 'assets/models/firing_rifle.glb',  name: 'firing_rifle' },
 ];
 
 async function main() {

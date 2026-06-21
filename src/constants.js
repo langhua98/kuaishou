@@ -22,6 +22,9 @@ var RUN_T    = 0.78; // 摇杆推程超过此值 → 奔跑
 var MOVE_DZ  = 0.18; // 摇杆死区（推程低于此值视为不动）
 var PLAYER_MODEL_H = 2.5; // 玩家模型渲染身高（方块），独立于碰撞箱 PH
 
+// 特殊道具 ID（非方块，负数避免与方块 ID 冲突）
+var GUN = -1;   // 枪支
+
 // 方块类型 ID
 var AIR         = 0;
 var GRASS       = 1;
