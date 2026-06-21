@@ -26,6 +26,10 @@ var playerMixer = null;   // null = 模型未就绪
 var _pActions   = {};     // 动画名(原始) → AnimationAction
 var _pCurrent   = '';
 
+// ── 第一人称 GLB 手臂（player_arms.glb，仅含手臂网格）────────────────────
+var _fpArmScene = null;
+var _fpArmMixer = null;
+var _fpArmAnims = {};
 
 // 程序化骨骼动画（模型自带 0 动画时由代码驱动 idle/walk/run）
 // D.Va 模型为 Unreal 骨骼，按名匹配四肢骨，每帧相对绑定姿势叠加旋转
@@ -110,6 +114,77 @@ function loadPlayerModel() {
   }, undefined, function () { /* 加载失败：保留盒子占位 */ });
 }
 
+function loadPlayerArms() {
+  gltfLoader.load('assets/models/player_arms.glb', function (gltf) {
+    var model = gltf.scene;
+
+    // 归一化到与主模型相同的比例（player.glb 同款处理）
+    model.updateMatrixWorld(true);
+    var bbox = new THREE.Box3();
+    model.traverse(function (o) {
+      if (o.isSkinnedMesh || o.isMesh) {
+        if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+        if (o.geometry.boundingBox) bbox.union(o.geometry.boundingBox);
+      }
+    });
+    var bh = bbox.max.y - bbox.min.y;
+    if (!(bh > 0.01)) bh = PH;
+    var s = PLAYER_MODEL_H / bh;
+    model.scale.set(s, s, s);
+    model.position.y = -bbox.min.y * s;
+    model.rotation.y = Math.PI;   // 同主模型：前方对齐 -Z
+
+    _fixPlayerMaterials(model);
+
+    // SkinnedMesh 挂在 camera 下时，包围球在世界空间判定会被错误剔除
+    model.traverse(function (n) {
+      if (n.isMesh || n.isSkinnedMesh) n.frustumCulled = false;
+    });
+
+    // 重绑骨架：clone 后 skeleton 仍指向原始骨骼节点，需重定向到 clone 内同名节点
+    var boneMap = {};
+    model.traverse(function (n) { if (n.name) boneMap[n.name] = n; });
+    model.traverse(function (n) {
+      if (!n.isSkinnedMesh) return;
+      var nb = [], invs = [], bi;
+      for (bi = 0; bi < n.skeleton.bones.length; bi++) {
+        nb.push(boneMap[n.skeleton.bones[bi].name] || n.skeleton.bones[bi]);
+        invs.push(n.skeleton.boneInverses[bi].clone());
+      }
+      n.skeleton = new THREE.Skeleton(nb, invs);
+      n.bind(n.skeleton, n.bindMatrix);
+    });
+
+    // 定位到相机空间右下角（Minecraft 风格）
+    // scale 由上面归一化决定；在 camera 空间直接再缩一级让手臂占屏幕比例合适
+    var fpScale = 0.38;
+    _fpArmScene = new THREE.Group();
+    _fpArmScene.add(model);
+    _fpArmScene.scale.set(fpScale, fpScale, fpScale);
+    // x 正数 = 向右偏；y 负数 = 压低（手臂在屏幕下方）；z 负数 = 向前（近处）
+    _fpArmScene.position.set(0.35, -0.55, -0.55);
+    _fpArmScene.visible = false;
+    camera.add(_fpArmScene);
+
+    // 独立 Mixer
+    _fpArmMixer = new THREE.AnimationMixer(model);
+    var i;
+    for (i = 0; i < gltf.animations.length; i++) {
+      _lockRootMotion(gltf.animations[i]);
+      _fpArmAnims[gltf.animations[i].name] = _fpArmMixer.clipAction(gltf.animations[i]);
+    }
+    // 同步当前主角动画状态
+    if (_pCurrent && _fpArmAnims[_pCurrent]) _fpArmAnims[_pCurrent].reset().play();
+
+    // 延迟加载兼容：若已处于第一人称则立即显示
+    if (typeof viewFP !== 'undefined' && viewFP) {
+      _fpArmScene.visible = true;
+      if (typeof armGroup  !== 'undefined') armGroup.visible  = false;
+      if (typeof armGroupL !== 'undefined') armGroupL.visible = false;
+    }
+  });
+}
+
 // 去除剪辑的根运动。合并自 Mixamo 的 GLB 经 Blender 轴转换后，Hips 平移轨道数值
 // 异常且方向错位（前后位移落在局部 Y 而非 Z），原地播放会从 A 点滑到 B 点。
 // 直接整条删除 Hips 平移轨道：角色只靠关节旋转原地循环，Hips 回退到节点静止平移
@@ -160,6 +235,12 @@ function playerAnim(state) {
   if (prev) prev.fadeOut(0.2);
   _pActions[name].reset().fadeIn(0.2).play();
   _pCurrent = name;
+  // 同步 FP 手臂动画
+  if (_fpArmMixer && _fpArmAnims[name]) {
+    var fn;
+    for (fn in _fpArmAnims) { if (_fpArmAnims[fn].isRunning()) _fpArmAnims[fn].fadeOut(0.2); }
+    _fpArmAnims[name].reset().fadeIn(0.2).play();
+  }
 }
 
 // 遍历模型，按名匹配四肢骨并记录绑定姿势四元数
