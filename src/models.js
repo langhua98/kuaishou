@@ -386,7 +386,7 @@ function loadGunModel() {
 
     // 3P gun：加入场景世界空间（比 FP 稍大使其在 4 格距相机处清晰可见）
     _gunNode3P = gltf.scene.clone(true);
-    _gunNode3P.scale.set(0.010, 0.010, 0.010);
+    _gunNode3P.scale.set(0.015, 0.015, 0.015);
     _gunNode3P.visible = false;
     _gunNode3P.traverse(function (n) { if (n.isMesh) n.frustumCulled = false; });
     scene.add(_gunNode3P);
