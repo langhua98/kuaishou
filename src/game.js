@@ -385,6 +385,7 @@ var CAM_DIST     = 4.0;
 var CAM_SHOULDER = 0.55;
 var _pivX = 0, _pivY = 0, _pivZ = 0, _pivInit = false;
 var _camDcur = CAM_DIST;
+var _camYawOff = 0;   // 绕行偏移（0=正后方, PI=正前方），调试枪模位置用
 var _bobT = 0, _fovCur = 70, _rollCur = 0;
 var _dipY = 0, _dipV = 0;
 var _wasGround = false;
@@ -882,13 +883,18 @@ function tick(now) {
     var shX = _pivX + rwx * CAM_SHOULDER;
     var shY = _pivY - _sitDip;
     var shZ = _pivZ + rwz * CAM_SHOULDER;
-    var _camMax = _sitting ? 2.5 : CAM_DIST;   // 坐着时拉近相机
+    var _camMax = _sitting ? 2.5 : CAM_DIST;
+    // 绕行：用 yaw+offset 计算相机方向，原 fwx/fwz 仍供其他逻辑使用
+    var _cOrbitYaw = player.yaw + _camYawOff;
+    var _cFwx = -Math.sin(_cOrbitYaw) * cp;
+    var _cFwy = sp;
+    var _cFwz = -Math.cos(_cOrbitYaw) * cp;
     var hitD = _camMax, cd, cid;
     for (cd = 0.2; cd <= _camMax; cd += 0.1) {
       cid = getBlock(
-        Math.floor(shX - fwx * cd),
-        Math.floor(shY - fwy * cd),
-        Math.floor(shZ - fwz * cd)
+        Math.floor(shX - _cFwx * cd),
+        Math.floor(shY - _cFwy * cd),
+        Math.floor(shZ - _cFwz * cd)
       );
       if (cid !== AIR && cid !== WATER && !_PLANT[cid]) { hitD = Math.max(0.4, cd - 0.3); break; }
     }
@@ -896,9 +902,9 @@ function tick(now) {
     else                 _camDcur += (hitD - _camDcur) * Math.min(1, 4 * dt);
 
     camera.position.set(
-      shX - fwx * _camDcur + rwx * bobL,
-      shY - fwy * _camDcur + bobY + _dipY,
-      shZ - fwz * _camDcur + rwz * bobL
+      shX - _cFwx * _camDcur + rwx * bobL,
+      shY - _cFwy * _camDcur + bobY + _dipY,
+      shZ - _cFwz * _camDcur + rwz * bobL
     );
   }
 
@@ -912,7 +918,7 @@ function tick(now) {
   } else if (typeof _mountedVehicle !== 'undefined' && _mountedVehicle) {
     camera.rotation.set(-0.35, _driveCamYaw, 0);  // 驾驶：固定俯角，朝向平滑跟随车头
   } else {
-    camera.rotation.set(player.pitch, player.yaw, _rollCur);
+    camera.rotation.set(player.pitch, player.yaw + _camYawOff, _rollCur);
   }
 
   if (_swingT > 0) _swingT -= dt;

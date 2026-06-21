@@ -136,6 +136,7 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
     <div class="row">
       <button class="btn" id="b-act"><span class="ic">✋</span><span class="actl">互动</span></button>
       <button class="btn" id="b-rot"><span class="ic">🔄</span><span>旋转</span></button>
+      <button class="btn" id="b-orbit" onclick="if(typeof _camYawOff!=='undefined'){_camYawOff=(_camYawOff+Math.PI/2)%(Math.PI*2);}"><span class="ic">🎥</span><span>绕行</span></button>
       <button class="btn" id="b-view"><span class="ic">👁</span><span>视角</span></button>
       <button class="btn" id="b-brk"><span class="ic">🔨</span><span>破坏</span></button>
       <button class="btn" id="b-plc"><span class="ic">📦</span><span>放置</span></button>
