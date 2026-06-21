@@ -208,15 +208,8 @@ var viewFP = false;
 function toggleView() {
   viewFP = !viewFP;
   playerGroup.visible = !viewFP;
-  if (_fpArmScene) {
-    // GLB 手臂就绪：用 GLB 手臂，隐藏 Steve 盒子臂
-    _fpArmScene.visible = viewFP;
-    armGroup.visible  = false;
-    armGroupL.visible = false;
-  } else {
-    armGroup.visible  = viewFP;
-    armGroupL.visible = viewFP;
-  }
+  armGroup.visible  = viewFP;
+  armGroupL.visible = viewFP;
   var xh = document.getElementById('xhair');
   if (xh) xh.classList.toggle('fp', viewFP);
   var b = document.getElementById('b-view');
@@ -760,7 +753,6 @@ function tick(now) {
     else if (moveMag > 0.5)                   playerAnim('walk');
     else                                      playerAnim('idle');
     playerMixer.update(dt);
-    if (_fpArmMixer) _fpArmMixer.update(dt);
     if (typeof updatePlayerProcAnim === 'function') updatePlayerProcAnim(dt);
   }
 
@@ -880,7 +872,6 @@ function tick(now) {
   combatUpdate(dt, nowS);
   if (typeof updateVillagers === 'function') updateVillagers(dt);
 
-  if (typeof _updateFpClip === 'function') _updateFpClip();
   renderer.render(scene, camera);
 }
 
