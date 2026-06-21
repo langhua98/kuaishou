@@ -22,7 +22,7 @@ var _VEHICLE_DEFS = {};
 _VEHICLE_DEFS[VEH_CAR]    = { name:'🚗轿车',   gltf:'car_sedan.gltf',  speed:16, turnSpd:2.0, color:0x3366cc, w:0.45, h:0.30, d:0.85, scaleW:2.0 };
 _VEHICLE_DEFS[VEH_TAXI]   = { name:'🚕出租车', gltf:'car_taxi.gltf',   speed:15, turnSpd:1.9, color:0xf2cc1a, w:0.45, h:0.32, d:0.85, scaleW:2.0 };
 _VEHICLE_DEFS[VEH_POLICE] = { name:'🚓警车',   gltf:'car_police.gltf', speed:17, turnSpd:2.0, color:0x33408c, w:0.45, h:0.31, d:0.85, scaleW:2.0 };
-_VEHICLE_DEFS[VEH_BMW]    = { name:'🏎️宝马330i', gltf:'bmw_330i.glb',  speed:24, turnSpd:2.1, color:0x1c6ef2, w:0.45, h:0.30, d:0.90, scaleW:2.2 };
+_VEHICLE_DEFS[VEH_BMW]    = { name:'🏎️宝马330i', gltf:'bmw_330i.glb',  speed:24, turnSpd:2.1, color:0x202024, w:0.55, h:0.40, d:1.20, modelLen:4.8, env:true };
 
 // placed vehicles: key → { typeId, key, cx, cy, cz, yaw, group }
 // cx/cy/cz = world-space center (float), updated every frame while mounted
@@ -159,6 +159,28 @@ function _buildCarMesh(def) {
   return g;
 }
 
+// 给载具 GLB 注入中性灰环境贴图：金属车漆(PBR)在体素灯光下不至于发黑（与赛道模型同款处理）
+var _vehEnvTex = null;
+function _applyVehicleEnv(model) {
+  if (!_vehEnvTex && typeof renderer !== 'undefined' && renderer && THREE.PMREMGenerator) {
+    var pm = new THREE.PMREMGenerator(renderer);
+    var es = new THREE.Scene();
+    es.background = new THREE.Color(0xb0b0b0);
+    _vehEnvTex = pm.fromScene(es).texture;
+    pm.dispose();
+  }
+  model.traverse(function (node) {
+    if (!node.isMesh) return;
+    var mats = Array.isArray(node.material) ? node.material : [node.material];
+    for (var mi = 0; mi < mats.length; mi++) {
+      var m = mats[mi];
+      if (!m) continue;
+      if (_vehEnvTex) { m.envMap = _vehEnvTex; m.envMapIntensity = 1.2; }
+      m.needsUpdate = true;
+    }
+  });
+}
+
 function nearestVehicle(px, py, pz, radius) {
   var best = null, bestD2 = radius * radius;
   for (var k in _vehiclePlaced) {
@@ -180,11 +202,22 @@ function placeVehicle(typeId, wx, wy, wz, yaw) {
   var body = _buildCarMesh(def);
   grp.add(body);
 
-  grp.position.set(wx + 0.5, wy, wz + 0.5);
+  // 赛道区：用赛道 GLB 表面高度承托（与玩家 _resolveCircuitGround 同逻辑），
+  // 否则车会埋进赛道下方的体素地面里 → 看不见 / 上不了车。
+  var ccx = wx + 0.5, ccz = wz + 0.5, placeY = wy;
+  if (typeof _circuitModel !== 'undefined' && _circuitModel &&
+      ccx > -900 && ccx < 900 && ccz > 205 && ccz < 3215) {
+    var crc = new THREE.Raycaster();
+    crc.set(new THREE.Vector3(ccx, wy + 30, ccz), new THREE.Vector3(0, -1, 0));
+    var chits = crc.intersectObject(_circuitModel, true);
+    if (chits.length && chits[0].point.y > placeY) placeY = chits[0].point.y;
+  }
+
+  grp.position.set(ccx, placeY, ccz);
   grp.rotation.y = yaw || 0;
   scene.add(grp);
 
-  var entry = { typeId: typeId, key: key, cx: wx + 0.5, cy: wy, cz: wz + 0.5,
+  var entry = { typeId: typeId, key: key, cx: ccx, cy: placeY, cz: ccz,
                 yaw: yaw || 0, group: grp };
   _vehiclePlaced[key] = entry;
 
@@ -193,13 +226,21 @@ function placeVehicle(typeId, wx, wy, wz, yaw) {
     gltfLoader.load('assets/models/vehicles/' + def.gltf, function(gltf) {
       grp.remove(body);
       var model = gltf.scene;
+      model.updateMatrixWorld(true);
       var bb = new THREE.Box3().setFromObject(model);
-      var modelW = bb.max.x - bb.min.x;
-      var s = (def.scaleW || 1.0) / (modelW > 0.01 ? modelW : 1);
-      model.scale.setScalar(s);
+      if (def.modelLen) {
+        // 详细车模：按整车水平最长边归一化到 modelLen 格（避免被透明辅助体撑高的 Y 干扰）
+        var horiz = Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z);
+        model.scale.setScalar(def.modelLen / (horiz > 0.01 ? horiz : 1));
+      } else {
+        var modelW = bb.max.x - bb.min.x;
+        model.scale.setScalar((def.scaleW || 1.0) / (modelW > 0.01 ? modelW : 1));
+      }
+      model.updateMatrixWorld(true);
       bb.setFromObject(model);
       model.position.y = -bb.min.y;          // 轮子落地
-      model.rotation.y = Math.PI;            // KayKit 车头朝 +Z；游戏前进为 -Z，翻转 180°
+      model.rotation.y = (def.modelYaw !== undefined) ? def.modelYaw : Math.PI;  // 车头朝 -Z（游戏前进）
+      if (def.env) _applyVehicleEnv(model);  // 金属车漆注入环境贴图，避免发黑
       entry.model = model;
       grp.add(model);
     }, undefined, function() { /* asset not found – keep placeholder car shape */ });
