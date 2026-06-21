@@ -809,7 +809,6 @@ function tick(now) {
       else                                      playerAnim('idle');
     }
     playerMixer.update(dt);
-    if (_fpArmMixer) _fpArmMixer.update(dt);
     if (typeof updatePlayerProcAnim === 'function') updatePlayerProcAnim(dt);
   }
 

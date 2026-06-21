@@ -2401,16 +2401,6 @@ function loadPlayerArms() {
     _fpArmScene.visible = false;
     camera.add(_fpArmScene);
 
-    // 独立 Mixer
-    _fpArmMixer = new THREE.AnimationMixer(model);
-    var i;
-    for (i = 0; i < gltf.animations.length; i++) {
-      _lockRootMotion(gltf.animations[i]);
-      _fpArmAnims[gltf.animations[i].name] = _fpArmMixer.clipAction(gltf.animations[i]);
-    }
-    // 同步当前主角动画状态
-    if (_pCurrent && _fpArmAnims[_pCurrent]) _fpArmAnims[_pCurrent].reset().play();
-
     // 延迟加载兼容：若已处于第一人称则立即显示
     if (typeof viewFP !== 'undefined' && viewFP) {
       _fpArmScene.visible = true;
@@ -2484,19 +2474,6 @@ function playerAnim(state) {
   }
   action.reset().fadeIn(0.2).play();
   _pCurrent = name;
-  // FP 手臂同步
-  if (_fpArmMixer && _fpArmAnims[name]) {
-    var fn;
-    for (fn in _fpArmAnims) { if (_fpArmAnims[fn].isRunning()) _fpArmAnims[fn].fadeOut(0.2); }
-    var fpAction = _fpArmAnims[name];
-    if (_ANIM_ONCE[state]) {
-      fpAction.setLoop(THREE.LoopOnce, 1);
-      fpAction.clampWhenFinished = true;
-    } else {
-      fpAction.setLoop(THREE.LoopRepeat, Infinity);
-    }
-    fpAction.reset().fadeIn(0.2).play();
-  }
 }
 
 // LoopOnce 动画完成后的状态转移
@@ -8036,7 +8013,6 @@ function tick(now) {
       else                                      playerAnim('idle');
     }
     playerMixer.update(dt);
-    if (_fpArmMixer) _fpArmMixer.update(dt);
     if (typeof updatePlayerProcAnim === 'function') updatePlayerProcAnim(dt);
   }
 
