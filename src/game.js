@@ -823,7 +823,7 @@ function tick(now) {
   var fwz = -Math.cos(player.yaw) * cp;
   var rwx = Math.cos(player.yaw), rwz = -Math.sin(player.yaw);
 
-  var tPx = player.x, tPy = player.y + PH * 0.8, tPz = player.z;
+  var tPx = player.x, tPy = player.y + PH * 0.9, tPz = player.z;
   if (!_pivInit) { _pivX = tPx; _pivY = tPy; _pivZ = tPz; _pivInit = true; }
   var kH = Math.min(1, 25 * dt), kV = Math.min(1, 12 * dt);
   _pivX += (tPx - _pivX) * kH;
