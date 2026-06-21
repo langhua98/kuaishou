@@ -414,28 +414,14 @@ function updateGunTransform() {
   _gunNode3P.visible = _gunVisible && !vfp;
   if (_gunNodeFP) _gunNodeFP.visible = _gunVisible && vfp;
   if (!_gunVisible || vfp) return;
-  if (!_G3PV) _G3PV = new THREE.Vector3();
-  if (_rhBone3P) {
-    // 骨骼就绪：跟踪右手骨骼世界坐标，再沿角色前向偏移使枪体从手中伸出
-    // （枪模型 pivot 在中心而非握把，直接贴手会埋进身体，需向前推）
-    _rhBone3P.getWorldPosition(_G3PV);
-    var _fwxb = -Math.sin(player.yaw), _fwzb = -Math.cos(player.yaw);
-    var _lwxb = -Math.cos(player.yaw), _lwzb =  Math.sin(player.yaw);
-    _gunNode3P.position.set(
-      _G3PV.x + _fwxb * 0.35 + _lwxb * 0.10,
-      _G3PV.y + 0.12,
-      _G3PV.z + _fwzb * 0.35 + _lwzb * 0.10
-    );
-  } else {
-    // 骨骼未就绪兜底：右侧前方，肩部高度（持枪手大约在 1.7 格）
-    var _fwx3 = -Math.sin(player.yaw), _fwz3 = -Math.cos(player.yaw);
-    var _ryx3 =  Math.cos(player.yaw), _ryz3 =  Math.sin(player.yaw);
-    _gunNode3P.position.set(
-      player.x + _ryx3 * 0.3 + _fwx3 * 0.5,
-      player.y + 1.82,
-      player.z + _ryz3 * 0.3 + _fwz3 * 0.5
-    );
-  }
+  // 固定位置（不跟动画骨骼，避免随动画抖动）：右肩前方，右向量 (cos,0,-sin)
+  var _fw3x = -Math.sin(player.yaw), _fw3z = -Math.cos(player.yaw);
+  var _rw3x =  Math.cos(player.yaw), _rw3z = -Math.sin(player.yaw);
+  _gunNode3P.position.set(
+    player.x + _rw3x * 0.28 + _fw3x * 0.48,
+    player.y + 1.72,
+    player.z + _rw3z * 0.28 + _fw3z * 0.48
+  );
   // 枪口在 +Z 方向（朝后），加 PI 使枪口翻转朝向角色前方
   // X=枪口上抬，Z=绕枪管轴滚转（正值=枪顶向左、枪底向右，即右侧抬高左侧压低）
   _gunNode3P.rotation.set(0.42, player.yaw + Math.PI, 0.22);
