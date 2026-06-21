@@ -104,8 +104,9 @@ function _updateHeldItem(slot) {
   if (_handItemMesh) { armGroup.remove(_handItemMesh); _handItemMesh = null; }
   var itemId = player.inv[slot];
   if (itemId === GUN) {
-    // 枪支：显示 GLB 枪模型，隐藏方块
+    // 枪支：显示 GLB 枪模型 + 播一次装备动画
     if (typeof setGunVisible === 'function') setGunVisible(true);
+    if (typeof playerAnim === 'function') playerAnim('firing_rifle');
     return;
   }
   // 切走枪格时隐藏枪

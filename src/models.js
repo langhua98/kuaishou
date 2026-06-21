@@ -238,6 +238,10 @@ function _fixPlayerMaterials(model) {
 function playerAnim(state) {
   _procState = state;
   if (!playerMixer) return;
+  // LoopOnce 动画进行中时不允许被运动状态打断（firing_rifle / sit_down / jump 等）
+  if (_pActions[_pCurrent] && _ANIM_ONCE[_pCurrent] && _pActions[_pCurrent].isRunning()) {
+    return;
+  }
   var names = _ANIM_ALIAS[state] || [state], name = null, i;
   for (i = 0; i < names.length; i++) {
     if (_pActions[names[i]]) { name = names[i]; break; }
