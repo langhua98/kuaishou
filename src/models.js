@@ -436,7 +436,7 @@ function updateGunTransform() {
     );
   }
   // 枪口在 +Z 方向（朝后），加 PI 使枪口翻转朝向角色前方
-  _gunNode3P.rotation.set(-0.18, player.yaw + Math.PI, 0);  // X 负值 = 枪口上抬
+  _gunNode3P.rotation.set(0.18, player.yaw + Math.PI, 0);   // X 正值 = 枪口上抬
 }
 
 function setGunVisible(v) {
