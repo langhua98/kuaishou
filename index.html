@@ -2353,7 +2353,9 @@ function loadPlayerArms() {
     // 若主模型还未加载（竞态），用 PLAYER_MODEL_H/PH 作后备。
     var s = (_playerModelScale > 0.001) ? _playerModelScale : (PLAYER_MODEL_H / PH);
     model.scale.set(s, s, s);
-    model.position.y = 0;
+    // 把模型下移，使手部（y≈0.9 模型空间）对齐到组原点；
+    // 这样 rotation.x=0.8 旋转后，手臂从屏幕底部向屏幕内延伸（吃鸡风格）
+    model.position.y = -s * 0.9;
 
     _fixPlayerMaterials(model);
 
