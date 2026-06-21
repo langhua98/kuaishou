@@ -135,3 +135,149 @@ function initAutoSave() {
   window.addEventListener('beforeunload', saveGame);
   window.addEventListener('pagehide', saveGame);
 }
+
+// ─── 存档码：跨设备同步（无后端）──────────────────────────────────────────
+// 把整份存档编码成一段可复制文本；换设备时粘贴导入即可恢复进度。国内外通用。
+
+// UTF-8 安全 base64（存档目前是纯 ASCII JSON，但保险起见处理多字节）
+function _b64encode(str) { return btoa(unescape(encodeURIComponent(str))); }
+function _b64decode(b64) { return decodeURIComponent(escape(atob(b64))); }
+
+// 生成存档码：先存一次确保最新，再读 localStorage 编码。无存档返回 ''。
+function exportSaveCode() {
+  if (typeof player !== 'undefined' && player) saveGame();
+  var raw = '';
+  try { raw = localStorage.getItem(SAVE_KEY) || ''; } catch (e) {}
+  if (!raw) return '';
+  try { return 'KS' + _b64encode(raw); } catch (e) { return ''; }
+}
+
+// 导入存档码：解码并校验是合法存档后写入 localStorage（需重载页面应用）。成功 true。
+function importSaveCode(code) {
+  if (!code) return false;
+  code = ('' + code).replace(/\s+/g, '');
+  if (code.slice(0, 2) === 'KS') code = code.slice(2);
+  var raw;
+  try { raw = _b64decode(code); } catch (e) { return false; }
+  try {
+    var d = JSON.parse(raw);
+    if (!d || typeof d !== 'object' || typeof d.v === 'undefined') return false;
+  } catch (e) { return false; }
+  try { localStorage.setItem(SAVE_KEY, raw); } catch (e) { return false; }
+  return true;
+}
+
+// ─── 存档码弹窗 UI（按物品仓库的风格构建一次后复用）──────────────────────
+var _scOverlay = null, _scText = null, _scMsg = null;
+
+function _scSetMsg(text, ok) {
+  if (!_scMsg) return;
+  _scMsg.textContent = text || '';
+  _scMsg.style.color = (ok === false) ? '#f88' : '#7fd';
+}
+
+function _ensureSaveCodeUI() {
+  if (_scOverlay) return;
+  _scOverlay = document.createElement('div');
+  _scOverlay.style.cssText =
+    'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:300;display:none;' +
+    'flex-direction:column;align-items:center;justify-content:center;touch-action:none;padding:16px';
+  _scOverlay.addEventListener('touchmove', function (e) {
+    if (_scText && e.target === _scText) return;
+    e.preventDefault();
+  }, { passive: false });
+
+  var box = document.createElement('div');
+  box.style.cssText =
+    'width:100%;max-width:360px;background:#1a1f2b;border:1px solid rgba(255,255,255,.18);' +
+    'border-radius:14px;padding:16px;box-sizing:border-box;font-family:monospace;color:#fff';
+
+  var head = document.createElement('div');
+  head.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:10px';
+  head.innerHTML = '<span style="font-size:16px;letter-spacing:1px">☁ 进度同步</span>';
+  var close = document.createElement('button');
+  close.textContent = '✕';
+  close.style.cssText = 'background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);' +
+    'color:#fff;border-radius:8px;padding:4px 12px;font-size:14px;cursor:pointer;font-family:monospace';
+  close.addEventListener('click', closeSaveCodeDialog);
+  head.appendChild(close);
+  box.appendChild(head);
+
+  var tip = document.createElement('div');
+  tip.style.cssText = 'font-size:12px;color:#9fb0c6;line-height:1.6;margin-bottom:10px';
+  tip.innerHTML = '点「导出」生成存档码并复制保存；' +
+    '在新设备粘贴后点「导入」即可恢复进度。';
+  box.appendChild(tip);
+
+  _scText = document.createElement('textarea');
+  _scText.style.cssText =
+    'width:100%;height:120px;box-sizing:border-box;resize:none;border-radius:8px;' +
+    'border:1px solid rgba(255,255,255,.2);background:#0d1017;color:#cfe;font-size:11px;' +
+    'font-family:monospace;padding:8px;word-break:break-all';
+  _scText.setAttribute('placeholder', '在此粘贴存档码后点「导入」');
+  box.appendChild(_scText);
+
+  _scMsg = document.createElement('div');
+  _scMsg.style.cssText = 'font-size:12px;min-height:18px;margin:8px 0';
+  box.appendChild(_scMsg);
+
+  var row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:8px';
+  function mkBtn(label, bg, fn) {
+    var b = document.createElement('button');
+    b.textContent = label;
+    b.style.cssText = 'flex:1;padding:11px 0;border:none;border-radius:9px;font-size:14px;' +
+      'font-family:monospace;font-weight:bold;cursor:pointer;color:#000;background:' + bg;
+    b.addEventListener('click', fn);
+    return b;
+  }
+  row.appendChild(mkBtn('📤 导出', 'linear-gradient(135deg,#38bdf8,#7dd3fc)', _scExport));
+  row.appendChild(mkBtn('📥 导入', 'linear-gradient(135deg,#22c55e,#4ade80)', _scImport));
+  box.appendChild(row);
+
+  _scOverlay.appendChild(box);
+  document.body.appendChild(_scOverlay);
+}
+
+// 导出：生成存档码填入文本框、自动全选并尝试复制
+function _scExport() {
+  var code = exportSaveCode();
+  if (!code) { _scSetMsg('暂无存档（先玩一会儿再来导出）', false); return; }
+  _scText.value = code;
+  _scText.focus();
+  _scText.select();
+  var copied = false;
+  try { copied = document.execCommand('copy'); } catch (e) {}
+  if (!copied && navigator.clipboard) {
+    navigator.clipboard.writeText(code).then(
+      function () { _scSetMsg('已生成并复制到剪贴板 ✓'); },
+      function () { _scSetMsg('已生成，请长按文本手动复制', false); }
+    );
+    return;
+  }
+  _scSetMsg(copied ? '已生成并复制到剪贴板 ✓'
+                   : '已生成，请长按文本手动复制', copied);
+}
+
+// 导入：读文本框内容写入存档后重载页面
+function _scImport() {
+  var code = _scText.value;
+  if (!code || !code.trim()) { _scSetMsg('请先粘贴存档码', false); return; }
+  if (importSaveCode(code)) {
+    _scSetMsg('导入成功，正在重载…');
+    setTimeout(function () { location.reload(); }, 700);
+  } else {
+    _scSetMsg('存档码无效，请检查是否复制完整', false);
+  }
+}
+
+function openSaveCodeDialog() {
+  _ensureSaveCodeUI();
+  _scText.value = '';
+  _scSetMsg('');
+  _scOverlay.style.display = 'flex';
+}
+
+function closeSaveCodeDialog() {
+  if (_scOverlay) _scOverlay.style.display = 'none';
+}

@@ -31,6 +31,7 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
 #menu h1{font-size:30px;color:#4ade80;font-family:monospace;text-shadow:0 0 20px rgba(74,222,128,.5)}
 #menu .tip{color:#8ab;font-size:12px;line-height:2.4;text-align:center;font-family:monospace;background:rgba(255,255,255,.04);padding:12px 24px;border-radius:10px;border:1px solid rgba(255,255,255,.08)}
 #play-btn{padding:15px 56px;background:linear-gradient(135deg,#22c55e,#4ade80);color:#000;border:none;border-radius:10px;font-size:22px;font-weight:bold;cursor:pointer;font-family:monospace;box-shadow:0 4px 24px rgba(74,222,128,.4)}
+#sync-btn{padding:9px 22px;background:rgba(255,255,255,.08);color:#9fdcff;border:1px solid rgba(120,200,255,.35);border-radius:9px;font-size:14px;cursor:pointer;font-family:monospace}
 
 #ui{position:fixed;inset:0;display:none;z-index:100}
 
@@ -124,6 +125,7 @@ canvas{position:fixed!important;top:0!important;left:0!important;width:100%!impo
     👁 切换第一/第三人称 &nbsp;│&nbsp; 底部热键栏 选择方块
   </div>
   <button id="play-btn" onclick="window.startGame&&window.startGame()">开始游戏</button>
+  <button id="sync-btn" onclick="window.openSaveCodeDialog&&window.openSaveCodeDialog()">☁ 进度同步（换设备/备份）</button>
 </div>
 
 <div id="ui">
