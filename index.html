@@ -2656,7 +2656,7 @@ function updateGunTransform() {
     var _fwxb = -Math.sin(player.yaw), _fwzb = -Math.cos(player.yaw);
     _gunNode3P.position.set(
       _G3PV.x + _fwxb * 0.35,
-      _G3PV.y,
+      _G3PV.y + 0.12,
       _G3PV.z + _fwzb * 0.35
     );
   } else {
@@ -2665,13 +2665,13 @@ function updateGunTransform() {
     var _ryx3 =  Math.cos(player.yaw), _ryz3 =  Math.sin(player.yaw);
     _gunNode3P.position.set(
       player.x + _ryx3 * 0.3 + _fwx3 * 0.5,
-      player.y + 1.7,
+      player.y + 1.82,
       player.z + _ryz3 * 0.3 + _fwz3 * 0.5
     );
   }
   // 枪口在 +Z 方向（朝后），加 PI 使枪口翻转朝向角色前方
   // X=枪口上抬，Z=绕枪管轴滚转（正值=枪顶向左、枪底向右，即右侧抬高左侧压低）
-  _gunNode3P.rotation.set(0.28, player.yaw + Math.PI, 0.22);
+  _gunNode3P.rotation.set(0.42, player.yaw + Math.PI, 0.22);
 }
 
 function setGunVisible(v) {
