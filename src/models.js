@@ -171,7 +171,7 @@ function loadPlayerArms() {
     _fpArmScene = new THREE.Group();
     _fpArmScene.add(model);
     _fpArmScene.scale.set(fpScale, fpScale, fpScale);
-    _fpArmScene.rotation.x = 1.3;
+    _fpArmScene.rotation.x = 1.5;
     _fpArmScene.position.set(0, -0.05, -0.22);
     _fpArmScene.visible = false;
     camera.add(_fpArmScene);
