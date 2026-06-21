@@ -302,19 +302,43 @@ function doInteract() {
   _lastPromptId = -1;   // 强制刷新提示文字（坐下↔起身）
 }
 
+// 坐下目标（供 models.js _registerSitTransition 在动画结束时使用）
+var _sitTarget = null;
+
 function doSit(e) {
   if (_sitting) {
-    if (typeof _markFurnitureSolid === 'function') _markFurnitureSolid(_sitting, true);
+    // ── 起身 ─────────────────────────────────────────────
+    var prev = _sitting;
     _sitting = null;
+    _sitTarget = null;
+    // 把玩家向沙发正前方推出 0.7 格，避免起身后站在座位中间
+    player.x += Math.sin(e.yaw) * 0.7;
+    player.z += Math.cos(e.yaw) * 0.7;
+    player.vx = 0; player.vz = 0;
     playerAnim('idle');
+    // 延迟恢复碰撞，让玩家先走开再变实体
+    setTimeout(function () {
+      if (typeof _markFurnitureSolid === 'function') _markFurnitureSolid(prev, true);
+    }, 400);
     return;
   }
-  player.x = e.x + 0.5; player.z = e.z + 0.5;
-  player.yaw = e.yaw;
-  player.vx = 0; player.vz = 0;
+
+  // ── 坐下 ─────────────────────────────────────────────
+  // 1. 先让家具穿透（否则物理会把玩家顶上去）
   if (typeof _markFurnitureSolid === 'function') _markFurnitureSolid(e, false);
+
+  // 2. 把玩家朝向转到"背对靠背、面向沙发正面"方向（与家具 yaw 相同）
+  //    家具摆放时 yaw = player.yaw + PI（面朝玩家），
+  //    所以 e.yaw 就是"沙发正面朝向"，玩家面朝此方向即背对靠背。
+  player.yaw = e.yaw;
+  player.vx = 0; player.vz = 0; player.vy = 0;
+
+  // 3. 记录落座目标（动画结束时锁定位置）
+  _sitTarget = { x: e.x + 0.5, y: e.y, z: e.z + 0.5 };
+
   _sitting = e;
-  playerAnim('sit_down');   // 播站立→坐下过渡；结束后由 _registerSitTransition 自动切 sitting
+  // 4. 原地播动画，不立刻瞬移——_registerSitTransition 在 sit_down 结束时再落座
+  playerAnim('sit_down');
 }
 
 function doRest(e) {
@@ -400,8 +424,12 @@ function tick(now) {
   // ── 移动 ──────────────────────────────────────────────────────────────────────
   // 坐下时动摇杆即起身（防止卡在家具上）
   if (_sitting && (joy.dx || joy.dy)) {
-    if (typeof _markFurnitureSolid === 'function') _markFurnitureSolid(_sitting, true);
-    _sitting = null;
+    var _sitPrev = _sitting;
+    _sitting = null; _sitTarget = null;
+    playerAnim('idle');
+    setTimeout(function () {
+      if (typeof _markFurnitureSolid === 'function') _markFurnitureSolid(_sitPrev, true);
+    }, 400);
   }
   if (typeof _onTrain !== 'undefined' && _onTrain) {
     // 乘坐高铁：按摇杆算车厢内行走速度（公式同正常行走），由 updateTrain 积分+夹紧
@@ -798,7 +826,14 @@ function tick(now) {
   var bobY = Math.sin(_bobT * Math.PI * 2) * 0.016 * bobOn;
   var bobL = Math.sin(_bobT * Math.PI)     * 0.012 * bobOn;
 
+  // 坐姿相机：
+  //   · _sitDip = 0.45 把枢轴/眼睛下压 0.45 格，等同于坐高
+  //   · 坐着时 pitch 向下最多 0.3 rad（约 17°），防止镜头插入座位
+  //   · 第三人称距离缩短到 2.5 格（坐着时不需要拉远看全身）
   var _sitDip = _sitting ? 0.45 : 0;
+  if (_sitting) {
+    if (player.pitch < -0.3) player.pitch = -0.3;
+  }
   if (viewFP) {
     camera.position.set(
       player.x + rwx * bobL * 0.5,
@@ -829,8 +864,9 @@ function tick(now) {
     var shX = _pivX + rwx * CAM_SHOULDER;
     var shY = _pivY - _sitDip;
     var shZ = _pivZ + rwz * CAM_SHOULDER;
-    var hitD = CAM_DIST, cd, cid;
-    for (cd = 0.2; cd <= CAM_DIST; cd += 0.1) {
+    var _camMax = _sitting ? 2.5 : CAM_DIST;   // 坐着时拉近相机
+    var hitD = _camMax, cd, cid;
+    for (cd = 0.2; cd <= _camMax; cd += 0.1) {
       cid = getBlock(
         Math.floor(shX - fwx * cd),
         Math.floor(shY - fwy * cd),

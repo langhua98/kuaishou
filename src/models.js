@@ -266,22 +266,33 @@ function playerAnim(state) {
   }
 }
 
-// sit_down 播完后自动切 sitting；由 game.js 在 mixer 初始化后调用一次注册
+// sit_down 播完后锁定玩家到座位并切 sitting 循环
+// 由 loadPlayerModel 在 mixer 初始化后调用一次注册
 function _registerSitTransition() {
   if (!playerMixer) return;
-  playerMixer.addEventListener('finished', function (e) {
-    var action = e.action;
+  playerMixer.addEventListener('finished', function (ev) {
+    var action = ev.action;
     // 找到 sit_down 对应 action 名
     var sdName = null, k;
     for (k in _pActions) { if (_pActions[k] === action) { sdName = k; break; } }
     if (!sdName) return;
-    // 检查是否是 sit_down 系列
+    // 检查是否属于 sit_down 别名
     var alias = _ANIM_ALIAS.sit_down || [];
     var isSitDown = false;
-    for (var ai = 0; ai < alias.length; ai++) { if (alias[ai] === sdName) { isSitDown = true; break; } }
+    for (var ai = 0; ai < alias.length; ai++) {
+      if (alias[ai] === sdName) { isSitDown = true; break; }
+    }
     if (!isSitDown) return;
-    // 若玩家仍在坐着状态，切换到 sitting 循环
-    if (typeof _sitting !== 'undefined' && _sitting) playerAnim('sitting');
+    // 若玩家仍在坐着状态，锁定到座位坐标并切 sitting 循环
+    if (typeof _sitting !== 'undefined' && _sitting &&
+        typeof _sitTarget !== 'undefined' && _sitTarget) {
+      player.x = _sitTarget.x;
+      player.z = _sitTarget.z;
+      // y: 保持当前物理高度（动画已让角色看起来坐下了）；
+      //    _sitDip=0.45 会自动压低相机，不需要手动改 player.y
+      player.vx = 0; player.vz = 0; player.vy = 0;
+      playerAnim('sitting');
+    }
   });
 }
 
