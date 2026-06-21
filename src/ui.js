@@ -9,6 +9,14 @@ var _bagEl = null;
 function _drawBlockIcon(cv, id) {
   var ctx = cv.getContext('2d');
   ctx.clearRect(0, 0, 68, 68);
+  // 枪支道具：用 emoji 直接渲染
+  if (typeof GUN !== 'undefined' && id === GUN) {
+    ctx.font = '46px serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🔫', 34, 36);   // 🔫
+    return;
+  }
   var cs = BCOL[id];
   if (!cs) return;
 
@@ -89,7 +97,7 @@ function buildHotbar() {
     slot.appendChild(_makeSlotIcon(id));
     var lbl = document.createElement('div');
     lbl.className = 'slot-lbl';
-    lbl.textContent = BNAMES[id];
+    lbl.textContent = (typeof GUN !== 'undefined' && id === GUN) ? '枪支' : BNAMES[id];
     slot.appendChild(lbl);
 
     (function (idx, slotEl) {

@@ -1730,6 +1730,14 @@ var _bagEl = null;
 function _drawBlockIcon(cv, id) {
   var ctx = cv.getContext('2d');
   ctx.clearRect(0, 0, 68, 68);
+  // 枪支道具：用 emoji 直接渲染
+  if (typeof GUN !== 'undefined' && id === GUN) {
+    ctx.font = '46px serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🔫', 34, 36);   // 🔫
+    return;
+  }
   var cs = BCOL[id];
   if (!cs) return;
 
@@ -1810,7 +1818,7 @@ function buildHotbar() {
     slot.appendChild(_makeSlotIcon(id));
     var lbl = document.createElement('div');
     lbl.className = 'slot-lbl';
-    lbl.textContent = BNAMES[id];
+    lbl.textContent = (typeof GUN !== 'undefined' && id === GUN) ? '枪支' : BNAMES[id];
     slot.appendChild(lbl);
 
     (function (idx, slotEl) {
@@ -2257,6 +2265,9 @@ var _fpArmScene = null;
 var _fpArmMixer = null;
 var _fpArmAnims = {};
 
+// LoopOnce 动画进行中锁（防止运动状态机在同帧打断一次性动画）
+var _animOnceLock = false;
+
 // 程序化骨骼动画（模型自带 0 动画时由代码驱动 idle/walk/run）
 // D.Va 模型为 Unreal 骨骼，按名匹配四肢骨，每帧相对绑定姿势叠加旋转
 var _procBones = {};      // 逻辑名 → THREE.Object3D（骨骼节点）
@@ -2345,6 +2356,8 @@ function loadPlayerModel() {
     playerAnim('idle');
     _registerSitTransition();
     _tryAttachGun3P();   // 若枪模型已先加载，立即挂载
+    // 模型就绪后同步手持物（slot 未变时不重新触发，需在此主动补充）
+    if (typeof _updateHeldItem === 'function') _updateHeldItem(player.slot);
 
   }, undefined, function () { /* 加载失败：保留盒子占位 */ });
 }
@@ -2454,9 +2467,7 @@ function playerAnim(state) {
   _procState = state;
   if (!playerMixer) return;
   // LoopOnce 动画进行中时不允许被运动状态打断（firing_rifle / sit_down / jump 等）
-  if (_pActions[_pCurrent] && _ANIM_ONCE[_pCurrent] && _pActions[_pCurrent].isRunning()) {
-    return;
-  }
+  if (_animOnceLock) return;
   var names = _ANIM_ALIAS[state] || [state], name = null, i;
   for (i = 0; i < names.length; i++) {
     if (_pActions[names[i]]) { name = names[i]; break; }
@@ -2466,7 +2477,7 @@ function playerAnim(state) {
   if (prev) prev.fadeOut(0.2);
   var action = _pActions[name];
   if (_ANIM_ONCE[state]) {
-    // 一次性动画：播完后自动切到对应后续状态
+    _animOnceLock = true;   // 锁住，防止同帧运动代码打断
     action.setLoop(THREE.LoopOnce, 1);
     action.clampWhenFinished = true;
   } else {
@@ -2480,6 +2491,7 @@ function playerAnim(state) {
 function _registerSitTransition() {
   if (!playerMixer) return;
   playerMixer.addEventListener('finished', function (ev) {
+    _animOnceLock = false;   // 解锁，允许后续状态切换
     var action = ev.action;
     var animName = null, k;
     for (k in _pActions) { if (_pActions[k] === action) { animName = k; break; } }
