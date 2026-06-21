@@ -2654,10 +2654,11 @@ function updateGunTransform() {
     // （枪模型 pivot 在中心而非握把，直接贴手会埋进身体，需向前推）
     _rhBone3P.getWorldPosition(_G3PV);
     var _fwxb = -Math.sin(player.yaw), _fwzb = -Math.cos(player.yaw);
+    var _lwxb = -Math.cos(player.yaw), _lwzb =  Math.sin(player.yaw);
     _gunNode3P.position.set(
-      _G3PV.x + _fwxb * 0.35,
+      _G3PV.x + _fwxb * 0.35 + _lwxb * 0.10,
       _G3PV.y + 0.12,
-      _G3PV.z + _fwzb * 0.35
+      _G3PV.z + _fwzb * 0.35 + _lwzb * 0.10
     );
   } else {
     // 骨骼未就绪兜底：右侧前方，肩部高度（持枪手大约在 1.7 格）
