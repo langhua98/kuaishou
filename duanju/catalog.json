@@ -1,0 +1,101 @@
+{
+ "_说明": "演示片源：均为明确授权可自由使用的公开 HLS 流，非短剧内容。换成自有片源时直接替换 eps[].src 即可。",
+ "dramas": [
+  {
+   "id": "apple",
+   "title": "Apple 官方测试流",
+   "tag": "多码率 fMP4 · 苹果开发者测试资源",
+   "cover": "../wt/poster/p1.jpg",
+   "eps": [
+    {
+     "n": 1,
+     "src": "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8"
+    },
+    {
+     "n": 2,
+     "src": "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8"
+    },
+    {
+     "n": 3,
+     "src": "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8"
+    },
+    {
+     "n": 4,
+     "src": "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8"
+    },
+    {
+     "n": 5,
+     "src": "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8"
+    },
+    {
+     "n": 6,
+     "src": "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8"
+    }
+   ]
+  },
+  {
+   "id": "mux",
+   "title": "Mux 公开测试片",
+   "tag": "真实 CDN · Mux 官方测试资源",
+   "cover": "../wt/poster/p3.jpg",
+   "eps": [
+    {
+     "n": 1,
+     "src": "https://stream.mux.com/v69RSHhFelSm4701snP22dYz2jICy4E4FUyk02rW4gxRM.m3u8"
+    },
+    {
+     "n": 2,
+     "src": "https://stream.mux.com/v69RSHhFelSm4701snP22dYz2jICy4E4FUyk02rW4gxRM.m3u8"
+    },
+    {
+     "n": 3,
+     "src": "https://stream.mux.com/v69RSHhFelSm4701snP22dYz2jICy4E4FUyk02rW4gxRM.m3u8"
+    },
+    {
+     "n": 4,
+     "src": "https://stream.mux.com/v69RSHhFelSm4701snP22dYz2jICy4E4FUyk02rW4gxRM.m3u8"
+    }
+   ]
+  },
+  {
+   "id": "tos",
+   "title": "Tears of Steel",
+   "tag": "Blender 开源电影 · CC-BY 授权",
+   "cover": "../wt/poster/p5.jpg",
+   "eps": [
+    {
+     "n": 1,
+     "src": "https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8"
+    },
+    {
+     "n": 2,
+     "src": "https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8"
+    },
+    {
+     "n": 3,
+     "src": "https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8"
+    },
+    {
+     "n": 4,
+     "src": "https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8"
+    },
+    {
+     "n": 5,
+     "src": "https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8"
+    },
+    {
+     "n": 6,
+     "src": "https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8"
+    },
+    {
+     "n": 7,
+     "src": "https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8"
+    },
+    {
+     "n": 8,
+     "src": "https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8"
+    }
+   ]
+  }
+ ]
+}
