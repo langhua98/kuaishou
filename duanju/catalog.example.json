@@ -1,0 +1,32 @@
+{
+  "_说明": [
+    "把这个文件改名为 catalog.json 放在同目录，应用启动时会自动读取并覆盖内置样片。",
+    "它和页面同源，所以不受 CORS 限制；而 eps[].src 里的 m3u8 可以指向任意外站，",
+    "因为 <video> 加载跨域媒体本来就不需要 CORS（只有往 canvas 读像素才需要）。",
+    "cover 同理，可以是外站图片地址。",
+    "字段要求：id / title / eps 必填，eps 每项要有 n 和 src；tag、cover、dur 可省略。"
+  ],
+  "dramas": [
+    {
+      "id": "8291",
+      "title": "剧名写这里",
+      "tag": "都市 · 逆袭",
+      "cover": "https://cdn.example.com/cover/8291.jpg",
+      "eps": [
+        { "n": 1, "src": "https://cdn.example.com/hls/8291/ep1/master.m3u8", "dur": "1分30秒" },
+        { "n": 2, "src": "https://cdn.example.com/hls/8291/ep2/master.m3u8", "dur": "1分28秒" },
+        { "n": 3, "src": "https://cdn.example.com/hls/8291/ep3/master.m3u8", "dur": "1分35秒" }
+      ]
+    },
+    {
+      "id": "8292",
+      "title": "第二部剧",
+      "tag": "悬疑 · 短打",
+      "cover": "https://cdn.example.com/cover/8292.jpg",
+      "eps": [
+        { "n": 1, "src": "https://cdn.example.com/hls/8292/ep1/master.m3u8" },
+        { "n": 2, "src": "https://cdn.example.com/hls/8292/ep2/master.m3u8" }
+      ]
+    }
+  ]
+}

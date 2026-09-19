@@ -97,7 +97,7 @@ function mkEps(n, src) {
   return a;
 }
 
-var CATALOG = [
+var DEMO = [
   { id:'d1', title:'样片一号', cover:'../wt/poster/p1.jpg',
     tag:'都市 · 逆袭', eps:mkEps(12, STREAM) },
   { id:'d2', title:'样片二号', cover:'../wt/poster/p2.jpg',
@@ -111,6 +111,11 @@ var CATALOG = [
   { id:'d6', title:'样片六号', cover:'../wt/poster/p6.jpg',
     tag:'悬爱 · 双男主', eps:mkEps(20, STREAM) }
 ];
+
+/* 真实片源放 catalog.json（同目录，同源，不受 CORS 限制）。
+   m3u8 可以是任意外站地址——<video> 加载跨域媒体不需要 CORS。
+   文件不存在就退回上面的样片。 */
+var CATALOG = DEMO, SRC_NOTE = '样片模式';
 
 /* ── 进度存储 ── */
 var KEY = 'wrist_duanju_v1';
@@ -173,7 +178,7 @@ function viewHome() {
     el.onclick = function () { viewDrama(dd.id); };
     $list.appendChild(el);
   });
-  $ft.textContent = '共 ' + CATALOG.length + ' 部 · 表冠可滚动';
+  $ft.textContent = SRC_NOTE + ' · 表冠可滚动';
   scrollTo(0, 0);
 }
 
@@ -221,5 +226,26 @@ function playEp(d, e) {
 }
 
 $back.onclick = viewHome;
-viewHome();
+
+/* ── 启动：先试同源 catalog.json，失败就用样片 ── */
+function valid(c) {
+  return c && c.length && c.every(function (d) {
+    return d.id && d.title && d.eps && d.eps.length && d.eps[0].src;
+  });
+}
+function boot() {
+  if (!window.fetch) { viewHome(); return; }
+  fetch('catalog.json?t=' + Date.now(), { cache: 'no-store' })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (j) {
+      var c = j && (j.dramas || j);
+      if (valid(c)) {
+        CATALOG = c;
+        SRC_NOTE = '片源 catalog.json · ' + c.length + ' 部';
+      }
+    })
+    ['catch'](function () { /* 没有就用样片 */ })
+    .then(function () { viewHome(); });
+}
+boot();
 </script></body></html>
