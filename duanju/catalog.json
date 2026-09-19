@@ -2,6 +2,19 @@
  "_说明": "全部为公共领域或明确开放授权的内容：archive.org 公版影视 + 官方公开测试流。换成自有片源时替换 eps[].src 即可。",
  "dramas": [
   {
+   "id": "myclip",
+   "title": "我的片段",
+   "tag": "自有片源 · 竖屏 720p · 三档自适应",
+   "cover": "media/clip01/cover.jpg",
+   "eps": [
+    {
+     "n": 1,
+     "src": "media/clip01/master.m3u8",
+     "dur": "3.5 秒"
+    }
+   ]
+  },
+  {
    "id": "经典短片",
    "title": "经典短片",
    "tag": "archive.org · 公共领域 · 10 集",
