@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>手表能力探测 v3</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;padding:10px 12px 46px;background:#000;color:#fff;
+     font:17px/1.5 -apple-system,system-ui,sans-serif}
+h1{font-size:19px;margin:4px 0 8px;color:#4ade80}
+.hd{font-size:11.5px;color:#777;word-break:break-all;margin-bottom:10px}
+button{display:block;width:100%;height:70px;margin:6px 0 12px;border:0;border-radius:14px;
+  background:linear-gradient(135deg,#b91c1c,#ef4444);color:#fff;font-size:22px;font-weight:700}
+button:active{transform:scale(.96)}
+button[disabled]{background:#333;color:#777}
+.r{font-size:15px;margin:5px 0;word-break:break-all}
+.hh{font-size:17px;margin:15px 0 5px;color:#fbbf24;font-weight:700}
+.ok{color:#4ade80}.no{color:#f87171}.mid{color:#fbbf24}.dim{color:#94a3b8}
+#stage{display:flex;gap:8px;justify-content:center;margin:10px 0;flex-wrap:wrap}
+#stage img,#stage canvas{width:100px;height:120px;background:#111;border:2px solid #333;border-radius:8px}
+pre{background:#0f172a;border:1px solid #334155;border-radius:10px;padding:10px;
+  font:12.5px/1.6 ui-monospace,Menlo,monospace;color:#7dd3fc;white-space:pre-wrap;word-break:break-all}
+a.big{display:block;margin:12px 0;padding:16px;border-radius:12px;background:#1e3a5f;
+  color:#93c5fd;text-align:center;font-size:17px;text-decoration:none;font-weight:600}
+.tip{font-size:14px;color:#94a3b8;margin-top:14px;line-height:1.75}
+</style></head><body>
+
+<h1>🔬 手表能力探测 v3</h1>
+<div class="hd" id="hd"></div>
+<button id="go">▶ 开始探测</button>
+
+<div id="stage">
+  <img id="ig" alt="gif"><img id="iw" alt="webp"><canvas id="cv" width="120" height="144"></canvas>
+</div>
+
+<div id="out"></div>
+<pre id="sum">等待探测…</pre>
+
+<a class="big" href="clip.mp4">🔗 直接打开 mp4</a>
+<a class="big" href="tone.m4a">🔊 直接打开音频 m4a</a>
+
+<div class="tip">
+⚠ 探测完请告诉我:<br>
+① 上面三个小框:<b>动了没有</b>(gif / webp / 右边画布)<br>
+② <b>听到声音了吗</b><br>
+③ 点那两个蓝条,<b>能不能播</b>
+</div>
+
+<script>
+var OUT=document.getElementById('out'), SUM=document.getElementById('sum'), GO=document.getElementById('go');
+var L=[];
+document.getElementById('hd').textContent =
+  'W'+innerWidth+' H'+innerHeight+' DPR'+(devicePixelRatio||1)+' | '+navigator.userAgent;
+
+function row(c,t){var d=document.createElement('div');d.className='r '+c;d.innerHTML=t;OUT.appendChild(d);}
+function hh(t){var d=document.createElement('div');d.className='hh';d.textContent=t;OUT.appendChild(d);}
+function px(el,w,h){var c=document.createElement('canvas');c.width=w||32;c.height=h||38;
+  var g=c.getContext('2d');try{g.drawImage(el,0,0,c.width,c.height);}catch(e){return null;}
+  try{return g.getImageData(0,0,c.width,c.height).data;}catch(e){return 'tainted';}}
+function dif(a,b){var n=0;for(var i=0;i<a.length;i+=4)if(Math.abs(a[i]-b[i])>12)n++;return n;}
+
+// ── A. 网络层:同样的字节，不同的 content-type ──
+function net(label,url){
+  return fetch(url,{cache:'no-store'}).then(function(r){
+    return r.arrayBuffer().then(function(b){
+      var ct=(r.headers.get('content-type')||'?').split(';')[0];
+      var ok=r.status===200&&b.byteLength>0;
+      row(ok?'ok':'no',' '+label+' → '+r.status+' / '+b.byteLength+'B / '+ct);
+      L.push('NET '+label+' '+r.status+' '+b.byteLength+'B '+ct);
+    });
+  }).catch(function(e){
+    var m=(e&&e.message)||String(e);
+    row('no',' '+label+' → <b>请求失败</b> '+m);
+    L.push('NET '+label+' FAIL '+m);
+  });
+}
+
+// ── B. 音频 ──
+function audio(label,url){
+  return new Promise(function(res){
+    var a=new Audio(); a.preload='auto'; a.src=url;
+    var md=0; a.addEventListener('loadedmetadata',function(){md=1;});
+    a.load();
+    var ok=0,er='';
+    var p=a.play(); if(p&&p.then)p.then(function(){ok=1;},function(e){er=e.name||'err';}); else ok=1;
+    setTimeout(function(){
+      var ct=+a.currentTime.toFixed(2), ec=a.error?a.error.code:0;
+      row(md?'ok':'no',' '+label+' 元数据'+(md?' 时长'+(a.duration||0).toFixed(1)+'s':' 未加载'));
+      row(ok&&ct>0.3?'ok':'no',' '+label+' play'+(ok?'成功':'被拒 '+er)+' 播放位置 '+ct+'s'+(ec?' err'+ec:''));
+      L.push('AUD '+label+' md'+md+' play'+ok+' ct'+ct+' err'+ec);
+      try{a.pause();}catch(e){}
+      res();
+    },2600);
+  });
+}
+
+// ── C. 动图：画两次比像素，判断有没有在动 ──
+function anim(label,url,el){
+  return new Promise(function(res){
+    var done=false;
+    el.onerror=function(){ if(done)return; done=true;
+      row('no',' '+label+' <b>加载失败</b>'); L.push('IMG '+label+' load0'); res(); };
+    el.onload=function(){ if(done)return; done=true;
+      // 采样 4 个时间点两两比对取最大差值，单次采样容易撞上循环回到同一帧
+      var snaps=[px(el,40,48)], d=-1;
+      function shot(){ snaps.push(px(el,40,48)); }
+      setTimeout(shot,250); setTimeout(shot,700);
+      setTimeout(function(){
+        shot();
+        for(var i=0;i<snaps.length;i++)for(var j=i+1;j<snaps.length;j++){
+          var A=snaps[i],B=snaps[j];
+          if(A&&B&&A!=='tainted'&&B!=='tainted') d=Math.max(d,dif(A,B));
+        }
+        var moving=d>15;
+        row('ok',' '+label+' 加载成功 '+el.naturalWidth+'×'+el.naturalHeight);
+        row(moving?'ok':'mid',' '+label+' '+(d<0?'像素读不到':(moving?'在动 (最大差 '+d+'px)':'静止 (最大差 '+d+'px)')));
+        row('dim',' ↑ 这项以你肉眼为准，检测器未经真机验证');
+        L.push('IMG '+label+' load1 '+el.naturalWidth+'x'+el.naturalHeight+' anim'+(moving?1:0)+' d'+d);
+        res();
+      },1200);
+    };
+    el.src=url+'?t='+Date.now();
+  });
+}
+
+// ── D. 逐帧序列：预载 12 张 jpg，用 rAF 连画 2 秒，数实际帧率 ──
+function seq(){
+  return new Promise(function(res){
+    var N=12, imgs=[], loaded=0, failed=0, pend=N;
+    for(var i=1;i<=N;i++)(function(n){
+      var im=new Image();
+      im.onload=function(){loaded++;if(--pend===0)play();};
+      im.onerror=function(){failed++;if(--pend===0)play();};
+      im.src='f'+(n<10?'0'+n:n)+'.jpg?t='+Date.now();
+      imgs.push(im);
+    })(i);
+
+    function play(){
+      row(loaded===N?'ok':'no',' 预载 '+loaded+'/'+N+' 成功'+(failed?'，'+failed+' 失败':''));
+      if(!loaded){ L.push('SEQ load0'); return res(); }
+      var cv=document.getElementById('cv'), g=cv.getContext('2d');
+      var draws=0, k=0, t0=performance.now();
+      (function loop(){
+        var now=performance.now();
+        if(now-t0>2000){
+          var fps=+(draws/((now-t0)/1000)).toFixed(1);
+          row(fps>=12?'ok':'mid',' 画布连画 '+draws+' 帧，实测 <b>'+fps+' fps</b>');
+          L.push('SEQ load'+loaded+' draws'+draws+' fps'+fps);
+          return res();
+        }
+        g.drawImage(imgs[k%loaded],0,0,cv.width,cv.height);
+        k++; draws++;
+        requestAnimationFrame(loop);
+      })();
+    }
+  });
+}
+
+GO.addEventListener('click',function(){
+  GO.disabled=true; GO.textContent='探测中…'; OUT.innerHTML=''; L=[];
+  hh('A. 网络层（同样字节，不同类型）');
+  net('probe.txt  文本','probe.txt')
+  .then(function(){ return net('clip.bin  八位流','clip.bin'); })
+  .then(function(){ return net('clip.mp4  视频','clip.mp4'); })
+  .then(function(){ hh('B. 音频'); return audio('m4a/AAC','tone.m4a'); })
+  .then(function(){ return audio('mp3','tone.mp3'); })
+  .then(function(){ hh('C. 动图'); return anim('GIF','anim.gif',document.getElementById('ig')); })
+  .then(function(){ return anim('WebP','anim.webp',document.getElementById('iw')); })
+  .then(function(){ hh('D. 逐帧画布'); return seq(); })
+  .then(function(){
+    SUM.textContent='UA '+navigator.userAgent+'\nVP '+innerWidth+'x'+innerHeight+
+      ' dpr'+(devicePixelRatio||1)+'\n'+L.join('\n');
+    GO.disabled=false; GO.textContent='▶ 再测一次';
+  });
+});
+</script></body></html>
