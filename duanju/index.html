@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<title>腕上短剧</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;
+  -webkit-user-select:none;user-select:none}
+html,body{margin:0;background:#000;color:#fff;
+  font:16px/1.45 -apple-system,system-ui,"PingFang SC",sans-serif}
+body{padding:0 10px 30px}
+
+/* 顶栏：返回键做成大热区，表盘上手指粗 */
+header{display:flex;align-items:center;gap:8px;padding:10px 0 8px;
+  position:sticky;top:0;background:#000;z-index:10}
+#back{width:44px;height:44px;flex:0 0 44px;border:0;border-radius:12px;
+  background:#1a1d26;color:#fff;font-size:22px;display:none;
+  align-items:center;justify-content:center}
+#back.on{display:flex}
+h1{font-size:19px;margin:0;color:#fb923c;font-weight:700;flex:1;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* 继续观看 */
+#cont{display:none;margin:2px 0 12px;padding:12px;border-radius:14px;
+  background:linear-gradient(135deg,#7c2d12,#c2410c);position:relative}
+#cont.on{display:block}
+#cont .lb{font-size:12px;color:#fed7aa;letter-spacing:1px}
+#cont .tt{font-size:18px;font-weight:700;margin:3px 0 1px}
+#cont .ce{font-size:14px;color:#ffedd5}
+
+/* 剧集卡片 */
+.card{display:flex;gap:10px;align-items:center;padding:9px;margin-bottom:9px;
+  background:#12141a;border:1px solid #1f232e;border-radius:14px}
+.card:active{background:#1c2029}
+.thumb{width:62px;height:83px;flex:0 0 62px;border-radius:9px;object-fit:cover;background:#222}
+.meta{flex:1;min-width:0}
+.meta .t{font-size:17px;font-weight:700;margin-bottom:3px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.meta .s{font-size:13px;color:#8b93a7;line-height:1.5}
+.badge{display:inline-block;margin-top:5px;padding:2px 8px;border-radius:7px;
+  background:#422006;color:#fbbf24;font-size:12px}
+
+/* 播放区：分集页顶部常驻，点分集后由系统播放器接管 */
+/* 播放永远由系统播放器接管，这个元素只作触发器 + 待播封面，
+   所以压到 150px，把竖向空间还给分集网格 */
+#player{width:100%;height:150px;background:#0b0d12;object-fit:cover;
+  border:2px solid #27303f;border-radius:12px;display:none;margin-bottom:8px}
+#player.on{display:block}
+#hint{display:none;font-size:13px;color:#8b93a7;text-align:center;margin-bottom:10px}
+#hint.on{display:block}
+
+/* 分集网格 */
+#grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.ep{height:58px;border:1px solid #27303f;border-radius:11px;background:#12141a;
+  color:#fff;font-size:17px;font-weight:700;display:flex;
+  flex-direction:column;align-items:center;justify-content:center;gap:1px}
+.ep:active{background:#1c2029}
+.ep.done{background:#0f2417;border-color:#166534;color:#4ade80}
+.ep.cur{background:#7c2d12;border-color:#fb923c;color:#fff}
+.ep small{font-size:10px;opacity:.75;font-weight:400}
+
+.empty{color:#6b7280;font-size:14px;text-align:center;padding:30px 10px;line-height:1.8}
+footer{margin-top:18px;font-size:11px;color:#3f4657;text-align:center}
+</style></head><body>
+
+<header>
+  <button id="back">‹</button>
+  <h1 id="title">腕上短剧</h1>
+</header>
+
+<div id="cont">
+  <div class="lb">继续观看</div>
+  <div class="tt" id="cont-t"></div>
+  <div class="ce" id="cont-e"></div>
+</div>
+
+<video id="player" playsinline webkit-playsinline preload="none"></video>
+<div id="hint">点下面的集数开始播放</div>
+
+<div id="list"></div>
+<div id="grid"></div>
+
+<footer id="ft"></footer>
+
+<script>
+/* ─────────────────────────────────────────────────────────────
+   片源配置：把 src 换成你自己的 m3u8 地址即可。
+   目前指向本仓库的测试流，保证每一集都真的能播通。
+   ───────────────────────────────────────────────────────────── */
+var STREAM = '../wt/hls/fmp4.m3u8';
+
+function mkEps(n, src) {
+  var a = [], i;
+  for (i = 1; i <= n; i++) a.push({ n: i, src: src, dur: '1分30秒' });
+  return a;
+}
+
+var CATALOG = [
+  { id:'d1', title:'样片一号', cover:'../wt/poster/p1.jpg',
+    tag:'都市 · 逆袭', eps:mkEps(12, STREAM) },
+  { id:'d2', title:'样片二号', cover:'../wt/poster/p2.jpg',
+    tag:'悬疑 · 短打', eps:mkEps(8, STREAM) },
+  { id:'d3', title:'样片三号', cover:'../wt/poster/p3.jpg',
+    tag:'古装 · 甜宠', eps:mkEps(24, STREAM) },
+  { id:'d4', title:'样片四号', cover:'../wt/poster/p4.jpg',
+    tag:'现实 · 亲情', eps:mkEps(16, STREAM) },
+  { id:'d5', title:'样片五号', cover:'../wt/poster/p5.jpg',
+    tag:'喜剧 · 反转', eps:mkEps(10, STREAM) },
+  { id:'d6', title:'样片六号', cover:'../wt/poster/p6.jpg',
+    tag:'悬爱 · 双男主', eps:mkEps(20, STREAM) }
+];
+
+/* ── 进度存储 ── */
+var KEY = 'wrist_duanju_v1';
+function load() { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { return {}; } }
+function save(d) { try { localStorage.setItem(KEY, JSON.stringify(d)); } catch (e) {} }
+var P = load();   // { d1:{seen:[1,2,3], last:3, at:169... } }
+
+function rec(did, n) {
+  var r = P[did] || (P[did] = { seen: [], last: 0, at: 0 });
+  if (r.seen.indexOf(n) < 0) r.seen.push(n);
+  r.last = n; r.at = Date.now();
+  P._last = did; save(P);
+}
+function findDrama(id) {
+  for (var i = 0; i < CATALOG.length; i++) if (CATALOG[i].id === id) return CATALOG[i];
+  return null;
+}
+
+/* ── DOM ── */
+var $list=document.getElementById('list'), $grid=document.getElementById('grid'),
+    $back=document.getElementById('back'), $title=document.getElementById('title'),
+    $cont=document.getElementById('cont'), $player=document.getElementById('player'),
+    $hint=document.getElementById('hint'), $ft=document.getElementById('ft');
+
+/* ── 首页：剧集列表 ── */
+function viewHome() {
+  $grid.innerHTML = ''; $list.innerHTML = '';
+  $back.className = ''; $title.textContent = '腕上短剧';
+  $player.className = ''; $hint.className = '';
+  try { $player.pause(); } catch (e) {}
+
+  // 继续观看
+  var lastId = P._last, r = lastId && P[lastId], d = lastId && findDrama(lastId);
+  if (d && r && r.last) {
+    $cont.className = 'on';
+    document.getElementById('cont-t').textContent = d.title;
+    document.getElementById('cont-e').textContent =
+      '看到第 ' + r.last + ' 集 · 共 ' + d.eps.length + ' 集';
+    $cont.onclick = function () { viewDrama(d.id); };
+  } else $cont.className = '';
+
+  CATALOG.forEach(function (dd) {
+    var st = P[dd.id], done = st ? st.seen.length : 0;
+    var el = document.createElement('div');
+    el.className = 'card';
+    var img = document.createElement('img');
+    img.className = 'thumb'; img.src = dd.cover; img.alt = '';
+    var m = document.createElement('div');
+    m.className = 'meta';
+    m.innerHTML = '<div class="t"></div><div class="s"></div>';
+    m.firstChild.textContent = dd.title;
+    m.lastChild.textContent = dd.tag + ' · ' + dd.eps.length + ' 集';
+    if (done) {
+      var b = document.createElement('div');
+      b.className = 'badge';
+      b.textContent = '已看 ' + done + '/' + dd.eps.length;
+      m.appendChild(b);
+    }
+    el.appendChild(img); el.appendChild(m);
+    el.onclick = function () { viewDrama(dd.id); };
+    $list.appendChild(el);
+  });
+  $ft.textContent = '共 ' + CATALOG.length + ' 部 · 表冠可滚动';
+  scrollTo(0, 0);
+}
+
+/* ── 分集页 ── */
+function viewDrama(id) {
+  var d = findDrama(id); if (!d) return viewHome();
+  $list.innerHTML = ''; $grid.innerHTML = '';
+  $cont.className = ''; $back.className = 'on';
+  $title.textContent = d.title;
+  $player.className = 'on'; $hint.className = 'on';
+  $player.poster = d.cover;          // 空播放器挂封面，不做纯黑占位
+  $hint.textContent = '点下面的集数开始播放';
+
+  var st = P[id] || { seen: [], last: 0 };
+  d.eps.forEach(function (e) {
+    var b = document.createElement('button');
+    var seen = st.seen.indexOf(e.n) >= 0;
+    b.className = 'ep' + (e.n === st.last ? ' cur' : seen ? ' done' : '');
+    b.innerHTML = '<span></span><small></small>';
+    b.firstChild.textContent = e.n;
+    b.lastChild.textContent = e.n === st.last ? '上次' : seen ? '已看' : '未看';
+    b.onclick = function () { playEp(d, e); };
+    $grid.appendChild(b);
+  });
+  $ft.textContent = d.tag + ' · 共 ' + d.eps.length + ' 集';
+  scrollTo(0, 0);
+}
+
+/* ── 播放：设置 src 后在手势内调用 play()，随后由系统播放器接管 ── */
+function playEp(d, e) {
+  rec(d.id, e.n);
+  $hint.textContent = '正在打开第 ' + e.n + ' 集…';
+  try {
+    $player.src = e.src + '?t=' + Date.now();
+    $player.load();
+    var p = $player.play();
+    if (p && p['catch']) p['catch'](function (err) {
+      $hint.textContent = '播放被拒：' + (err && err.name || '未知') + '，再点一次试试';
+    });
+  } catch (err) {
+    $hint.textContent = '出错：' + err;
+  }
+  // 回到页面时刷新已看标记
+  setTimeout(function () { if ($back.className === 'on') viewDrama(d.id); }, 1200);
+}
+
+$back.onclick = viewHome;
+viewHome();
+</script></body></html>
