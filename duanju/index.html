@@ -21,6 +21,24 @@ header{display:flex;align-items:center;gap:8px;padding:10px 0 8px;
 #back.on{display:flex}
 h1{font-size:19px;margin:0;color:#fb923c;font-weight:700;flex:1;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#add{width:44px;height:44px;flex:0 0 44px;border:0;border-radius:12px;
+  background:#1a1d26;color:#fb923c;font-size:26px;display:flex;
+  align-items:center;justify-content:center}
+#add.off{display:none}
+
+/* 添加片源表单 */
+#form{display:none;padding:2px 0 10px}
+#form.on{display:block}
+#form label{display:block;font-size:13px;color:#8b93a7;margin:10px 0 4px}
+#form input,#form textarea{width:100%;background:#0d1017;color:#cfe;
+  border:1px solid #27303f;border-radius:10px;padding:10px;font-size:15px;
+  font-family:ui-monospace,Menlo,monospace;-webkit-user-select:text;user-select:text}
+#form textarea{height:96px;resize:none;word-break:break-all;font-size:12px}
+#save{width:100%;height:60px;margin-top:12px;border:0;border-radius:12px;
+  background:linear-gradient(135deg,#15803d,#22c55e);color:#fff;font-size:18px;font-weight:700}
+#fmsg{font-size:13px;min-height:18px;margin-top:8px;color:#4ade80}
+.del{margin-left:8px;padding:5px 10px;border:1px solid #7f1d1d;border-radius:8px;
+  background:#2a1215;color:#f87171;font-size:12px}
 
 /* 继续观看 */
 #cont{display:none;margin:2px 0 12px;padding:12px;border-radius:14px;
@@ -68,7 +86,19 @@ footer{margin-top:18px;font-size:11px;color:#3f4657;text-align:center}
 <header>
   <button id="back">‹</button>
   <h1 id="title">腕上短剧</h1>
+  <button id="add">＋</button>
 </header>
+
+<div id="form">
+  <label>标题</label>
+  <input id="f-title" type="text" placeholder="随便起个名">
+  <label>播放地址（m3u8 或 mp4，可长按粘贴）</label>
+  <textarea id="f-src" placeholder="https://..."></textarea>
+  <label>封面地址（可留空）</label>
+  <input id="f-cover" type="text" placeholder="https://...jpg">
+  <button id="save">保存</button>
+  <div id="fmsg"></div>
+</div>
 
 <div id="cont">
   <div class="lb">继续观看</div>
@@ -123,6 +153,23 @@ function load() { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } ca
 function save(d) { try { localStorage.setItem(KEY, JSON.stringify(d)); } catch (e) {} }
 var P = load();   // { d1:{seen:[1,2,3], last:3, at:169... } }
 
+/* ── 自定义片源：只存本机 localStorage，不进仓库、不公开、不用重新部署 ── */
+var CKEY = 'wrist_custom_v1';
+function loadCustom() { try { return JSON.parse(localStorage.getItem(CKEY)) || []; } catch (e) { return []; } }
+function saveCustom(a) { try { localStorage.setItem(CKEY, JSON.stringify(a)); return true; } catch (e) { return false; } }
+function addCustom(title, src, cover) {
+  var a = loadCustom();
+  a.unshift({ id: 'c' + Date.now(), title: title, tag: '自定义片源', custom: 1,
+              cover: cover || '', eps: [{ n: 1, src: src }] });
+  return saveCustom(a) ? a : null;
+}
+function delCustom(id) {
+  var a = loadCustom().filter(function (x) { return x.id !== id; });
+  saveCustom(a); delete P[id]; if (P._last === id) delete P._last; save(P);
+}
+/* 自定义源排在最前，方便刚加完就看到 */
+function allDramas() { return loadCustom().concat(CATALOG); }
+
 function rec(did, n) {
   var r = P[did] || (P[did] = { seen: [], last: 0, at: 0 });
   if (r.seen.indexOf(n) < 0) r.seen.push(n);
@@ -130,7 +177,8 @@ function rec(did, n) {
   P._last = did; save(P);
 }
 function findDrama(id) {
-  for (var i = 0; i < CATALOG.length; i++) if (CATALOG[i].id === id) return CATALOG[i];
+  var a = allDramas();
+  for (var i = 0; i < a.length; i++) if (a[i].id === id) return a[i];
   return null;
 }
 
@@ -144,6 +192,7 @@ var $list=document.getElementById('list'), $grid=document.getElementById('grid')
 function viewHome() {
   $grid.innerHTML = ''; $list.innerHTML = '';
   $back.className = ''; $title.textContent = '腕上短剧';
+  $form.className = ''; $add.className = ''; $add.textContent = '＋';
   $player.className = ''; $hint.className = '';
   try { $player.pause(); } catch (e) {}
 
@@ -157,7 +206,7 @@ function viewHome() {
     $cont.onclick = function () { viewDrama(d.id); };
   } else $cont.className = '';
 
-  CATALOG.forEach(function (dd) {
+  allDramas().forEach(function (dd) {
     var st = P[dd.id], done = st ? st.seen.length : 0;
     var el = document.createElement('div');
     el.className = 'card';
@@ -187,6 +236,9 @@ function viewDrama(id) {
   var d = findDrama(id); if (!d) return viewHome();
   $list.innerHTML = ''; $grid.innerHTML = '';
   $cont.className = ''; $back.className = 'on';
+  $form.className = ''; $add.className = d.custom ? '' : 'off';
+  $add.textContent = d.custom ? '🗑' : '＋';
+  CUR = d.custom ? id : null;      // 供删除键使用
   $title.textContent = d.title;
   $player.className = 'on'; $hint.className = 'on';
   $player.poster = d.cover;          // 空播放器挂封面，不做纯黑占位
@@ -224,6 +276,41 @@ function playEp(d, e) {
   // 回到页面时刷新已看标记
   setTimeout(function () { if ($back.className === 'on') viewDrama(d.id); }, 1200);
 }
+
+/* ── 添加片源表单 ── */
+var $form=document.getElementById('form'), $add=document.getElementById('add'),
+    $fmsg=document.getElementById('fmsg'), CUR=null;
+
+function viewAdd() {
+  $list.innerHTML=''; $grid.innerHTML='';
+  $cont.className=''; $player.className=''; $hint.className='';
+  $back.className='on'; $add.className='off';
+  $title.textContent='添加片源';
+  $form.className='on'; $fmsg.textContent='';
+  $ft.textContent='只存在这块表上，不会上传';
+  scrollTo(0,0);
+}
+
+document.getElementById('save').onclick = function () {
+  var t=document.getElementById('f-title').value.trim(),
+      s=document.getElementById('f-src').value.trim(),
+      c=document.getElementById('f-cover').value.trim();
+  if (!s) { $fmsg.style.color='#f87171'; $fmsg.textContent='地址不能为空'; return; }
+  if (!/^https?:\/\//i.test(s)) { $fmsg.style.color='#f87171'; $fmsg.textContent='地址要以 http:// 或 https:// 开头'; return; }
+  if (!addCustom(t || '未命名', s, c)) { $fmsg.style.color='#f87171'; $fmsg.textContent='保存失败，存储空间可能已满'; return; }
+  document.getElementById('f-title').value='';
+  document.getElementById('f-src').value='';
+  document.getElementById('f-cover').value='';
+  $fmsg.style.color='#4ade80'; $fmsg.textContent='已保存，正在返回…';
+  setTimeout(viewHome, 700);
+};
+
+/* 首页时 ＋ 号进表单；自定义片源详情页时变成删除键 */
+$add.onclick = function () {
+  if ($add.textContent === '🗑' && CUR) {
+    delCustom(CUR); CUR=null; viewHome();
+  } else viewAdd();
+};
 
 $back.onclick = viewHome;
 
