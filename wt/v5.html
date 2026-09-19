@@ -9,44 +9,42 @@
 body{margin:0;padding:10px 12px 46px;background:#000;color:#fff;
   font:17px/1.5 -apple-system,system-ui,sans-serif}
 h1{font-size:19px;margin:4px 0 8px;color:#4ade80}
-.hd{font-size:11.5px;color:#777;word-break:break-all;margin-bottom:10px}
-button{display:block;width:100%;height:70px;margin:6px 0 12px;border:0;border-radius:14px;
+.hd{font-size:11.5px;color:#777;word-break:break-all;margin-bottom:8px}
+button{display:block;width:100%;height:70px;margin:6px 0 10px;border:0;border-radius:14px;
   background:linear-gradient(135deg,#b91c1c,#ef4444);color:#fff;font-size:22px;font-weight:700}
 button:active{transform:scale(.96)}
 button[disabled]{background:#333;color:#777}
-.r{font-size:15px;margin:5px 0;word-break:break-all}
-.hh{font-size:17px;margin:15px 0 5px;color:#fbbf24;font-weight:700}
+.r{font-size:15px;margin:4px 0;word-break:break-all}
+.hh{font-size:16.5px;margin:14px 0 5px;color:#fbbf24;font-weight:700}
 .ok{color:#4ade80}.no{color:#f87171}.mid{color:#fbbf24}.dim{color:#94a3b8}
-#stage{display:flex;justify-content:center;margin:10px 0}
-video{width:150px;height:180px;background:#111;border:2px solid #4ade80;border-radius:10px}
+#stage{display:flex;justify-content:center;margin:8px 0}
+video{width:150px;height:180px;background:#111;border:3px solid #4ade80;border-radius:10px}
+#now{text-align:center;font-size:15px;color:#fbbf24;min-height:22px;margin:4px 0}
 pre{background:#0f172a;border:1px solid #334155;border-radius:10px;padding:10px;
   font:12.5px/1.6 ui-monospace,Menlo,monospace;color:#7dd3fc;white-space:pre-wrap;word-break:break-all}
-a.big{display:block;margin:12px 0;padding:16px;border-radius:12px;background:#1e3a5f;
-  color:#93c5fd;text-align:center;font-size:17px;text-decoration:none;font-weight:600}
 .tip{font-size:14px;color:#94a3b8;margin-top:14px;line-height:1.75}
 </style></head><body>
 
 <h1>📡 HLS 分片流 v5</h1>
 <div class="hd" id="hd"></div>
-<button id="go">▶ 开始（约 15 秒）</button>
+<button id="go">▶ 开始（约 19 秒，请保持抬腕）</button>
 
 <div id="stage"><video id="v" playsinline webkit-playsinline muted></video></div>
-<div class="dim" style="font-size:13px;text-align:center">↑ 绿框里出现彩色动画就是成功了</div>
+<div id="now"></div>
+<div class="dim" style="font-size:13px;text-align:center">↑ 绿框里出现会动的彩色画面 = 成功</div>
 
 <div id="out"></div>
 <pre id="sum">等待…</pre>
 
-<a class="big" href="hls/ts.m3u8">🔗 直接打开 m3u8 播放列表</a>
-
 <div class="tip">
-⚠ 最重要的一条:<b>绿框里有没有出现画面</b>,在动还是静止?<br>
+⚠ 最重要:<b>绿框里哪一轮出现了画面</b>?上面黄字会实时显示当前在测第几项。<br>
 数字可能骗人，你的眼睛不会。
 </div>
 
 <script>
 var V=document.getElementById('v'),OUT=document.getElementById('out'),
-    SUM=document.getElementById('sum'),GO=document.getElementById('go');
-var L=[];
+    SUM=document.getElementById('sum'),GO=document.getElementById('go'),NOW=document.getElementById('now');
+var L=[],WIN=[];
 document.getElementById('hd').textContent='W'+innerWidth+' H'+innerHeight+' DPR'+(devicePixelRatio||1);
 function row(c,t){var d=document.createElement('div');d.className='r '+c;d.innerHTML=t;OUT.appendChild(d);}
 function hh(t){var d=document.createElement('div');d.className='hh';d.textContent=t;OUT.appendChild(d);}
@@ -55,62 +53,92 @@ function px(){var c=document.createElement('canvas');c.width=32;c.height=38;var 
   try{return g.getImageData(0,0,32,38).data;}catch(e){return 'tainted';}}
 function dif(a,b){var n=0;for(var i=0;i<a.length;i+=4)if(Math.abs(a[i]-b[i])>12)n++;return n;}
 
-// 播一个源，全程记录事件，2 类失败要能分辨：拿不到源 vs 拿到了但解不了
-function tryPlay(label,src,ms){
+function tryPlay(tag,label,src,ms){
   return new Promise(function(res){
+    NOW.textContent='正在测：'+label;
     var md=0,ev=[];
-    function on(n){return function(){ if(ev.indexOf(n)<0) ev.push(n); if(n==='loadedmetadata')md=1; };}
-    var names=['loadstart','loadedmetadata','loadeddata','canplay','playing','stalled','error'];
-    var hs=names.map(function(n){var f=on(n);V.addEventListener(n,f);return [n,f];});
-
+    function on(n){return function(){if(ev.indexOf(n)<0)ev.push(n);if(n==='loadedmetadata')md=1;};}
+    var hs=['loadstart','loadedmetadata','loadeddata','canplay','playing','stalled','error']
+      .map(function(n){var f=on(n);V.addEventListener(n,f);return [n,f];});
     try{V.pause();}catch(e){}
-    V.removeAttribute('src'); V.load();
-    V.src=src; V.load();
+    V.removeAttribute('src');V.load();
+    V.src=src;V.load();
     var ok=0,er='';
-    var p=V.play(); if(p&&p.then)p.then(function(){ok=1;},function(e){er=e.name||'x';});else ok=1;
-
+    var p=V.play();if(p&&p.then)p.then(function(){ok=1;},function(e){er=e.name||'x';});else ok=1;
     var t0=V.currentTime,f0=null;
-    setTimeout(function(){f0=px();},Math.floor(ms*0.35));
+    setTimeout(function(){f0=px();},Math.floor(ms*0.4));
     setTimeout(function(){
-      var t1=V.currentTime,f1=px(),adv=+(t1-t0).toFixed(2);
-      var pix=0,note='';
+      var adv=+(V.currentTime-t0).toFixed(2),f1=px(),pix=0,note='';
       if(f0===null||f1===null)note='读不到';
       else if(f0==='tainted')note='被污染';
-      else{var d=dif(f0,f1); if(d>20){pix=1;note=d+'px 在变';} else note='静止/黑';}
+      else{var d=dif(f0,f1);if(d>20){pix=1;note=d+'px 在变';}else note='静止/黑';}
       var ec=V.error?V.error.code:0;
       hs.forEach(function(h){V.removeEventListener(h[0],h[1]);});
+      var win=(adv>0.3&&pix);
+      if(win)WIN.push(label);
       row(md?'ok':'no',' 元数据'+(md?' '+V.videoWidth+'×'+V.videoHeight:'未加载')+' rs'+V.readyState);
-      row(ok&&adv>0.3?'ok':'no',' play'+(ok?'成功':'被拒 '+er)+' 前进 '+adv+'s');
+      row(adv>0.3?'ok':'no',' play'+(ok?'成功':'被拒 '+er)+' 前进 '+adv+'s');
       row(pix?'ok':'mid',' 像素 '+note);
       row(ec?'no':'ok',' MediaError '+(ec||'无'));
-      row('dim',' 事件: '+(ev.join(' ')||'（一个都没触发）'));
-      L.push(label+' md'+md+' rs'+V.readyState+' play'+ok+' ct'+adv+' pix'+pix+' err'+ec+' ev['+ev.join(',')+']');
+      row('dim',' 事件 '+(ev.join(' ')||'无'));
+      if(win)row('ok',' ★★ 这一项成功了 ★★');
+      L.push(tag+' md'+md+' rs'+V.readyState+' ct'+adv+' pix'+pix+' err'+ec+' ev['+ev.join(',')+']');
       try{V.pause();}catch(e){}
       res();
     },ms);
   });
 }
 
-GO.addEventListener('click',function(){
-  GO.disabled=true;GO.textContent='测试中…';OUT.innerHTML='';L=[];
+// 变种 D：播放列表当纯文本抓下来，改写成绝对地址，再转 blob
+function blobPlaylist(txtUrl,dir){
+  return fetch(txtUrl,{cache:'no-store'}).then(function(r){return r.text();}).then(function(t){
+    var base=new URL(dir,location.href).href;
+    var out=t.split('\n').map(function(line){
+      var s=line.trim();
+      if(s.indexOf('#EXT-X-MAP:URI="')===0)
+        return s.replace(/URI="([^"]+)"/,function(m,u){return 'URI="'+base+u+'"';});
+      if(s&&s.charAt(0)!=='#') return base+s;
+      return line;
+    }).join('\n');
+    return URL.createObjectURL(new Blob([out],{type:'application/vnd.apple.mpegurl'}));
+  });
+}
 
-  hh('A. HLS 分片流（关键）');
-  tryPlay('HLS-TS','hls/ts.m3u8?t='+Date.now(),4000)
-  .then(function(){ hh('B. HLS fMP4 分片'); return tryPlay('HLS-FMP4','hls/fmp4.m3u8?t='+Date.now(),4000); })
-  .then(function(){ hh('C. 整文件但伪装成八位流'); return tryPlay('BIN-SRC','clip.bin?t='+Date.now(),3500); })
+var T=3000;
+GO.addEventListener('click',function(){
+  GO.disabled=true;GO.textContent='测试中…';OUT.innerHTML='';L=[];WIN=[];
+  var q='?t='+Date.now();
+
+  hh('① fMP4 分片（原生 video/* 类型）');
+  tryPlay('FMP4-NATIVE','① fMP4 原生','hls/fmp4.m3u8'+q,T)
+  .then(function(){ hh('② fMP4 分片改八位流');
+    return tryPlay('FMP4-BIN','② fMP4 + bin 分片','hls/fmb.m3u8'+q,T); })
+  .then(function(){ hh('③ 播放列表也走 blob');
+    return blobPlaylist('hls/fmb.txt'+q,'hls/').then(function(u){
+      return tryPlay('FMP4-BLOBPL','③ blob 列表 + bin 分片',u,T);
+    },function(e){ row('no',' 列表抓取失败 '+e); L.push('FMP4-BLOBPL fetchfail'); }); })
+  .then(function(){ hh('④ TS 分片（原生 video/mp2t）');
+    return tryPlay('TS-NATIVE','④ TS 原生','hls/ts.m3u8'+q,T); })
+  .then(function(){ hh('⑤ TS 分片改八位流');
+    return tryPlay('TS-BIN','⑤ TS + bin 分片','hls/tsb.m3u8'+q,T); })
+  .then(function(){ hh('⑥ 整文件伪装八位流');
+    return tryPlay('BIN-SRC','⑥ 整文件 bin','clip.bin'+q,T); })
   .then(function(){
-    hh('D. MSE 能力');
-    var MS=window.MediaSource, MMS=window.ManagedMediaSource;
+    NOW.textContent='';
+    hh('⑦ MSE 能力');
+    var MS=window.MediaSource,MMS=window.ManagedMediaSource,t='video/mp4; codecs="avc1.42E01E"',s1='?',s2='?';
+    try{s1=MS&&MS.isTypeSupported?String(MS.isTypeSupported(t)):'无此方法';}catch(e){s1='抛错';}
+    try{s2=MMS&&MMS.isTypeSupported?String(MMS.isTypeSupported(t)):'无此方法';}catch(e){s2='抛错';}
     row(MS?'ok':'no',' MediaSource '+(MS?'有':'无'));
-    row(MMS?'ok':'no',' ManagedMediaSource '+(MMS?'有（iOS 17+ 专供）':'无'));
-    var t='video/mp4; codecs="avc1.42E01E"', s1='?',s2='?';
-    try{ s1=MS&&MS.isTypeSupported?String(MS.isTypeSupported(t)):'无此方法'; }catch(e){s1='抛错';}
-    try{ s2=MMS&&MMS.isTypeSupported?String(MMS.isTypeSupported(t)):'无此方法'; }catch(e){s2='抛错';}
-    row('dim',' MS.isTypeSupported(h264) = '+s1);
-    row('dim',' MMS.isTypeSupported(h264) = '+s2);
-    var cp=V.canPlayType('application/vnd.apple.mpegurl');
-    row('dim',' canPlayType(HLS) = "'+cp+'"');
-    L.push('MSE ms'+(MS?1:0)+' mms'+(MMS?1:0)+' msSup'+s1+' mmsSup'+s2+' cpHLS"'+cp+'"');
+    row(MMS?'ok':'no',' ManagedMediaSource '+(MMS?'有':'无'));
+    row('dim',' MS.isTypeSupported = '+s1+' ／ MMS = '+s2);
+    row('dim',' canPlayType(HLS) = "'+V.canPlayType('application/vnd.apple.mpegurl')+'"');
+    L.push('MSE ms'+(MS?1:0)+' mms'+(MMS?1:0)+' sup'+s1+'/'+s2);
+
+    hh('结论');
+    if(WIN.length) row('ok',' ✅ 成功的项：'+WIN.join('、'));
+    else row('no',' ❌ 六项全部失败');
+    L.push('WIN['+WIN.join('|')+']');
 
     SUM.textContent='VP '+innerWidth+'x'+innerHeight+' dpr'+(devicePixelRatio||1)+'\n'+
       'UA '+navigator.userAgent+'\n'+L.join('\n');
