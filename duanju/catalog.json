@@ -1,6 +1,198 @@
 {
- "_说明": "演示片源：均为明确授权可自由使用的公开 HLS 流，非短剧内容。换成自有片源时直接替换 eps[].src 即可。",
+ "_说明": "全部为公共领域或明确开放授权的内容：archive.org 公版影视 + 官方公开测试流。换成自有片源时替换 eps[].src 即可。",
  "dramas": [
+  {
+   "id": "经典短片",
+   "title": "经典短片",
+   "tag": "archive.org · 公共领域 · 10 集",
+   "cover": "https://archive.org/services/img/TheseGirlsAreFools1956ExploitationShortWithNudeScene",
+   "eps": [
+    {
+     "n": 1,
+     "src": "https://archive.org/download/TheseGirlsAreFools1956ExploitationShortWithNudeScene/Girlsfools_512kb.mp4",
+     "dur": "34 MB",
+     "title": "These Girls Are Fools (1950), exploitati"
+    },
+    {
+     "n": 2,
+     "src": "https://archive.org/download/CC_1916_10_02_ThePawnshop/CC_1916_10_02_ThePawnshop_512kb.mp4",
+     "dur": "85 MB",
+     "title": "Charlie Chaplin's \" The Pawnshop\""
+    },
+    {
+     "n": 3,
+     "src": "https://archive.org/download/1940sFrenchStagFilmWhippingSpankingFetish/French01_512kb.mp4",
+     "dur": "21 MB",
+     "title": "1940s French stag film: whipping, spanki"
+    },
+    {
+     "n": 4,
+     "src": "https://archive.org/download/CC_1916_09_04_TheCount/CC_1916_09_04_TheCount_512kb.mp4",
+     "dur": "84 MB",
+     "title": "Charlie Chaplin's \"The Count\""
+    },
+    {
+     "n": 5,
+     "src": "https://archive.org/download/JaneyReynolds/JaneyReynolds_512kb.mp4",
+     "dur": "5 MB",
+     "title": "Janey Reynolds!!!"
+    },
+    {
+     "n": 6,
+     "src": "https://archive.org/download/CC_1915_12_18_ABurlesqueOnCarmen/CC_1915_12_18_ABurlesqueOnCarmen_512kb.mp4",
+     "dur": "181 MB",
+     "title": "Charlie Chaplin's \"A Burlesque On Carmen"
+    },
+    {
+     "n": 7,
+     "src": "https://archive.org/download/CC_1916_05_15_TheFloorwalker/CC_1916_05_15_TheFloorwalker_512kb.mp4",
+     "dur": "81 MB",
+     "title": "Charlie Chaplin's \"The Floorwalker\""
+    },
+    {
+     "n": 8,
+     "src": "https://archive.org/download/westofhotdog/WestOfHotDog_512kb.mp4",
+     "dur": "127 MB",
+     "title": "West of Hot Dog"
+    },
+    {
+     "n": 9,
+     "src": "https://archive.org/download/CC_1916_12_04_TheRink/CC_1916_12_04_TheRink_512kb.mp4",
+     "dur": "81 MB",
+     "title": "Charlie Chaplin's \"The Rink\""
+    },
+    {
+     "n": 10,
+     "src": "https://archive.org/download/DaffyDuckAndTheDinosaur1939/Daffy%20Duck%20and%20the%20Dinosaur%20%281939%29-cfVna0EA_L8.mp4",
+     "dur": "91 MB",
+     "title": "Merrie Melodies - Daffy Duck And The Din"
+    }
+   ]
+  },
+  {
+   "id": "老牌剧集",
+   "title": "老牌剧集",
+   "tag": "archive.org · 公共领域 · 10 集",
+   "cover": "https://archive.org/services/img/theloneranger_201705",
+   "eps": [
+    {
+     "n": 1,
+     "src": "https://archive.org/download/theloneranger_201705/s01e13_finderskeepers.mp4",
+     "dur": "70 MB",
+     "title": "The Lone Ranger TV Show"
+    },
+    {
+     "n": 2,
+     "src": "https://archive.org/download/GreenAcresCompleteSeries/Green%20Acres%20Season%202/Green%20Acres%20-%20033%20-%20Wings%20Over%20Hooterville%20-%20%28TV%20Rip%29.mp4",
+     "dur": "127 MB",
+     "title": "Green Acres Complete Series"
+    },
+    {
+     "n": 3,
+     "src": "https://archive.org/download/get-smart/Get%20Smart%20S05E25%20%28Do%20I%20Hear%20a%20Vaults%29.ia.mp4",
+     "dur": "138 MB",
+     "title": "Get Smart"
+    },
+    {
+     "n": 4,
+     "src": "https://archive.org/download/ken.-burns.-the.-civil.-war./Ken.Burns.The.Civil.War.4of9.Simply.Murder.mp4",
+     "dur": "343 MB",
+     "title": "Ken. Burns. The. Civil. War."
+    },
+    {
+     "n": 5,
+     "src": "https://archive.org/download/Shogun_Miniseries/Shogun%202.mp4",
+     "dur": "759 MB",
+     "title": "Shōgun (miniseries)"
+    },
+    {
+     "n": 6,
+     "src": "https://archive.org/download/Bonanza_-_The_Trail_Gang/Bonanza_-_The_Trail_Gang_512kb.mp4",
+     "dur": "205 MB",
+     "title": "Bonanza - The Trail Gang"
+    },
+    {
+     "n": 7,
+     "src": "https://archive.org/download/Bonanza_pd/BonanzaS02e07.mp4",
+     "dur": "147 MB",
+     "title": "Bonanza public domain episodes"
+    },
+    {
+     "n": 8,
+     "src": "https://archive.org/download/the-world-at-war-1973-thames-television-world-war-two/33%20From%20War%20to%20Peace.mp4",
+     "dur": "302 MB",
+     "title": "The World at War (1973) - Thames Televis"
+    },
+    {
+     "n": 9,
+     "src": "https://archive.org/download/enter_the_lone_ranger/enter_the_lone_ranger_512kb.mp4",
+     "dur": "278 MB",
+     "title": "Enter the Lone Ranger"
+    },
+    {
+     "n": 10,
+     "src": "https://archive.org/download/hborealsex/Xtra%20-%20Vanguard%20Porn%202.0%20%282009%29.mp4",
+     "dur": "123 MB",
+     "title": "Real Sex (HBO Series: 1990-2009) - Compl"
+    }
+   ]
+  },
+  {
+   "id": "科幻惊悚",
+   "title": "科幻惊悚",
+   "tag": "archive.org · 公共领域 · 8 集",
+   "cover": "https://archive.org/services/img/house_on_haunted_hill_ipod",
+   "eps": [
+    {
+     "n": 1,
+     "src": "https://archive.org/download/house_on_haunted_hill_ipod/house_on_haunted_hill_512kb.mp4",
+     "dur": "303 MB",
+     "title": "House on Haunted Hill"
+    },
+    {
+     "n": 2,
+     "src": "https://archive.org/download/BloodyPitOfHorror/BloodyPitOfHorror.mp4",
+     "dur": "492 MB",
+     "title": "Bloody Pit of Horror"
+    },
+    {
+     "n": 3,
+     "src": "https://archive.org/download/CHILD/CHILD_512kb.mp4",
+     "dur": "82 MB",
+     "title": "The Child Molester (1964)"
+    },
+    {
+     "n": 4,
+     "src": "https://archive.org/download/TheNakedWitch/TheNakedWitch1964FullMovieFilmHorror.mp4",
+     "dur": "182 MB",
+     "title": "The Naked Witch"
+    },
+    {
+     "n": 5,
+     "src": "https://archive.org/download/ThePhantomoftheOpera/Phantom_of_the_Opera_512kb.mp4",
+     "dur": "442 MB",
+     "title": "The Phantom of the Opera"
+    },
+    {
+     "n": 6,
+     "src": "https://archive.org/download/20000LeaguesUndertheSea/20000_Leagues_Under_the_Sea_512kb.mp4",
+     "dur": "410 MB",
+     "title": "20,000 Leagues Under the Sea"
+    },
+    {
+     "n": 7,
+     "src": "https://archive.org/download/House_On_Haunted_Hill.avi/The_House_on_Haunted_Hill_512kb.mp4",
+     "dur": "310 MB",
+     "title": "The House On Haunted Hill"
+    },
+    {
+     "n": 8,
+     "src": "https://archive.org/download/lost_world/lost_world_512kb.mp4",
+     "dur": "283 MB",
+     "title": "The Lost World"
+    }
+   ]
+  },
   {
    "id": "apple",
    "title": "Apple 官方测试流",
