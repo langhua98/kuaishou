@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<title>绕过与帧率 v4</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;padding:10px 12px 46px;background:#000;color:#fff;
+  font:17px/1.5 -apple-system,system-ui,sans-serif}
+h1{font-size:19px;margin:4px 0 8px;color:#4ade80}
+.hd{font-size:11.5px;color:#777;word-break:break-all;margin-bottom:10px}
+button{display:block;width:100%;height:70px;margin:6px 0 12px;border:0;border-radius:14px;
+  background:linear-gradient(135deg,#b91c1c,#ef4444);color:#fff;font-size:22px;font-weight:700}
+button:active{transform:scale(.96)}
+button[disabled]{background:#333;color:#777}
+.r{font-size:15px;margin:5px 0;word-break:break-all}
+.hh{font-size:17px;margin:15px 0 5px;color:#fbbf24;font-weight:700}
+.ok{color:#4ade80}.no{color:#f87171}.mid{color:#fbbf24}.dim{color:#94a3b8}
+#stage{display:flex;gap:8px;justify-content:center;margin:10px 0;align-items:center}
+#cv,#sw{width:110px;height:132px;background:#111;border:2px solid #333;border-radius:8px}
+/* CSS 雪碧图动画：跑在合成器线程，不受 JS 限频影响 */
+#css{width:120px;height:144px;border:2px solid #4ade80;border-radius:8px;
+  background-image:url(sprite.jpg);background-repeat:no-repeat;background-size:1440px 144px;
+  animation:sp 1.5s steps(12) infinite}
+@keyframes sp{from{background-position-x:0}to{background-position-x:-1440px}}
+pre{background:#0f172a;border:1px solid #334155;border-radius:10px;padding:10px;
+  font:12.5px/1.6 ui-monospace,Menlo,monospace;color:#7dd3fc;white-space:pre-wrap;word-break:break-all}
+.tip{font-size:14px;color:#94a3b8;margin-top:14px;line-height:1.75}
+</style></head><body>
+
+<h1>🔓 绕过与帧率 v4</h1>
+<div class="hd" id="hd"></div>
+<button id="go">▶ 开始（约 13 秒，请保持抬腕）</button>
+
+<div id="stage"><canvas id="cv" width="120" height="144"></canvas><img id="sw" alt="swap"></div>
+<div style="display:flex;justify-content:center;margin:10px 0"><div id="css"></div></div>
+<div class="dim" style="font-size:13px;text-align:center">↑ 绿框是纯 CSS 动画，不用 JS</div>
+
+<video id="v" playsinline webkit-playsinline muted style="display:none"></video>
+<audio id="a" style="display:none"></audio>
+
+<div id="out"></div>
+<pre id="sum">等待…</pre>
+
+<div class="tip">
+⚠ 请告诉我:<br>
+① <b>有没有听到「嘀——」的声音</b>(会响两三次)<br>
+② <b>绿框在动吗</b>,动得流畅还是卡<br>
+③ 上面画布和小图<b>动了吗</b>
+</div>
+
+<script>
+var OUT=document.getElementById('out'),SUM=document.getElementById('sum'),GO=document.getElementById('go');
+var L=[];
+document.getElementById('hd').textContent='W'+innerWidth+' H'+innerHeight+' DPR'+(devicePixelRatio||1);
+function row(c,t){var d=document.createElement('div');d.className='r '+c;d.innerHTML=t;OUT.appendChild(d);}
+function hh(t){var d=document.createElement('div');d.className='hh';d.textContent=t;OUT.appendChild(d);}
+function bytes(u){return fetch(u,{cache:'no-store'}).then(function(r){return r.arrayBuffer();});}
+
+// ── A3 最关键：二进制下载 + Web Audio 解码，完全不碰 <audio> 和媒体 MIME ──
+var AC=window.AudioContext||window.webkitAudioContext, actx=null;
+function webAudio(label,url){
+  return new Promise(function(res){
+    if(!AC){row('no',' '+label+' 无 AudioContext');L.push('WA '+label+' noctx');return res();}
+    try{ if(!actx) actx=new AC(); }catch(e){row('no',' '+label+' 建 ctx 失败 '+e);L.push('WA '+label+' ctxfail');return res();}
+    if(actx.resume) try{actx.resume();}catch(e){}
+    bytes(url).then(function(buf){
+      row('dim',' '+label+' 下载到 '+buf.byteLength+'B，开始解码…');
+      return new Promise(function(ok,bad){
+        var p;
+        try{ p=actx.decodeAudioData(buf,ok,bad); }catch(e){ return bad(e); }
+        if(p&&p.then) p.then(ok,bad);
+      });
+    }).then(function(ab){
+      var s=actx.createBufferSource(); s.buffer=ab; s.connect(actx.destination);
+      try{s.start(0);}catch(e){}
+      row('ok',' '+label+' <b>解码成功</b> '+ab.duration.toFixed(1)+'s '+ab.sampleRate+'Hz '+ab.numberOfChannels+'ch');
+      row('ok',' '+label+' 已播放，ctx.state='+actx.state);
+      L.push('WA '+label+' OK dur'+ab.duration.toFixed(1)+' sr'+ab.sampleRate+' state'+actx.state);
+      setTimeout(res,2200);
+    }).catch(function(e){
+      row('no',' '+label+' <b>失败</b> '+((e&&e.message)||e));
+      L.push('WA '+label+' FAIL '+((e&&e.message)||e));
+      res();
+    });
+  });
+}
+
+// ── A1/A2：字节 → Blob → blob: URL → 媒体元素 ──
+function viaBlob(label,url,mime,el){
+  return new Promise(function(res){
+    bytes(url).then(function(buf){
+      var b=new Blob([buf],{type:mime}), u=URL.createObjectURL(b);
+      var md=0; function onm(){md=1;}
+      el.addEventListener('loadedmetadata',onm);
+      el.src=u; el.load();
+      var ok=0,er='';
+      var p=el.play(); if(p&&p.then)p.then(function(){ok=1;},function(e){er=e.name||'x';});else ok=1;
+      setTimeout(function(){
+        var ct=+el.currentTime.toFixed(2), ec=el.error?el.error.code:0;
+        el.removeEventListener('loadedmetadata',onm);
+        row(md?'ok':'no',' '+label+' 元数据'+(md?'已加载':'未加载')+' rs'+el.readyState);
+        row(ok&&ct>0.2?'ok':'no',' '+label+' play'+(ok?'成功':'被拒 '+er)+' ct'+ct+(ec?' err'+ec:''));
+        L.push('BLOB '+label+' md'+md+' rs'+el.readyState+' play'+ok+' ct'+ct+' err'+ec);
+        try{el.pause();}catch(e){}
+        res();
+      },2200);
+    }).catch(function(e){
+      row('no',' '+label+' 下载失败 '+e); L.push('BLOB '+label+' fetchfail'); res();
+    });
+  });
+}
+
+// ── B：帧率诊断 ──
+function countRAF(label,work,ms){
+  return new Promise(function(res){
+    var n=0,t0=performance.now();
+    (function loop(){
+      var now=performance.now();
+      if(now-t0>=ms){
+        var fps=+(n/((now-t0)/1000)).toFixed(1);
+        row(fps>=20?'ok':fps>=10?'mid':'no',' '+label+' → <b>'+fps+' fps</b> ('+n+' 次)');
+        L.push('B '+label+' '+fps+'fps n'+n);
+        return res();
+      }
+      if(work)work(n); n++; requestAnimationFrame(loop);
+    })();
+  });
+}
+function countTimer(label,ms){
+  return new Promise(function(res){
+    var n=0,t0=performance.now();
+    (function t(){
+      if(performance.now()-t0>=ms){
+        var fps=+(n/((performance.now()-t0)/1000)).toFixed(1);
+        row(fps>=20?'ok':'mid',' '+label+' → <b>'+fps+' fps</b> ('+n+' 次)');
+        L.push('B '+label+' '+fps+'fps n'+n); return res();
+      }
+      n++; setTimeout(t,0);
+    })();
+  });
+}
+// CSS 动画是否真的在跑：采样 computed background-position
+function cssAnim(){
+  return new Promise(function(res){
+    var el=document.getElementById('css'), seen={}, k=0;
+    var iv=setInterval(function(){
+      var v=getComputedStyle(el).backgroundPositionX||getComputedStyle(el).backgroundPosition;
+      seen[v]=1; if(++k>=14){
+        clearInterval(iv);
+        var n=Object.keys(seen).length;
+        row(n>2?'ok':'no',' CSS steps 动画 → 采到 <b>'+n+' 个不同位置</b>'+(n>2?'（在跑）':'（没动）'));
+        L.push('B css-anim distinct'+n);
+        res();
+      }
+    },100);
+  });
+}
+
+GO.addEventListener('click',function(){
+  GO.disabled=true;GO.textContent='测试中…';OUT.innerHTML='';L=[];
+  var imgs=[],cv=document.getElementById('cv'),g=cv.getContext('2d'),sw=document.getElementById('sw');
+  for(var i=1;i<=12;i++){var im=new Image();im.src='f'+(i<10?'0'+i:i)+'.jpg';imgs.push(im);}
+
+  hh('A. 绕过封锁（二进制下载）');
+  webAudio('① WebAudio m4a','tone.bin')
+  .then(function(){ return webAudio('② WebAudio mp3','tonemp3.bin'); })
+  .then(function(){ return viaBlob('③ blob 音频','tone.bin','audio/mp4',document.getElementById('a')); })
+  .then(function(){ return viaBlob('④ blob 视频','clip.bin','video/mp4',document.getElementById('v')); })
+  .then(function(){ hh('B. 帧率诊断'); return countRAF('rAF 空跑',null,1500); })
+  .then(function(){ return countTimer('setTimeout(0)',1500); })
+  .then(function(){ return countRAF('rAF + 画布',function(n){g.drawImage(imgs[n%12],0,0,120,144);},1500); })
+  .then(function(){ return countRAF('rAF + img换源',function(n){sw.src=imgs[n%12].src;},1500); })
+  .then(function(){ return cssAnim(); })
+  .then(function(){
+    SUM.textContent='VP '+innerWidth+'x'+innerHeight+' dpr'+(devicePixelRatio||1)+'\n'+L.join('\n');
+    GO.disabled=false;GO.textContent='▶ 再测一次';
+  });
+});
+</script></body></html>
