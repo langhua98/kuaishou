@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<title>架构探测 v7</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;padding:10px 12px 46px;background:#000;color:#fff;
+  font:17px/1.5 -apple-system,system-ui,sans-serif}
+h1{font-size:19px;margin:4px 0 8px;color:#4ade80}
+button{display:block;width:100%;height:70px;margin:6px 0 12px;border:0;border-radius:14px;
+  background:linear-gradient(135deg,#6d28d9,#a855f7);color:#fff;font-size:22px;font-weight:700}
+button:active{transform:scale(.96)}
+button[disabled]{background:#333;color:#777}
+.r{font-size:15px;margin:4px 0;word-break:break-all}
+.hh{font-size:16.5px;margin:14px 0 5px;color:#fbbf24;font-weight:700}
+.k{color:#8b93a7}.ok{color:#4ade80}.no{color:#f87171}.mid{color:#fbbf24}
+pre{background:#0f172a;border:1px solid #334155;border-radius:10px;padding:10px;
+  font:12.5px/1.6 ui-monospace,Menlo,monospace;color:#7dd3fc;white-space:pre-wrap;word-break:break-all}
+.tip{font-size:14px;color:#94a3b8;margin-top:14px;line-height:1.75}
+</style></head><body>
+
+<h1>🔍 架构探测 v7</h1>
+<button id="go">▶ 开始探测</button>
+<div id="out"></div>
+<pre id="sum">等待…</pre>
+
+<div class="tip">
+这一页在判断:网页是<b>在你表上渲染</b>的，还是<b>在某台服务器上渲染再推过来</b>的。
+</div>
+
+<script>
+var OUT=document.getElementById('out'),SUM=document.getElementById('sum'),GO=document.getElementById('go');
+var L=[];
+function row(c,k,v){var d=document.createElement('div');d.className='r '+c;
+  d.innerHTML='<span class="k">'+k+'</span> '+v;OUT.appendChild(d);}
+function hh(t){var d=document.createElement('div');d.className='hh';d.textContent=t;OUT.appendChild(d);}
+function J(u){return fetch(u,{cache:'no-store'}).then(function(r){return r.json();});}
+
+// ① 出口 IP 归属：机房 = 服务端渲染，运营商 = 本机渲染
+// 这是最关键的一项，所以挂多个源依次重试
+var IPSRC=[
+  ['ipinfo.io','https://ipinfo.io/json',function(d){return {ip:d.ip,org:d.org,loc:[d.city,d.region,d.country].filter(Boolean).join(' / ')};}],
+  ['ifconfig.co','https://ifconfig.co/json',function(d){return {ip:d.ip,org:d.asn_org||d.hostname,loc:[d.city,d.region_name,d.country].filter(Boolean).join(' / ')};}],
+  ['myip.com','https://api.myip.com',function(d){return {ip:d.ip,org:'',loc:d.country||''};}],
+  ['ipify','https://api.ipify.org?format=json',function(d){return {ip:d.ip,org:'',loc:''};}]
+];
+function netOrigin(i){
+  i=i||0;
+  if(i>=IPSRC.length){ row('no','IP','全部查询源都失败'); L.push('IP ALLFAIL'); return Promise.resolve(); }
+  var s=IPSRC[i];
+  return J(s[1]).then(function(d){
+    var r=s[2](d), org=r.org||'(未提供)';
+    var dc=/alibaba|aliyun|tencent|huawei|amazon|aws|google|azure|digitalocean|linode|vultr|ucloud|cloud|idc|data ?cent|hosting|server/i.test(org);
+    var isp=/chinanet|unicom|mobile|telecom|cmcc|china ?net|broadband|cernet/i.test(org);
+    row('','数据源',s[0]);
+    row('','IP',r.ip||'?');
+    if(r.loc) row('','归属',r.loc);
+    row(dc?'no':isp?'ok':'mid','ISP',org);
+    row(dc?'no':isp?'ok':'mid','判定',
+        dc?'<b>机房 IP → 服务端渲染</b>':isp?'<b>运营商 IP → 本机渲染</b>':'归属不明，看 ISP 字段自行判断');
+    L.push('IP '+(r.ip||'?')+' | '+(r.loc||'-')+' | '+org+' | '+(dc?'DATACENTER':isp?'ISP':'?'));
+  })['catch'](function(){ return netOrigin(i+1); });
+}
+
+// ② WebGL 渲染器：真苹果硬件 vs 服务器软渲染
+function gpu(){
+  var c=document.createElement('canvas'), gl=null;
+  try{ gl=c.getContext('webgl')||c.getContext('experimental-webgl'); }catch(e){}
+  if(!gl){ row('mid','WebGL','不可用'); L.push('GL none'); return; }
+  var ven='?',ren='?';
+  try{
+    var dbg=gl.getExtension('WEBGL_debug_renderer_info');
+    if(dbg){ ven=gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL); ren=gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL); }
+    else { ven=gl.getParameter(gl.VENDOR); ren=gl.getParameter(gl.RENDERER); }
+  }catch(e){}
+  var soft=/swiftshader|llvmpipe|mesa|软件|software|virgl/i.test(ren);
+  var apple=/apple/i.test(ren)||/apple/i.test(ven);
+  row('', 'GPU 厂商', ven);
+  row(soft?'no':apple?'ok':'mid', 'GPU 渲染器', ren);
+  row(soft?'no':apple?'ok':'mid', '判定',
+      soft? '<b>软件渲染 → 多半在服务器</b>' : apple? '<b>苹果 GPU → 本机渲染</b>' : '型号不明');
+  L.push('GL '+ven+' | '+ren+' | '+(soft?'SOFTWARE':apple?'APPLE':'?'));
+}
+
+// ③ 运行环境指纹
+function env(){
+  var n=navigator, s=screen, tz='?';
+  try{ tz=Intl.DateTimeFormat().resolvedOptions().timeZone; }catch(e){}
+  var items=[['平台',n.platform||'?'],['CPU 核心',n.hardwareConcurrency||'?'],
+    ['内存(GB)',n.deviceMemory||'未报告'],['触点上限',n.maxTouchPoints],
+    ['屏幕',s.width+'x'+s.height+' @'+(devicePixelRatio||1)+'x '+s.colorDepth+'bit'],
+    ['时区',tz],['语言',(n.languages||[n.language]).join(',')]];
+  items.forEach(function(p){ row('', p[0], p[1]); });
+  L.push('ENV plat='+(n.platform||'?')+' cores='+(n.hardwareConcurrency||'?')+
+         ' mem='+(n.deviceMemory||'?')+' touch='+n.maxTouchPoints+
+         ' scr='+s.width+'x'+s.height+'@'+(devicePixelRatio||1)+' tz='+tz);
+  var c=n.connection||n.webkitConnection;
+  if(c){ row('', '网络', (c.effectiveType||'?')+' ↓'+(c.downlink||'?')+'Mbps rtt'+(c.rtt||'?')+'ms');
+         L.push('NET '+(c.effectiveType||'?')+' dl'+(c.downlink||'?')+' rtt'+(c.rtt||'?')); }
+  else { row('','网络','无 connection API'); L.push('NET none'); }
+}
+
+// ④ WebRTC 本地候选：能暴露真实内网地址
+function rtc(){
+  return new Promise(function(res){
+    var RP=window.RTCPeerConnection||window.webkitRTCPeerConnection;
+    if(!RP){ row('mid','WebRTC','不可用'); L.push('RTC none'); return res(); }
+    var ips={}, done=false;
+    function fin(){ if(done)return; done=true;
+      var k=Object.keys(ips);
+      row(k.length?'':'mid','WebRTC 候选', k.length? k.join(' ') : '未收集到');
+      L.push('RTC '+(k.join(',')||'none')); res(); }
+    try{
+      var pc=new RP({iceServers:[]});
+      pc.createDataChannel('p');
+      pc.onicecandidate=function(e){
+        if(!e.candidate) return fin();
+        var m=/([0-9]{1,3}(\.[0-9]{1,3}){3})/.exec(e.candidate.candidate||'');
+        if(m) ips[m[1]]=1;
+      };
+      pc.createOffer().then(function(o){return pc.setLocalDescription(o);})['catch'](fin);
+      setTimeout(fin,2500);
+    }catch(e){ fin(); }
+  });
+}
+
+GO.addEventListener('click',function(){
+  GO.disabled=true;GO.textContent='探测中…';OUT.innerHTML='';L=[];
+  hh('① 网络出口');
+  netOrigin()
+  .then(function(){ hh('② 渲染硬件'); gpu(); })
+  .then(function(){ hh('③ 运行环境'); env(); })
+  .then(function(){ hh('④ WebRTC'); return rtc(); })
+  .then(function(){
+    SUM.textContent='UA '+navigator.userAgent+'\nVP '+innerWidth+'x'+innerHeight+'\n'+L.join('\n');
+    GO.disabled=false;GO.textContent='▶ 再测一次';
+  });
+});
+</script></body></html>
