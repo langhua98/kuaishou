@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<title>内联播放 v6</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;padding:10px 12px 46px;background:#000;color:#fff;
+  font:17px/1.5 -apple-system,system-ui,sans-serif}
+h1{font-size:19px;margin:4px 0 6px;color:#4ade80}
+.hd{font-size:11px;color:#777;word-break:break-all;margin-bottom:8px}
+button{display:block;width:100%;height:72px;margin:8px 0;border:0;border-radius:14px;
+  color:#fff;font-size:21px;font-weight:700}
+button:active{transform:scale(.96)}
+button[disabled]{background:#333!important;color:#777}
+#b1{background:linear-gradient(135deg,#15803d,#22c55e)}
+#b2{background:linear-gradient(135deg,#b45309,#f59e0b)}
+#b3{background:linear-gradient(135deg,#6d28d9,#a855f7)}
+.r{font-size:15px;margin:4px 0;word-break:break-all}
+.hh{font-size:16.5px;margin:13px 0 5px;color:#fbbf24;font-weight:700}
+.ok{color:#4ade80}.no{color:#f87171}.mid{color:#fbbf24}.dim{color:#94a3b8}
+#wrap{width:100%;display:flex;justify-content:center;margin:8px 0}
+/* 竖屏短剧的真实尺寸：撑满视口宽度 */
+video{width:100%;max-width:300px;aspect-ratio:9/16;background:#111;
+  border:3px solid #4ade80;border-radius:10px;display:block}
+pre{background:#0f172a;border:1px solid #334155;border-radius:10px;padding:10px;
+  font:12.5px/1.6 ui-monospace,Menlo,monospace;color:#7dd3fc;white-space:pre-wrap;word-break:break-all}
+.tip{font-size:14px;color:#94a3b8;margin-top:14px;line-height:1.75}
+</style></head><body>
+
+<h1>🎬 内联播放 v6</h1>
+<div class="hd" id="hd"></div>
+
+<div id="wrap"><video id="v" playsinline webkit-playsinline
+  x5-playsinline x-webkit-airplay="allow" preload="auto" muted></video></div>
+
+<button id="b1">▶ 静音内联播放</button>
+<button id="b2">🔊 带声音播放</button>
+<button id="b3">📊 复测帧率</button>
+
+<div id="out"></div>
+<pre id="sum">点上面任意按钮开始</pre>
+
+<div class="tip">
+⚠ 每次点完请告诉我:<b>画面是在上面绿框里播的，还是跳出了全屏播放器?</b>
+</div>
+
+<script>
+var V=document.getElementById('v'),OUT=document.getElementById('out'),SUM=document.getElementById('sum');
+var SRC='hls/fmp4.m3u8';
+document.getElementById('hd').textContent=
+  'W'+innerWidth+' H'+innerHeight+' DPR'+(devicePixelRatio||1)+' | '+navigator.userAgent;
+function row(c,t){var d=document.createElement('div');d.className='r '+c;d.innerHTML=t;OUT.appendChild(d);}
+function hh(t){var d=document.createElement('div');d.className='hh';d.textContent=t;OUT.appendChild(d);}
+function px(){var c=document.createElement('canvas');c.width=32;c.height=44;var g=c.getContext('2d');
+  try{g.drawImage(V,0,0,32,44);}catch(e){return null;}
+  try{return g.getImageData(0,0,32,44).data;}catch(e){return 'tainted';}}
+function dif(a,b){var n=0;for(var i=0;i<a.length;i+=4)if(Math.abs(a[i]-b[i])>12)n++;return n;}
+function fsNow(){
+  return {
+    disp: !!V.webkitDisplayingFullscreen,
+    mode: V.webkitPresentationMode||'(无此属性)',
+    docfs: !!(document.fullscreenElement||document.webkitFullscreenElement)
+  };
+}
+
+function play(label,muted){
+  OUT.innerHTML='';
+  hh(label);
+  var ev=[],fsEv=[];
+  function on(n){return function(){if(ev.indexOf(n)<0)ev.push(n);};}
+  var names=['loadstart','loadedmetadata','canplay','play','playing','pause','waiting','stalled','error','ended'];
+  var hs=names.map(function(n){var f=on(n);V.addEventListener(n,f);return [n,f];});
+  function fsb(){fsEv.push('begin');} function fse(){fsEv.push('end');}
+  V.addEventListener('webkitbeginfullscreen',fsb);
+  V.addEventListener('webkitendfullscreen',fse);
+
+  V.muted=!!muted; V.removeAttribute('src'); V.load();
+  V.src=SRC+'?t='+Date.now(); V.load();
+
+  var perr='—', started=0;
+  var p=V.play();
+  if(p&&p.then) p.then(function(){started=1;},function(e){perr=(e&&e.name)||'rejected';});
+  else started=1;
+
+  var t0=V.currentTime, f0=null, snap1=null;
+  setTimeout(function(){ f0=px(); snap1=fsNow(); },900);
+  setTimeout(function(){
+    var adv=+(V.currentTime-t0).toFixed(2), f1=px(), s2=fsNow();
+    var pix=0,note='';
+    if(f0===null||f1===null)note='drawImage 不可用';
+    else if(f0==='tainted')note='canvas 被污染(跨源)';
+    else{var d=dif(f0,f1); if(d>20){pix=1;note=d+'px 在变';} else note='静止/黑';}
+    hs.forEach(function(h){V.removeEventListener(h[0],h[1]);});
+    V.removeEventListener('webkitbeginfullscreen',fsb);
+    V.removeEventListener('webkitendfullscreen',fse);
+
+    var isFS = s2.disp || s2.docfs || fsEv.indexOf('begin')>=0 || s2.mode==='fullscreen';
+    row(adv>0.3?'ok':'no',' 播放推进 '+adv+'s'+(adv>0.3?'':'（没动）'));
+    row(started?'ok':'no',' play() '+(started?'成功':'被拒 → <b>'+perr+'</b>'));
+    row(isFS?'no':'ok',' <b>'+(isFS?'❌ 跳了全屏':'✅ 内联播放')+'</b>');
+    row('dim',' webkitDisplayingFullscreen='+s2.disp+' presentationMode='+s2.mode);
+    row('dim',' 全屏事件: '+(fsEv.join(',')||'无'));
+    row(pix?'ok':'mid',' 画布取帧 '+note);
+    row('dim',' 事件 '+(ev.join(' ')||'无'));
+    SUM.textContent='UA '+navigator.userAgent+
+      '\n['+label+'] ct'+adv+' play'+started+'('+perr+') fs'+(isFS?1:0)+
+      ' mode'+s2.mode+' fsev['+fsEv.join(',')+'] pix'+pix+' err'+(V.error?V.error.code:0)+
+      '\n ev['+ev.join(',')+']';
+  },3200);
+}
+
+document.getElementById('b1').addEventListener('click',function(){play('① 静音内联',1);});
+document.getElementById('b2').addEventListener('click',function(){play('② 带声音',0);});
+
+document.getElementById('b3').addEventListener('click',function(){
+  OUT.innerHTML=''; hh('③ 帧率复测（换浏览器后）');
+  var imgs=[],cv=document.createElement('canvas');cv.width=120;cv.height=144;
+  var g=cv.getContext('2d');
+  for(var i=1;i<=12;i++){var im=new Image();im.src='f'+(i<10?'0'+i:i)+'.jpg';imgs.push(im);}
+  var res=[];
+  function bench(label,work,cb){
+    var n=0,t0=performance.now();
+    (function loop(){
+      var now=performance.now();
+      if(now-t0>=1500){
+        var f=+(n/((now-t0)/1000)).toFixed(1);
+        row(f>=20?'ok':f>=10?'mid':'no',' '+label+' → <b>'+f+' fps</b>');
+        res.push(label+' '+f); return cb();
+      }
+      if(work)work(n); n++; requestAnimationFrame(loop);
+    })();
+  }
+  bench('rAF 空跑',null,function(){
+    bench('rAF + 画布',function(n){g.drawImage(imgs[n%12],0,0,120,144);},function(){
+      SUM.textContent='UA '+navigator.userAgent+'\n帧率: '+res.join(' / ');
+    });
+  });
+});
+</script></body></html>
